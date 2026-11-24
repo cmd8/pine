@@ -8,7 +8,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { toast } from "@/components/ui/toast";
 import { type AgentInfo, api, type Approval, type Conversation, type GoalInfo, type SwarmInfo, type GroupList, media, type WorktreeMade, type BoardBrief, type PineEvent, type Program, type Stats, type Task, type Todo, type TranscriptEntry } from "./api.ts";
-import { bridge, type Prefs, type ServiceState, type Update } from "./bridge.ts";
+import { bridge, type ChromeLayout, type Prefs, type ServiceState, type Update, type WindowDraft, type WindowLayout, type WindowTabRef, type WindowWidths } from "./bridge.ts";
 import { baseName, childKind, errText, eventBody, isGoalRound, learnHome, MODES, oneLine, plural, short, shortcut, type Speed, speedOf, speedText, taskSummary, tilde, took, undoLines } from "./text.ts";
 import { runnable } from "./runnable.ts";
 import { type QuoteSource, type SentQuote, withQuotes } from "../../src/quotes.ts";
@@ -432,10 +432,36 @@ export class Store extends Model {
 	lastSignal = "";
 	/** The language dictation listens for, when it is not the system's. */
 	voiceLanguage?: string;
+	/** Desktop-only: unique identifier of this window. */
+	windowId?: string;
+	/** Desktop-only: remote hosts currently displayed in any open window. */
+	openHosts: string[] = [];
+	/** Per-window panel widths in pixels, synced with the main process on desktop. */
+	widths: WindowWidths = {};
 
+	private initialLayout?: WindowLayout;
+	private startNoTab = false;
+	private initialTab?: WindowTabRef;
+	private initialDraft?: WindowDraft;
+	private loadingHost?: string;
+	private envHome?: string;
+	private sentLook?: string;
 	private restoring = false;
 	private started = false;
 	private timers: number[] = [];
+
+	/** Saved width in pixels for a panel in this window, if set. */
+	widthOf(panel: keyof WindowWidths): number | undefined {
+		return this.widths[panel];
+	}
+
+	/** Updates a panel's width in pixels for this window and persists it. */
+	setPanelWidth(panel: keyof WindowWidths, px: number): void {
+		const rounded = Math.round(px);
+		if (!Number.isFinite(rounded) || rounded < 120) return;
+		this.widths = { ...this.widths, [panel]: rounded };
+		this.reportLayout();
+	}
 
 	// ---- start -----------------------------------------------------------------------------------
 
@@ -473,7 +499,35 @@ export class Store extends Model {
 			if (this.initLines.length > 200) this.initLines.shift();
 			this.touch();
 		});
+		bridge.onOpenHosts?.((hosts: string[]) => {
+			this.openHosts = Array.isArray(hosts) ? hosts : [];
+			this.touch();
+		});
+		bridge.onPrefs?.((next: Prefs) => {
+			this.prefs = next;
+			this.home = next.home ?? this.envHome;
+			this.touch();
+		});
 		const first = await bridge.state();
+		this.windowId = first.windowId;
+		this.openHosts = Array.isArray(first.openHosts) ? first.openHosts : [];
+		this.initialLayout = first.windowLayout;
+		this.startNoTab = first.noTab === true;
+		this.initialTab = first.initialTab;
+		this.initialDraft = first.initialDraft;
+		const chrome: ChromeLayout | undefined = first.windowLayout ?? first.chromeLayout;
+		if (chrome) {
+			this.sidebar = chrome.sidebar !== false;
+			this.aside = chrome.aside === true;
+			this.view_ = chrome.view === true;
+			if (chrome.order?.length) {
+				const valid = chrome.order.filter((w): w is Beside => w === "code" || w === "aside" || w === "view");
+				if (valid.length) this.order = valid;
+			}
+			this.widths = { ...chrome.widths };
+			this.folded = new Set(chrome.folded);
+		}
+		if (first.windowLayout) this.code = first.windowLayout.code === true;
 		// Whether the event stream is up: a page loaded anew is not told it by an event.
 		this.connected = first.connected === true;
 		this.prefs = first.prefs;
@@ -499,6 +553,7 @@ export class Store extends Model {
 		this.selfUpdate = first.selfUpdate === true;
 		void this.lookForUpdate();
 		this.home = first.home;
+		this.envHome = first.prefs.home ? undefined : first.home;
 		document.documentElement.dataset.platform = this.platform;
 		bridge.ready();
 		await this.onService(first.state);
@@ -579,7 +634,7 @@ export class Store extends Model {
 			}
 		}
 		for (const set of [this.pins, this.folded]) for (const key of [...set]) if (moved(key) !== key) set.delete(key), set.add(moved(key));
-		localStorage.setItem("pine.folded", JSON.stringify([...this.folded]));
+		if (typeof bridge.windowLayout !== "function") localStorage.setItem("pine.folded", JSON.stringify([...this.folded]));
 		if (this.settingsAgent === from) this.settingsAgent = to;
 		this.saveTabs();
 		this.agents = await this.askAgents().catch(() => this.agents);
@@ -707,7 +762,8 @@ export class Store extends Model {
 		else if (s.host || (s.status === "starting" && s.pairing)) this.pairFailed = false;
 		this.service = s;
 		if (ended === "paired") void this.paired();
-		const again = s.status === "ready" && (was !== "ready" || !this.agents.length);
+		const envKey = s.host ?? "";
+		const again = s.status === "ready" && (was !== "ready" || (!this.agents.length && this.loadingHost !== envKey));
 		// A reason the agents did not load is wiped only by a new attempt or another pine: never left in place of one, never wiped without one.
 		if (again || moved) this.loadError = undefined;
 		this.touch();
@@ -800,7 +856,7 @@ export class Store extends Model {
 	 * Take a machine off the list. A paired computer is asked about first: forgetting it here leaves
 	 * its access open, which only Remove in the Pine app on that computer closes.
 	 */
-	async forgetMachine(host: string): Promise<void> {
+	async forgetMachine(host: string, options?: { closeWindows?: boolean }): Promise<void> {
 		if (isPaired(host)) {
 			const name = this.nameOf(host);
 			const sure = await this.pick({
@@ -812,8 +868,26 @@ export class Store extends Model {
 			});
 			if (sure !== "forget") return;
 		}
-		const prefs = await this.attempt(() => bridge.forgetHost(host));
+		const prefs = await this.attempt(() => (options ? bridge.forgetHost(host, options) : bridge.forgetHost(host)));
 		if (prefs) (this.prefs = prefs), this.touch();
+	}
+
+	/** Whether this bridge supports opening additional desktop windows. */
+	get canOpenWindow(): boolean {
+		return typeof bridge.newWindow === "function";
+	}
+
+	/** How many other open windows are currently viewing `host`. */
+	otherWindowsOn(host: string): number {
+		const total = this.openHosts.filter((h) => h === host).length;
+		return Math.max(0, total - (this.service.host === host ? 1 : 0));
+	}
+
+	/** Open `host` (or this computer when omitted) in a new desktop window. */
+	async openMachineWindow(host?: string): Promise<void> {
+		if (!this.canOpenWindow) return;
+		if (!host && !this.local) return;
+		await this.attempt(() => bridge.newWindow!({ host: host ?? null }));
 	}
 
 	/** The name the owner sees for a machine of the list (machines.ts): a paired computer's name, never its id. */
@@ -845,6 +919,7 @@ export class Store extends Model {
 
 	/** What the page knew of the pine it used, let go of when it uses another. */
 	private forgetPine(): void {
+		this.opened = false;
 		this.agents = [];
 		this.tabs = [];
 		this.active = undefined;
@@ -943,6 +1018,17 @@ export class Store extends Model {
 
 	/** Everything that is asked once the daemon answers: the agents, the tabs of last time, what waits for an answer. */
 	private async load(): Promise<void> {
+		const envKey = this.service.host ?? "";
+		if (this.loadingHost === envKey) return;
+		this.loadingHost = envKey;
+		try {
+			await this.loadInner();
+		} finally {
+			if (this.loadingHost === envKey) this.loadingHost = undefined;
+		}
+	}
+
+	private async loadInner(): Promise<void> {
 		try {
 			this.agents = await this.askAgents();
 		} catch (e) {
@@ -967,25 +1053,67 @@ export class Store extends Model {
 			this.loadError = NO_AGENTS;
 			return this.touch();
 		}
-		const saved = await api.tabs().catch(() => ({ tabs: [] as Array<{ agent: string; session: string }>, active: 0, code: false }));
+		const initialTab = this.initialTab;
+		const initialDraft = this.initialDraft;
+		const initialLayout = this.initialLayout;
+		const startNoTab = this.startNoTab;
+		this.initialTab = undefined;
+		this.initialDraft = undefined;
+		this.initialLayout = undefined;
+		this.startNoTab = false;
+
 		// A daemon that was started again: what the tabs showed is asked for anew.
 		this.tabs = [];
 		this.active = undefined;
 		this.opened = false;
-		const again = saved.tabs.filter((t) => this.agents.some((a) => a.id === t.agent));
+		let nextCode = this.code;
 		// The window shows once the agents and the tabs are known: the tabs are filled behind it, the one in front first.
 		// Each fill reads its own conversation and writes its own tab only, so the others are filled side by side.
 		this.restoring = true;
 		try {
-			if (!again.length) await this.openTab(first.id, "main", false, false);
-			for (const t of again) await this.openTab(t.agent, t.session, false, false);
-			const chats = this.tabs.filter((t) => t.kind === "chat");
-			this.activate(chats[again.length ? Math.min(saved.active, chats.length - 1) : 0] ?? this.tabs[0]);
+			if (initialTab) {
+				if (this.agent(initialTab.agent)) {
+					if (initialDraft) {
+						this.drafts.set(`${initialTab.agent}:${initialTab.session}`, {
+							draft: initialDraft.draft,
+							attachments: initialDraft.attachments,
+							quotes: initialDraft.quotes ?? [],
+						});
+					}
+					await this.openTab(initialTab.agent, initialTab.session, false, false);
+				} else {
+					await this.openTab(first.id, "main", false, false);
+				}
+				this.activate(this.tabs[0]);
+				nextCode = false;
+			} else if (initialLayout) {
+				const again = initialLayout.tabs.filter((t) => this.agents.some((a) => a.id === t.agent));
+				if (again.length) {
+					for (const t of again) await this.openTab(t.agent, t.session, false, false);
+					const chats = this.tabs.filter((t) => t.kind === "chat");
+					this.activate(chats[Math.min(initialLayout.active, chats.length - 1)] ?? this.tabs[0]);
+				} else if (!initialLayout.noTab) {
+					await this.openTab(first.id, "main", false, false);
+					this.activate(this.tabs[0]);
+				}
+				nextCode = initialLayout.code === true;
+			} else if (startNoTab) {
+				// Generic New Window on an environment already viewed by another window starts on NoTab.
+				nextCode = false;
+			} else {
+				const saved = await api.tabs().catch(() => ({ tabs: [] as Array<{ agent: string; session: string }>, active: 0, code: false }));
+				const again = saved.tabs.filter((t) => this.agents.some((a) => a.id === t.agent));
+				if (!again.length) await this.openTab(first.id, "main", false, false);
+				for (const t of again) await this.openTab(t.agent, t.session, false, false);
+				const chats = this.tabs.filter((t) => t.kind === "chat");
+				this.activate(chats[again.length ? Math.min(saved.active, chats.length - 1) : 0] ?? this.tabs[0]);
+				nextCode = saved.code === true;
+			}
 		} finally {
 			this.restoring = false;
 			this.opened = true;
 		}
-		this.code = saved.code === true;
+		this.code = nextCode;
 		this.saveTabs();
 		const front = this.active as Tab | undefined;
 		const rest = this.tabs.filter((t) => t !== front && t.kind === "chat");
@@ -1014,7 +1142,11 @@ export class Store extends Model {
 		this.theme = got.theme;
 		const look = cleanLook(got.themes.find((t) => t.id === got.theme));
 		applyLook(look);
-		if (look && JSON.stringify(look) !== JSON.stringify(this.prefs.look)) this.prefs = await bridge.prefs({ look }).catch(() => this.prefs);
+		const serialized = look ? JSON.stringify(look) : undefined;
+		if (look && serialized !== this.sentLook) {
+			this.sentLook = serialized;
+			this.prefs = await bridge.prefs({ look }).catch(() => this.prefs);
+		}
 		this.touch();
 	}
 
@@ -1164,7 +1296,8 @@ export class Store extends Model {
 	toggleFold(agent: string): void {
 		if (this.folded.has(agent)) this.folded.delete(agent);
 		else this.folded.add(agent);
-		localStorage.setItem("pine.folded", JSON.stringify([...this.folded]));
+		if (typeof bridge.windowLayout !== "function") localStorage.setItem("pine.folded", JSON.stringify([...this.folded]));
+		this.reportLayout();
 		this.touch();
 	}
 
@@ -1434,8 +1567,32 @@ export class Store extends Model {
 
 	private saveTabs(): void {
 		if (this.restoring) return;
+		this.reportLayout();
+	}
+
+	/** Reports this window's tabs and panel layout to the main process (desktop) or directly to the daemon (web/mobile/preview). */
+	private reportLayout(): void {
+		if (this.restoring || !this.opened || this.service.status !== "ready") return;
 		const chats = this.tabs.filter((t) => t.kind === "chat");
-		this.tabsSaved = api.saveTabs(chats.map((t) => ({ agent: t.agent, session: t.session })), Math.max(0, chats.indexOf(this.active!)), this.code).catch(() => {});
+		const activeIndex = Math.max(0, chats.indexOf(this.active!));
+		if (typeof bridge.windowLayout === "function") {
+			const snapshot: WindowLayout = {
+				...(this.service.host ? { host: this.service.host } : {}),
+				tabs: chats.map((t) => ({ agent: t.agent, session: t.session })),
+				active: activeIndex,
+				...(chats.length === 0 ? { noTab: true } : {}),
+				sidebar: this.sidebar,
+				code: this.code,
+				aside: this.aside,
+				view: this.view_,
+				order: [...this.order],
+				widths: { ...this.widths },
+				folded: [...this.folded],
+			};
+			this.tabsSaved = bridge.windowLayout(snapshot).catch(() => {});
+		} else {
+			this.tabsSaved = api.saveTabs(chats.map((t) => ({ agent: t.agent, session: t.session })), activeIndex, this.code).catch(() => {});
+		}
 	}
 
 	/** Opens a tab on a conversation; `filled` false leaves what it holds to be asked for by the caller (the start). */
@@ -1653,21 +1810,60 @@ export class Store extends Model {
 		if (kept) this.flash(`${plural(kept, "tab")} stayed open: ${kept === 1 ? "it waits" : "they wait"} for your answer.`, "warn", 6000);
 	}
 
-	private shut(tabs: Tab[], front?: Tab): void {
+	/** Moves a conversation tab to a new window on the same environment, transferring unsent draft state and any live local terminal. */
+	async moveTabToNewWindow(tab: Tab): Promise<void> {
+		if (tab.kind !== "chat" || typeof bridge.newWindow !== "function") return;
+		if (!this.tabs.includes(tab)) return;
+		const hasDraft = Boolean(tab.draft.trim() || tab.attachments.length || tab.quotes.length);
+		const draft: WindowDraft | undefined = hasDraft
+			? {
+					draft: tab.draft,
+					attachments: tab.attachments.map((a) => ({ name: a.name, size: a.size, data: a.data, ...(a.preview ? { preview: a.preview } : {}) })),
+					...(tab.quotes.length ? { quotes: tab.quotes.map((q) => ({ ...q })) } : {}),
+				}
+			: undefined;
+		const ok = await this.attempt(async () => {
+			await bridge.newWindow!({
+				host: this.service.host ?? null,
+				tab: { agent: tab.agent, session: tab.session },
+				moveFrom: true,
+				...(draft ? { draft } : {}),
+			});
+			return true;
+		});
+		if (!ok) return;
+		this.shut([tab], undefined, { detach: true });
+	}
+
+	/** Opens a conversation directly in a new window on the same environment. */
+	async openConversationInNewWindow(agent: string, session: string): Promise<void> {
+		if (typeof bridge.newWindow !== "function") return;
+		await this.attempt(() =>
+			bridge.newWindow!({
+				host: this.service.host ?? null,
+				tab: { agent, session },
+			}),
+		);
+	}
+
+	private shut(tabs: Tab[], front?: Tab, options?: { detach?: boolean }): void {
 		if (!tabs.length) return;
+		const detach = options?.detach === true;
 		const before = this.tabs;
 		this.tabs = before.filter((t) => !tabs.includes(t));
 		for (const tab of tabs) {
 			if (tab.kind !== "chat") continue;
-			if (tab.draft.trim() || tab.attachments.length || tab.quotes.length) this.drafts.set(tab.key, { draft: tab.draft, attachments: tab.attachments, quotes: tab.quotes });
-			// The conversation's terminal ends with its last tab.
-			if (!this.tabs.some((t) => t.kind === "chat" && t.key === tab.key)) void bridge.termClose(tab.key).catch(() => {});
-			// What a conversation was subscribed to on its own ends when its tab closes (not for an agent's main one).
-			if (tab.session !== "main") {
-				void api
-					.closeSession(tab.agent, tab.session)
-					.then((r) => r.unsubscribed.length && this.flash(`Closed ${tab.agent} · ${tab.session}: ${plural(r.unsubscribed.length, "subscription")} to ${r.unsubscribed.join(", ")} ended with it.`, "muted", 6000))
-					.catch(() => {});
+			if (!detach) {
+				if (tab.draft.trim() || tab.attachments.length || tab.quotes.length) this.drafts.set(tab.key, { draft: tab.draft, attachments: tab.attachments, quotes: tab.quotes });
+				// The conversation's terminal ends with its last tab.
+				if (!this.tabs.some((t) => t.kind === "chat" && t.key === tab.key)) void bridge.termClose(tab.key).catch(() => {});
+				// What a conversation was subscribed to on its own ends when its tab closes (not for an agent's main one).
+				if (tab.session !== "main") {
+					void api
+						.closeSession(tab.agent, tab.session)
+						.then((r) => r.unsubscribed.length && this.flash(`Closed ${tab.agent} · ${tab.session}: ${plural(r.unsubscribed.length, "subscription")} to ${r.unsubscribed.join(", ")} ended with it.`, "muted", 6000))
+						.catch(() => {});
+				}
 			}
 		}
 		if (front && this.tabs.includes(front) && this.active !== front) this.activate(front);
@@ -1794,7 +1990,11 @@ export class Store extends Model {
 		const done = await this.attempt(() => api.renameGroup(agent, name, to.trim()));
 		if (!done) return;
 		const folded = `${agent}:group:${name}`;
-		if (this.folded.delete(folded)) this.folded.add(`${agent}:group:${done.group}`), localStorage.setItem("pine.folded", JSON.stringify([...this.folded]));
+		if (this.folded.delete(folded)) {
+			this.folded.add(`${agent}:group:${done.group}`);
+			if (typeof bridge.windowLayout !== "function") localStorage.setItem("pine.folded", JSON.stringify([...this.folded]));
+			this.reportLayout();
+		}
 		for (const [key, value] of this.placed) if (key.startsWith(`${agent}:`) && value === name) this.placed.set(key, done.group);
 		await this.refreshConversations(agent);
 	}
@@ -1810,8 +2010,10 @@ export class Store extends Model {
 		const gone = await this.attempt(() => api.removeGroup(agent, name));
 		if (!gone) return;
 		for (const session of gone.removed) this.dropTabs(agent, session);
-		this.folded.delete(`${agent}:group:${name}`);
-		localStorage.setItem("pine.folded", JSON.stringify([...this.folded]));
+		if (this.folded.delete(`${agent}:group:${name}`)) {
+			if (typeof bridge.windowLayout !== "function") localStorage.setItem("pine.folded", JSON.stringify([...this.folded]));
+			this.reportLayout();
+		}
 		this.flash(`Removed the group ${name}${gone.removed.length ? ` with ${plural(gone.removed.length, "conversation")}` : ""}.`, "muted", 4000);
 		await this.refreshConversations(agent);
 	}
@@ -2409,7 +2611,8 @@ export class Store extends Model {
 	showSidebar(open: boolean): void {
 		if (open === this.sidebar) return;
 		this.sidebar = open;
-		localStorage.setItem("pine.sidebar", open ? "shown" : "hidden");
+		if (typeof bridge.windowLayout !== "function") localStorage.setItem("pine.sidebar", open ? "shown" : "hidden");
+		this.reportLayout();
 		this.touch();
 	}
 
@@ -2445,7 +2648,8 @@ export class Store extends Model {
 		} else {
 			if (which === "view") this.view_ = true;
 			else this.aside = true;
-			localStorage.setItem(`pine.${which}`, "shown");
+			if (typeof bridge.windowLayout !== "function") localStorage.setItem(`pine.${which}`, "shown");
+			this.reportLayout();
 		}
 	}
 
@@ -2458,7 +2662,8 @@ export class Store extends Model {
 		} else {
 			if (which === "view") this.view_ = false;
 			else this.aside = false;
-			localStorage.setItem(`pine.${which}`, "hidden");
+			if (typeof bridge.windowLayout !== "function") localStorage.setItem(`pine.${which}`, "hidden");
+			this.reportLayout();
 		}
 	}
 
@@ -2579,7 +2784,7 @@ export class Store extends Model {
 				return dir ? this.openFolder(dir) : undefined;
 			}
 			case "close":
-				return tab ? this.closeTab(tab) : undefined;
+				return tab ? this.closeTab(tab) : void bridge.closeWindow?.();
 			case "next-tab":
 				return this.cycle(1);
 			case "prev-tab":

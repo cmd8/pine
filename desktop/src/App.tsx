@@ -1,7 +1,7 @@
 // The window: the list of agents and conversations at the side, the tabs along the top, one
 // conversation in the middle with its panel, and whatever lies over them for a moment (a list
 // to pick from, a question, the palette).
-import { ArrowUpIcon, AudioLinesIcon, DownloadIcon, HourglassIcon, RotateCwIcon, CheckIcon, RadarIcon, ChevronDownIcon, ChevronRightIcon, ChevronsUpDownIcon, LaptopIcon, ServerIcon, ExternalLinkIcon, FolderClosedIcon, FolderIcon, FolderOpenIcon, GitBranchIcon, GlobeIcon, ListIcon, MenuIcon, MessageSquareIcon, PanelRightIcon, PlusIcon, SearchIcon, SettingsIcon, StarIcon, Trash2Icon, TriangleAlertIcon, UnplugIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, AudioLinesIcon, DownloadIcon, HourglassIcon, RotateCwIcon, CheckIcon, RadarIcon, ChevronDownIcon, ChevronRightIcon, ChevronsUpDownIcon, LaptopIcon, ServerIcon, ExternalLinkIcon, FolderClosedIcon, FolderIcon, FolderOpenIcon, GitBranchIcon, GlobeIcon, ListIcon, MenuIcon, MessageSquareIcon, PanelRightIcon, PlusIcon, SearchIcon, SettingsIcon, StarIcon, TerminalSquareIcon, Trash2Icon, TriangleAlertIcon, UnplugIcon, XIcon } from "lucide-react";
 import { useMediaQuery } from "usehooks-ts";
 import { Toggle } from "@/components/ui/toggle";
 import { Badge } from "@/components/ui/badge";
@@ -235,6 +235,7 @@ function conversationItems(c: Conv, movable: boolean) {
 	const main = c.session === "main";
 	return [
 		{ id: "open", label: "Open" },
+		...(typeof bridge.newWindow === "function" ? [{ id: "open-in-new-window", label: "Open in New Window" }] : []),
 		...(c.tasks ? [{ id: "branch", label: "Branch" }] : []),
 		...(c.tasks && c.folder ? [{ id: "branch-worktree", label: "Branch into a Worktree" }] : []),
 		...(c.worktree ? [{ id: "worktree", label: "Worktree…" }] : []),
@@ -249,6 +250,7 @@ function conversationItems(c: Conv, movable: boolean) {
 async function conversationPicked(agent: string, c: Conv, picked: string | undefined | null): Promise<void> {
 	const s = store;
 	if (picked === "open") await s.openTab(agent, c.session);
+	if (picked === "open-in-new-window") await s.openConversationInNewWindow(agent, c.session);
 	if (picked === "move") await s.askMoveToGroup(agent, c.session, c.group);
 	if (picked === "branch" || picked === "branch-worktree") await s.branch(agent, c.session, undefined, picked === "branch-worktree");
 	if (picked === "worktree") {
@@ -609,15 +611,93 @@ export function Sidebar() {
 }
 
 /**
- * The pine the app uses, at the foot of the side bar, as large as the rows above it: its state and
- * version, and on which machine it runs. A click lists the machines (this one, and those added in
- * Settings > Environments) to use another, and leads to those settings. Under a bridge with no
- * local machine (`store.local`), only the machines added.
+ * Shared dropdown content for switching this window's environment or opening any environment in a
+ * new window (via CmdOrCtrl-click or the per-row action button). Used by both the side bar footer
+ * (`Machines`) and the title bar environment pill (`EnvironmentPill`).
  */
-export function Machines() {
+function MachineMenuContent({ side, align, close }: { side: "top" | "bottom"; align?: "start" | "end"; close: () => void }) {
 	const s = useModel(store);
 	const state = s.service;
 	const here = `This ${computerWord(s.platform)}`;
+	const openNewRef = useRef(false);
+	const iconFor = (host?: string) => (host?.startsWith("wsl:") ? <TerminalSquareIcon /> : host && !isPaired(host) ? <ServerIcon /> : <LaptopIcon />);
+	const renderRow = (host: string | undefined, label: string) => (
+		<div key={host ?? ""} className="flex items-center gap-0.5">
+			<DropdownMenuRadioItem
+				value={host ?? ""}
+				closeOnClick
+				data-host={host}
+				className="min-w-0 flex-1"
+				onClick={(e) => {
+					if (s.canOpenWindow && (e.metaKey || e.ctrlKey)) {
+						openNewRef.current = true;
+						queueMicrotask(() => {
+							openNewRef.current = false;
+						});
+						void s.openMachineWindow(host);
+					}
+				}}
+			>
+				{iconFor(host)}
+				<span className="truncate">{label}</span>
+			</DropdownMenuRadioItem>
+			{s.canOpenWindow ? (
+				<Button
+					variant="ghost"
+					size="icon-xs"
+					data-slot="open-in-new-window"
+					data-host={host ?? "local"}
+					className="flex-none text-muted-foreground hover:text-foreground"
+					aria-label={`Open ${label} in new window`}
+					title="Open in new window"
+					onClick={(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						close();
+						void s.openMachineWindow(host);
+					}}
+				>
+					<ExternalLinkIcon className="size-3.5" />
+				</Button>
+			) : null}
+		</div>
+	);
+	return (
+		<DropdownMenuContent side={side} align={align} className="min-w-56">
+			<DropdownMenuGroup>
+				<DropdownMenuLabel>Use the pine on</DropdownMenuLabel>
+				<DropdownMenuRadioGroup
+					value={state.host ?? ""}
+					onValueChange={(host: string) => {
+						if (openNewRef.current) {
+							openNewRef.current = false;
+							return;
+						}
+						void s.useMachine(host || undefined);
+					}}
+				>
+					{s.local ? renderRow(undefined, here) : null}
+					{s.prefs.hosts.map((host) => renderRow(host, s.nameOf(host)))}
+				</DropdownMenuRadioGroup>
+			</DropdownMenuGroup>
+			<DropdownMenuSeparator />
+			{/* Back to the list of machines, the one in use kept: only a bridge with no local machine offers it (the web client's). */}
+			{s.canDisconnect ? <DropdownMenuItem data-slot="disconnect" onClick={() => void s.disconnect()}><UnplugIcon />Disconnect</DropdownMenuItem> : null}
+			<DropdownMenuItem onClick={() => s.openSettings("environments")}><SettingsIcon />Environments…</DropdownMenuItem>
+		</DropdownMenuContent>
+	);
+}
+
+/**
+ * The pine the app uses, at the foot of the side bar, as large as the rows above it: its state and
+ * version, and on which machine it runs. A click lists the machines (this one, and those added in
+ * Settings > Environments) to use another or open one in a new window, and leads to those settings.
+ * Under a bridge with no local machine (`store.local`), only the machines added.
+ */
+export function Machines() {
+	const s = useModel(store);
+	const [open, setOpen] = useState(false);
+	const state = s.service;
 	const on = state.status === "ready" ? state.label : state.host;
 	// A paired computer by its name, never its id.
 	const reached = state.host && s.nameOf(state.host);
@@ -634,34 +714,58 @@ export function Machines() {
 	const about = state.status === "ready" ? `${state.home} · ${state.host ? (isPaired(state.host) ? `paired with this ${s.device}` : `over SSH (${state.host})`) : state.started ? "started by this app" : "a pine that was already running"}` : "";
 	return (
 		<SidebarMenuItem className="app-no-drag">
-			<DropdownMenu>
+			<DropdownMenu open={open} onOpenChange={setOpen}>
 				<DropdownMenuTrigger render={<SidebarMenuButton data-slot="service-status" title={about} aria-label={`The pine the app uses: ${text}. Use another one`} />}>
 					{/* The dot stands in the place of the icons in the rows above it: its middle under theirs, and what is written beside it under their names. */}
 					<span className="grid size-4 flex-none place-items-center"><span className={cn(DOT, state.status === "error" ? "bg-destructive" : state.status !== "ready" ? "bg-warn" : s.connected ? "bg-primary" : "bg-destructive")} /></span>
 					<span className="min-w-0 flex-1 truncate">{text}</span>
 					<ChevronsUpDownIcon className="text-faint" />
 				</DropdownMenuTrigger>
-				<DropdownMenuContent side="top" className="min-w-56">
-					<DropdownMenuGroup>
-						<DropdownMenuLabel>Use the pine on</DropdownMenuLabel>
-						<DropdownMenuRadioGroup value={state.host ?? ""} onValueChange={(host: string) => void s.useMachine(host || undefined)}>
-							{s.local ? <DropdownMenuRadioItem value="" closeOnClick><LaptopIcon />{here}</DropdownMenuRadioItem> : null}
-							{s.prefs.hosts.map((host) => (
-								<DropdownMenuRadioItem key={host} value={host} closeOnClick data-host={host}>{isPaired(host) ? <LaptopIcon /> : <ServerIcon />}<span className="truncate">{s.nameOf(host)}</span></DropdownMenuRadioItem>
-							))}
-						</DropdownMenuRadioGroup>
-					</DropdownMenuGroup>
-					<DropdownMenuSeparator />
-					{/* Back to the list of machines, the one in use kept: only a bridge with no local machine offers it (the web client's). */}
-					{s.canDisconnect ? <DropdownMenuItem data-slot="disconnect" onClick={() => void s.disconnect()}><UnplugIcon />Disconnect</DropdownMenuItem> : null}
-					<DropdownMenuItem onClick={() => s.openSettings("environments")}><SettingsIcon />Environments…</DropdownMenuItem>
-				</DropdownMenuContent>
+				<MachineMenuContent side="top" close={() => setOpen(false)} />
 			</DropdownMenu>
 		</SidebarMenuItem>
 	);
 }
 
+/**
+ * Clickable environment pill in the title bar: shown whenever viewing a remote environment or when
+ * the side bar is collapsed, so every window always shows which machine it targets.
+ */
+function EnvironmentPill() {
+	const s = useModel(store);
+	const [open, setOpen] = useState(false);
+	const state = s.service;
+	const here = `This ${computerWord(s.platform)}`;
+	const label = s.remote ?? here;
+	const host = state.host;
+	const icon = host?.startsWith("wsl:") ? <TerminalSquareIcon className="size-3.5 flex-none" /> : host && !isPaired(host) ? <ServerIcon className="size-3.5 flex-none" /> : <LaptopIcon className="size-3.5 flex-none" />;
+	return (
+		<DropdownMenu open={open} onOpenChange={setOpen}>
+			<DropdownMenuTrigger
+				render={
+					<Button
+						variant="outline"
+						size="sm"
+						data-slot="window-environment"
+						className="app-no-drag h-7 max-w-44 gap-1.5 rounded-full px-2.5 text-xs font-normal text-muted-foreground hover:text-foreground"
+						aria-label={`Environment: ${label}. Switch or open in new window`}
+					/>
+				}
+			>
+				<span className={cn("size-1.5 flex-none rounded-full", state.status === "error" ? "bg-destructive" : state.status !== "ready" ? "bg-warn" : s.connected ? "bg-primary" : "bg-destructive")} />
+				{icon}
+				<span className="min-w-0 truncate">{label}</span>
+				<ChevronsUpDownIcon className="size-3 flex-none text-faint" />
+			</DropdownMenuTrigger>
+			<MachineMenuContent side="bottom" align="end" close={() => setOpen(false)} />
+		</DropdownMenu>
+	);
+}
+
 // ---- the tabs ------------------------------------------------------------------------------------------
+
+const TAB_DRAG_NONCE = Math.random().toString(36).slice(2);
+const tabDragOrigin = () => (store.windowId || TAB_DRAG_NONCE).toLowerCase();
 
 function TabButton({ tab, index }: { tab: Tab; index: number }) {
 	useModel(tab);
@@ -677,6 +781,7 @@ function TabButton({ tab, index }: { tab: Tab; index: number }) {
 	const act = (action: TabMenuAction) => {
 		if (action === "close") return s.closeTab(tab);
 		if (action === "pin" || action === "unpin") return void s.pin(tab, action === "pin");
+		if (action === "move-to-window") return void s.moveTabToNewWindow(tab);
 		s.closeTabs(action, tab);
 	};
 	// The least width is what the tab holds besides its name (the avatar, the gaps, the close button) and a few letters of the
@@ -684,6 +789,7 @@ function TabButton({ tab, index }: { tab: Tab; index: number }) {
 	return (
 		<TabMenu
 			pin={tab.kind !== "chat" ? undefined : tab.session === "main" ? "main" : kept ? "unpin" : "pin"}
+			moveToWindow={tab.kind === "chat" && typeof bridge.newWindow === "function"}
 			others={s.tabs.length > 1}
 			right={index < s.tabs.length - 1}
 			onAction={act}
@@ -694,10 +800,29 @@ function TabButton({ tab, index }: { tab: Tab; index: number }) {
 					data-active={on || undefined}
 					className={cn("group/tab relative flex h-8 max-w-55 min-w-28 flex-initial items-center gap-2 rounded-md pr-1.5 pl-2.5 app-no-drag", on ? "bg-background text-foreground ring-1 ring-border" : "text-muted-foreground hover:bg-accent hover:text-foreground", drop && "before:absolute before:inset-y-1 before:-left-0.5 before:w-0.5 before:rounded-full before:bg-primary")}
 					draggable
-					onDragStart={(e) => (e.dataTransfer.setData("application/x-pine-tab", String(index)), (e.dataTransfer.effectAllowed = "move"))}
-					onDragOver={(e) => e.dataTransfer.types.includes("application/x-pine-tab") && (e.preventDefault(), setDrop(true))}
+					onDragStart={(e) => {
+						const origin = tabDragOrigin();
+						e.dataTransfer.setData("application/x-pine-tab", JSON.stringify({ window: origin, index }));
+						e.dataTransfer.setData(`application/x-pine-tab-${origin}`, String(index));
+						e.dataTransfer.effectAllowed = "move";
+					}}
+					onDragOver={(e) => {
+						if (e.dataTransfer.types.includes(`application/x-pine-tab-${tabDragOrigin()}`)) {
+							e.preventDefault();
+							setDrop(true);
+						}
+					}}
 					onDragLeave={() => setDrop(false)}
-					onDrop={(e) => (setDrop(false), s.moveTab(Number(e.dataTransfer.getData("application/x-pine-tab")), index))}
+					onDrop={(e) => {
+						setDrop(false);
+						const raw = e.dataTransfer.getData("application/x-pine-tab");
+						try {
+							const parsed = JSON.parse(raw) as { window?: unknown; index?: unknown };
+							if (parsed.window === tabDragOrigin() && typeof parsed.index === "number") s.moveTab(parsed.index, index);
+						} catch {
+							// ignore payloads from other windows or sources
+						}
+					}}
 					onClick={() => s.activate(tab)}
 					onAuxClick={(e) => e.button === 1 && s.closeTab(tab)}
 					title={tab.kind === "chat" ? `${tab.agent} · ${tab.session}${tab.folder ? ` · ${tab.folder}` : ""}` : tab.kind === "task" ? `task #${tab.task}` : tab.kind}
@@ -770,6 +895,7 @@ export function TitleBar() {
 			</ScrollArea>
 			<HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className="app-no-drag" onClick={() => void s.newConversation()} aria-label={with_ ? `New conversation with ${with_}` : "New conversation: you are asked with which agent"} />}><PlusIcon /></TooltipTrigger><TooltipContent>{with_ ? `New conversation with ${with_}` : "New conversation: you are asked with which agent"}<Kbd>{shortcut("⌘T")}</Kbd></TooltipContent></HoverTooltip>
 			<span className="min-w-0 flex-1" />
+			{s.remote || !column ? <EnvironmentPill /> : null}
 			<BesideToggle which="code" label="Side panel: the agent, files, changes, output and what is running" keys="⌥⌘B" icon={<PanelRightIcon />} />
 			<BesideToggle which="aside" label="Browser: the page the agent works in" keys="⇧⌘B" icon={<GlobeIcon />} />
 			{s.hasView ? <BesideToggle which="view" label={`View: all of pine at a glance, drawn by ${s.view}`} keys="⇧⌘O" icon={<RadarIcon />} /> : null}
@@ -980,15 +1106,19 @@ function BrowserAsk() {
 const SIDE_KEY = "pine.sidebar.width";
 const SIDE_WIDTH = 248;
 
+const PANEL_WIDTH_KEYS = { "sidebar-panel": "sidebar", "code-panel": "code", "browser-panel": "aside", "view-panel": "view" } as const;
+
 /** Remembers how wide a panel is, in pixels, for the next start. Only what the owner did is kept: a narrow window squeezes a panel without changing what it is set to. */
-const keepWidth = (layout: Layout, panel: string, key: string) => {
+const keepWidth = (layout: Layout, panel: keyof typeof PANEL_WIDTH_KEYS, key: string) => {
 	// The layout is in shares of the room the panels have together, and is told before the panels are
 	// drawn at their new widths (after a key): the room is the same before and after.
 	const group = document.getElementById(panel)?.parentElement;
 	const share = layout[panel];
 	if (!group || share === undefined) return;
 	const room = [...group.children].filter((el) => el.hasAttribute("data-panel")).reduce((sum, el) => sum + el.getBoundingClientRect().width, 0);
-	localStorage.setItem(key, String(Math.round((share * room) / 100)));
+	const px = Math.round((share * room) / 100);
+	store.setPanelWidth(PANEL_WIDTH_KEYS[panel], px);
+	if (typeof bridge.windowLayout !== "function") localStorage.setItem(key, String(px));
 };
 
 export function App() {
@@ -1005,6 +1135,11 @@ export function App() {
 	}, []);
 	const ready = s.service.status === "ready" && s.agents.length > 0 && s.opened;
 	const tab = s.active;
+	const tabLabel = !ready || !tab ? undefined : tab.kind === "events" ? "Events" : tab.kind === "settings" ? "Settings" : tab.kind === "task" ? `${tab.agent} #${tab.task}` : tab.session === "main" ? tab.agent : `${tab.agent} · ${s.titleKnown(tab.agent, tab.session) ? s.titleOf(tab.agent, tab.session) : tab.session}`;
+	const windowTitle = [tabLabel, s.remote, "Pine"].filter(Boolean).join(" — ");
+	useEffect(() => {
+		document.title = windowTitle;
+	}, [windowTitle]);
 	const side = usePanelRef();
 	// Narrower than stock's breakpoint (Tailwind's `md`), the side bar lies over the page instead of beside it, as stock's
 	// own sheet. (The panel beside a conversation does the same below `lg`: CodePanel.tsx.)
@@ -1027,10 +1162,10 @@ export function App() {
 					<ResizablePanelGroup orientation="horizontal" onLayoutChanged={(layout, meta) => meta.isUserInteraction && keepWidth(layout, "sidebar-panel", SIDE_KEY)}>
 						{column ? (
 							<>
-								<ResizablePanel id="sidebar-panel" className="flex" panelRef={side} defaultSize={Number(localStorage.getItem(SIDE_KEY)) || SIDE_WIDTH} minSize={190} maxSize={460} groupResizeBehavior="preserve-pixel-size">
+								<ResizablePanel id="sidebar-panel" className="flex" panelRef={side} defaultSize={store.widthOf("sidebar") ?? (Number(localStorage.getItem(SIDE_KEY)) || SIDE_WIDTH)} minSize={190} maxSize={460} groupResizeBehavior="preserve-pixel-size">
 									<Sidebar />
 								</ResizablePanel>
-								<ResizableHandle className="bg-transparent" disableDoubleClick onDoubleClick={() => (side.current?.resize(SIDE_WIDTH), localStorage.setItem(SIDE_KEY, String(SIDE_WIDTH)))} title="Drag to make the side bar wider or narrower" />
+								<ResizableHandle className="bg-transparent" disableDoubleClick onDoubleClick={() => (side.current?.resize(SIDE_WIDTH), store.setPanelWidth("sidebar", SIDE_WIDTH), typeof bridge.windowLayout !== "function" && localStorage.setItem(SIDE_KEY, String(SIDE_WIDTH)))} title="Drag to make the side bar wider or narrower" />
 							</>
 						) : null}
 						<ResizablePanel id="main" className="flex">
