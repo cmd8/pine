@@ -1016,6 +1016,7 @@ the agent to write. So:
 | Nothing is fetched because an answer contains it | A picture at a web address is a line to click (`Load picture · https://…`); the daemon then fetches it, with its guard against addresses in your network. A picture at a path in the agent's workspace is shown from there |
 | Nothing plays because an answer contains an address | A sound plays by itself only where it is a file of the agent's workspace, which the daemon serves, and its answer has just arrived. One at a web address is a line to click, like a picture |
 | What is drawn straight from the daemon | Only pictures, video and sound, by fixed addresses of the control API. The bars of a sound are measured from the same bytes, which the app asks the daemon for; the page reads no file |
+| What the page may ask the system for | Writing text to the clipboard, for the Copy buttons on code blocks, Copy Last Answer and copying from the terminal, and nothing else: no camera, microphone, place, and no reading of the clipboard. A view's frame and the tabs of the agent's browser get none of it |
 | Notifications and the window's title | pine's own words only |
 | What is heard | Text for the input: never sent by itself |
 | A code block's Run button | Only your click types a block into your terminal, and only a block whose every character shows as itself: an answer cannot run anything by itself, nor hide a part of what it runs. What the agent hears back is that block's output, quoted, and nothing you typed |
