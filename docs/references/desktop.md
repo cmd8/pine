@@ -234,10 +234,10 @@ pine packed into the app; the `pine` of your shell.
 | Theme | The window's colors: one of the themes in the `themes` folder of pine's home, dark ones and light ones. It is pine's setting `ui.theme` (see "Themes" below), so every Pine app on that pine shows it, and the main agent can change it when you ask. A theme file pine cannot read is named under the list, with what is wrong with it |
 | Notifications | A system notification when an agent is done, stops with an error, needs your approval or asks you something while the window is not in front. The words are pine's own ("main is done"), never the agent's |
 
-Closing the window does not quit the app on a Mac: it, and a daemon it started, stay until
-you quit (`⌘Q`). On Linux and Windows closing the window quits the app. On every system the window
-closes with its own button: `⌘W` (`Ctrl+W`) closes a tab, never the window, and the Window menu has
-Minimise and Zoom only. A daemon the app
+Closing a window does not quit the app on a Mac: it, and a daemon it started, stay until
+you quit (`⌘Q`). On Linux and Windows closing the last window quits the app. On every system
+`⌘W` (`Ctrl+W`) closes the active tab, or the window when no tab is open, and `⇧⌘W`
+(`Ctrl+Shift+W`) closes the focused window directly. A daemon the app
 started that stops answering is started again; one it started is stopped by closing its input,
 so that it closes its database before it ends, on every system.
 
@@ -298,28 +298,29 @@ shows it, the main agent can set it (`set_setting ui.theme`), and with another m
 
 ## Environments: the pine of another machine
 
-The app can use the pine of another machine instead of the one on this computer: a pine running
-on a server, on a desktop at home, on anything you reach over SSH (with `ssh`). It uses one pine
-at a time. The foot of the side
-bar says which (`pine 0.23.0 · started here`, or `pine 0.23.0 · server`): a click on it lists
-This Mac and the machines you added, and Environments… leads to Settings > Environments, where
+The app can use the pine of another machine alongside or instead of the one on this computer: a pine running
+on a server, on a desktop at home, on anything you reach over SSH (with `ssh`). Each window chooses its own pine
+independently: you can keep windows on different machines side by side, or open several windows on the same pine.
+The foot of the side bar says which (`pine 0.23.0 · started here`, or `pine 0.23.0 · server`), and the title bar
+shows a clickable environment pill whenever a window views a remote machine or its side bar is collapsed: a click
+lists This Mac and the machines you added, and Environments… leads to Settings > Environments, where
 machines are added and forgotten. The palette (`⌘K`) has "Use the pine on …" too. In a terminal,
 `pine --ssh <host>` does the same for the terminal UI ([tui.md](tui.md#the-pine-of-another-machine)).
 
 | What | How |
 |---|---|
 | Add a machine | Settings > Environments: type the host as you would after `ssh` (`server`, `user@server`, a name from `~/.ssh/config`) and Add. Anything else (an option for ssh, spaces, `;`) is refused before ssh ever runs. It is connected to when you pick it |
-| Use another pine | Pick it at the foot of the side bar, or Use on its line in Settings > Environments. The window shows that pine's agents, conversations and settings, and the tabs that pine keeps. The app remembers which one it used, and uses it again at its next start |
-| Switch back | The pine you left goes on: switching stops nothing, so an agent at work there finishes its task. Going back to it is immediate. Approvals and notices of a pine you are not looking at wait until you switch to it |
+| Use another pine | Pick it at the foot of the side bar (or the title bar's environment pill), or Use on its line in Settings > Environments. Only that window switches to that pine's agents, conversations, settings and theme; other open windows stay where they are. To open a machine in a separate window without leaving the current one, use `Open in new window` in Settings > Environments, or `⌘`-click (or its new-window action) in the machine menu |
+| Switch back | The pine you left goes on: switching stops nothing, so an agent at work there finishes its task. Going back to it is immediate. Approvals and notices of a pine with no window open wait until a window uses it |
 | Connecting | Connecting to another machine's pine is one wait: the first screen says "Connecting to <host>", with the list of machines, and stays until that pine's agents are loaded ("Loading the agents…"), so the window never shows an empty pine in between |
 | One that is not reached | The first screen says why (ssh's own words, and what to do), with Try again and Use this Mac, or Disconnect where it is offered |
 | Agents that do not load | When the pine was reached but its agents could not be loaded, the first screen says "Could not load the agents of <host>" ("Could not load your agents" for this computer's) with the reason, Try again, and the list of machines with Disconnect where it is offered |
-| Forget a machine | Forget on its line (not the one in use). Its connection ends |
+| Forget a machine | Forget on its line in Settings > Environments (not the machine in use in the current window). A machine open in another window carries an `in another window` badge: Forget asks to confirm (`Close its window and forget` or `Cancel`), closes its window(s), and ends its connection |
 | Disconnect | Only where the page runs without a machine of its own and its bridge offers it (`disconnect`): the web client today, not the Pine app, and not the mobile app yet. It lets go of the machine in use and goes back to the list of machines; the machine and its trusted host key stay, unlike Forget. It is in the machines menu at the foot of the side bar, on the line of the machine in use in Settings > Environments, and on the first screen, also while the machine is not reached or its agents did not load |
 | Quitting | Every connection ends. A pine the app started on another machine stops with it; one that was already running there goes on. This computer's pine follows Keep pine running, as before |
 
-What is chosen is kept in the app's `prefs.json`: `hosts`, the machines you added, and `use`,
-the one in use (none: this computer's). The file (on a Mac in `~/Library/Application Support/Pine`)
+What is chosen is kept in the app's `prefs.json`: `hosts`, the machines you added, `use`,
+the last-used one (none: this computer's), `windows`, the set of open windows (each with its environment, bounds, tabs and panel layout) restored after a quit, and `layout`, the fallback panel layout. The file (on a Mac in `~/Library/Application Support/Pine`)
 is written whole or not at all, and one that cannot be read is never written over: it is moved to
 `prefs.json.unreadable`, with the machines it still names. `prefs.log` beside it says why a machine
 was dropped (forgotten in Settings, or no host for ssh) and when a `prefs.json` could not be read:
@@ -352,6 +353,7 @@ What is this computer's stays this computer's. With another machine's pine:
 | The terminal and Run | The terminal beside a conversation and the Run button of a command in an answer are shells of this computer: they are not offered, and that pine's agents are not told about them |
 | The browser | The Browser aside shows the browser on that machine; an address you type there (`localhost:3000`) is one of that machine |
 | Settings > General | About the app and this computer's pine (home folder, Keep pine running, the browser build). It says which machine's pine is in use |
+| Local actions from the system | Opening a local folder from the Finder or file manager (or `Pine <folder>`), opening a `pine://pair` address, and the Dock menu's `Add a Device…` always target the most recently active window on this computer, or open a new local window automatically when only remote windows (or no windows) are open |
 
 ## Browser access: a browser with no SSH to set up
 
@@ -511,8 +513,8 @@ agent's:
 |---|---|
 | Side bar | Search at the top, then your agents (see above). Drag its right edge to make it wider or narrower, or focus the edge with Tab and use the arrow keys (a double click on the edge sets it back), `⌘B` hides it and shows it again (in a window narrower than 768 pixels it opens it over the page instead: see the table below), and it is after a restart as you left it; where nothing is to click, it moves the window. Under an agent with more than one conversation come its groups of conversations, each with its conversations, then the conversations in no group. In each, an agent's own conversation (`main conversation`) comes first, then pinned ones, then by when they were last used, or by name: the agent's right click chooses (Sort by Last Used, Sort by Name), and the groups are sorted the same way. A click on a conversation opens it in a tab, and so does Enter: Tab reaches an agent's line (Enter or Space folds it, or opens its conversation when it has only one), then a group's line (the same), then the conversations, where the arrow keys move; a right click offers Pin, Rename, Move to Group…, Remove (or Start over for an agent's own). Groups: see the next row At the bottom: the event log, the settings, and whether pine answers |
 | Groups of conversations | A group keeps an agent's conversations in order, one level deep, and keeps them however long they are not used ([agents.md](agents.md#groups-of-conversations)). Make one with New Group… in the agent's right click. Drag a conversation onto a group's line or into its list to put it there, onto the agent's line or among the conversations in no group to take it out; it takes its branches along, and a branch is not dragged by itself. Without a mouse: Move to Group… in a conversation's right click, or `Move conversation to group` in the palette (`/group` in the input), for the conversation in front. A group's right click: New Conversation in it, Rename…, Remove Group…, which removes the group and every conversation in it for good after you confirm (an agent's own conversation stays, in no group). A folded group still shows when something in it waits for you, works or is new |
-| Tabs | One conversation each, with its agent's initial, as in the terminal UI: a grey dot that pulses while the agent works, a dot when something arrived while you were elsewhere, `!` when it waits for your approval, `★` for a conversation that is kept for good. Drag a tab to move it. A right click on a tab offers Close (`⌘W`), Close Others, Close to the Right, Close All, and Pin or Unpin for its conversation; they are in the palette too (Close other tabs, Close tabs to the right, Close all tabs). Closing a tab only closes the view: the conversation stays in the side bar, and what was typed in its input and not sent is there again when you open it. Any tab can be closed, the agent's own conversation's and the last one too; with none open, the window says so and offers a new conversation or the main agent's. What waits for your answer is never left without a place: Close Others, Close to the Right and Close All leave a tab that waits open and say so, a tab closed by itself hands what it waits for to another tab (of the same agent if one is open, else the one in front), where its `!` and its buttons are, and the last tab that waits stays until it is answered. An approval that arrives with no tab open opens the agent's main conversation. They are the same tabs the terminal UI opens: the daemon keeps the list; when the app starts with none, it opens the main agent's conversation |
-| Conversation | A conversation in which nothing was said yet shows who its agent is: what it is for, its model and mode, whom it hands work to, and how many skills, event sources, schedules and MCP servers it has. Then your messages, the agent's answers drawn as markdown, and the work of each turn (tool calls, thoughts, sub-tasks, what it said on the way) folded into one line that a click opens (it stays open while the turn runs, with its last lines). A `↳ … ↗` line opens a sub-agent's or delegated task's work in a tab of its own. A request of the agent's waits in the conversation with its buttons until it is answered, then becomes a line. Above your last message a line offers to take it back (**Take back**, `/undo`). Scrolled up, the conversation holds still while the answer goes on, and a button at its foot brings you back to the end. Text you select in it can be quoted in your next message (see "Quoting part of a conversation" below) |
+| Tabs | One conversation each, with its agent's initial, as in the terminal UI: a grey dot that pulses while the agent works, a dot when something arrived while you were elsewhere, `!` when it waits for your approval, `★` for a conversation that is kept for good. Drag a tab to move it within its window. A right click on a tab offers Close (`⌘W`), Close Others, Close to the Right, Close All, Move to New Window, and Pin or Unpin for its conversation; the close actions are in the palette too (Close other tabs, Close tabs to the right, Close all tabs). Closing a tab only closes the view: the conversation stays in the side bar, what was typed in its input and not sent is there again when you open it, and tab-scoped subscriptions of a non-main conversation end only when no other open window on that pine still has it open. Any tab can be closed, the agent's own conversation's and the last one too; with none open, the window says so and offers a new conversation or the main agent's (and pressing `⌘W` again closes that window). What waits for your answer is never left without a place: Close Others, Close to the Right and Close All leave a tab that waits open and say so, a tab closed by itself hands what it waits for to another tab (of the same agent if one is open, else the one in front), where its `!` and its buttons are, and the last tab that waits stays until it is answered. An approval that arrives with no tab open opens the agent's main conversation. The daemon keeps the union of tabs open across all windows on that pine; when a first window opens on an environment with none, it opens the main agent's conversation |
+| Conversation | A conversation in which nothing was said yet shows who its agent is: what it is for, its model and mode, whom it hands work to, and how many skills, event sources, schedules and MCP servers it has. Then your messages, the agent's answers drawn as markdown, and the work of each turn (tool calls, thoughts, sub-tasks, what it said on the way) folded into one line that a click opens (it stays open while the turn runs, with its last lines). A `↳ … ↗` line opens a sub-agent's or delegated task's work in a tab of its own. A request of the agent's waits in the conversation with its buttons until it is answered, then becomes a line. Above your last message a line offers to take it back (**Take back**, `/undo`). Scrolled up, the conversation holds still while the answer goes on, and a button at its foot brings you back to the end. Text you select in it can be quoted in your next message (see "Quoting part of a conversation" below) or bookmarked (see "Bookmarks") |
 | Input | `↩` sends; while the agent works the message is given to that work, and `⌥↩` makes it wait its turn. `⇧↩` is a new line, `↑` brings back earlier inputs, `esc` stops the agent. `/` offers the commands of the terminal UI, `@` the files of the conversation's folder. Under a message given to work, the app says whether the work has read it ("not read yet", "read 14:03"), and until then offers **send now**, which stops the step under way (a long command ends) so that the work reads it at once ([agents.md](agents.md#a-message-while-the-agent-works)) |
 | The line at the top of a conversation | Whose it is and which (`main / notes`), the folder it works in, how full its context is (tokens read and the share of the window; hover for the cache share and speed) |
 | The top right of the title bar | Up to three buttons: the side panel (`⌥⌘B`), the browser (`⇧⌘B`) and the view (`⇧⌘O`, where there is one), each a panel of its own at the right. Each is pressed while what it shows is open. A click opens what is closed, closes what is in front, and brings to the front one that is open but behind the others (in a window narrower than 1024 pixels the sheet covers these buttons: there `⌥⌘B`, `⇧⌘B` and `⇧⌘O` do it). On a tab that is not a conversation (Settings, Events) the side panel's and the browser's stay in their place and cannot be pressed; the view needs no conversation |
@@ -547,6 +549,23 @@ Narrowing the window never closes anything: when there is room again, both show 
 Settings follow the room they have, not the window: narrower than about 720 pixels, the list of
 pages is a row along the top that scrolls sideways, and a setting's control goes under its text.
 
+### Multiple windows
+
+You can open as many windows as you need — on different environments side by side, or on the same
+environment to watch several conversations at once. Each window owns its own tabs, active tab,
+panel visibility and widths, folded sidebar state, and theme background (while OS chrome appearance
+follows the focused window).
+
+| Action | How |
+|---|---|
+| Open a new window | `⌘N`, `File > New Window`, the Dock menu's `New Window` (macOS), or `New Window` in the palette (`⌘K`). When another window already views that environment, the new window starts on the `No tab is open` screen; when no other window views it yet, it loads that daemon's saved tabs. New windows cascade slightly offset from the focused window |
+| Open another environment in a new window | `Open in new window` on a machine's line in Settings > Environments, or `⌘`-click (or the new-window button) in the side bar's machine menu or the title bar's environment pill |
+| Move a tab or open a conversation in a new window | Right-click a tab and pick **Move to New Window** (moves the tab with its unsent draft, attachments, quotes, and any local terminal without closing its subscriptions), or right-click a conversation in the side bar and pick **Open in New Window** |
+| Close a tab or window | `⌘W` (`File > Close Tab`) closes the active tab; pressing `⌘W` when no tab is open closes that window. `⇧⌘W` (`File > Close Window`) closes the focused window directly |
+| Tell windows apart | Each window's OS title reflects its active tab and environment (including the remote machine name when on another host). Whenever a window views a remote machine or its side bar is collapsed, a clickable environment pill appears in the title bar |
+| Quitting vs closing windows | Quitting the app (`⌘Q`) saves every open window (its environment, bounds, open tabs, active tab and panel layout) and restores them all on relaunch. Closing a window individually removes it from the open set; closing all windows and reopening (or clicking the Dock icon on macOS) opens a single window on the last-used environment, bounds and layout |
+| Notifications and badges | Approvals and desktop notifications on an environment viewed by multiple windows route to the window holding that conversation (or the most recently focused window on that environment) without duplicates. The Dock or taskbar badge counts distinct pending requests across all connected environments |
+
 ### Quoting part of a conversation
 
 To answer one sentence of an answer, or to point the agent back at something said earlier, select
@@ -555,13 +574,32 @@ above the input, beside the files. Hovering it shows the whole quote, a click on
 message it was taken from, and its × removes it. You can quote several pieces, and send quotes with
 no text of your own.
 
-On sending, each quote goes before your text as a markdown quote (`> `): that is what the agent
-reads. A quote too long for a message is cut (`…`), never your own text. Text in your messages, the
+**Reply** beside **Quote** adds the quote too (or takes the badge it already has) and opens a field
+under the badges for your reply to that quote; the reply button on a badge opens it later. One reply
+is open at a time: `↩` or `esc` closes it and goes back to the input without sending, `⇧↩` is a
+new line. A badge with a reply shows its beginning as a second line, which a click opens again.
+Replies go only when you send the message, all of them with it; an empty reply is left out.
+
+On sending, each quote goes before your text as a markdown quote (`> `), followed by its reply: that
+is what the agent reads. Quotes too long for a message are cut (`…`), replies with them, never your
+own text. Text in your messages, the
 agent's answers, the welcome letter and the agent's card can be quoted, once the message is known to
-pine. The quotes are kept with the message and stay badges at the top of its bubble, also when the
+pine. The quotes are kept with the message and stay badges at the top of its bubble (with
+replies, one under the other, each followed by its reply), also when the
 conversation is opened again, and a click still goes back to exactly where each was taken from; when
 that message is no longer in the conversation, a note says so. A message you take back (`/undo`)
-gives its quotes back as badges above the input. `> ` that you type by hand stays text.
+gives its quotes back as badges above the input, with their replies. `> ` that you type by hand stays text.
+
+### Bookmarks
+
+**Bookmark** beside **Reply** keeps the selected text as a bookmark of the conversation, for you
+alone: the agent is not told. It is there for an answer once it is done. A conversation with
+bookmarks shows a bookmark button with their number at the top, beside its title; it lists each
+bookmark's beginning, a click goes to the message and marks the bookmarked text for a moment, and
+its × removes it. When the text cannot be found where it was, the whole message is marked instead;
+when the message is no longer in the conversation, a note says so. Pine keeps bookmarks with the
+conversation: they follow it when it is renamed, go with it when it is reset or removed, and a
+branch takes those of the messages it holds.
 
 ### Finding a conversation
 
@@ -743,9 +781,9 @@ hears only how a block you ran with ▶ went (below).
 
 | | |
 |---|---|
-| One per conversation | Starts when the view is first shown, and keeps running while Pine runs: another view or tab leaves it as it is, with its scrollback |
+| One per window and conversation | Starts when the view is first shown, and keeps running while its window stays on this computer: another view or tab leaves it as it is, with its scrollback, and resizing or switching environments in another window never disturbs it |
 | ↻ | Ends the shell and starts a new one. After `exit` it says so, with **Start it again** |
-| When it ends | With the conversation's last tab, and when Pine quits |
+| When it ends | With the conversation's tab in that window, when that window closes or switches to a remote machine, and when Pine quits. **Move to New Window** carries the running shell along with the tab |
 
 **Run (▶, a play button).** A shell command block in an answer (```` ```bash ````, `sh`, `zsh`, `shell`, `fish`,
 `ksh`) has ▶ beside its copy button: it shows the terminal and types the block there as a
@@ -790,7 +828,7 @@ and the agent's changes together.
 
 | | |
 |---|---|
-| What you see | With this computer's pine, the page itself: a tab of the app's own browser laid over the panel, which you click, scroll, type and paste in like any browser while the agent drives it. With another machine's pine, on the phone and in the web client, a picture of the page, a few times a second. The page is laid out for the room the browser has, so it is shown at its real size; drag its edge to make it wider and the page gets wider. The browser's tabs are a row of tabs above the page, the agent's and yours alike |
+| What you see | With this computer's pine, the page itself: a tab of the app's own browser laid over the panel, which you click, scroll, type and paste in like any browser while the agent drives it. Multiple local windows viewing different conversations' browsers show their live pages side by side at once; if two local windows view the same browser tab at the same time, the focused window holds the live page and the other switches cleanly to the live picture stream until focused again. With another machine's pine, on the phone and in the web client, a picture of the page, a few times a second. The page is laid out for the room the browser has, so it is shown at its real size; drag its edge to make it wider and the page gets wider. The browser's tabs are a row of tabs above the page, the agent's and yours alike |
 | What you can do | Click, type, turn the wheel, drag, paste, go back and forward, load again, open a tab (`+`), choose one, close one (closing the last one leaves the browser without a page, with its logins kept), and type an address into the line above the page. Enough to log in, solve a captcha or confirm something yourself |
 | An address of your own | Opened like any other, through pine's guard. One on this computer or your network (`localhost:3000`) is allowed for this conversation by your typing it, as a yes to the agent's question would. pine's own control port stays closed |
 | When the agent wants you to look | It calls `browser_show`: the browser opens at the right of the window, in front where there is room for one only. While the app runs, that call opens no window on your screen |
@@ -997,6 +1035,7 @@ the agent to write. So:
 | Nothing is fetched because an answer contains it | A picture at a web address is a line to click (`Load picture · https://…`); the daemon then fetches it, with its guard against addresses in your network. A picture at a path in the agent's workspace is shown from there |
 | Nothing plays because an answer contains an address | A sound plays by itself only where it is a file of the agent's workspace, which the daemon serves, and its answer has just arrived. One at a web address is a line to click, like a picture |
 | What is drawn straight from the daemon | Only pictures, video and sound, by fixed addresses of the control API. The bars of a sound are measured from the same bytes, which the app asks the daemon for; the page reads no file |
+| What the page may ask the system for | Writing text to the clipboard, for the Copy buttons on code blocks, Copy Last Answer and copying from the terminal, and nothing else: no camera, microphone, place, and no reading of the clipboard. A view's frame and the tabs of the agent's browser get none of it |
 | Notifications and the window's title | pine's own words only |
 | What is heard | Text for the input: never sent by itself |
 | A code block's Run button | Only your click types a block into your terminal, and only a block whose every character shows as itself: an answer cannot run anything by itself, nor hide a part of what it runs. What the agent hears back is that block's output, quoted, and nothing you typed |

@@ -4,7 +4,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../src/config.ts";
 import { localTime } from "../src/timers.ts";
-import { harness, MCP_STUB, mockMsg, sleep, until } from "./support/harness.ts";
+import { harness, MCP_STUB, mockMsg, until } from "./support/harness.ts";
 
 const owner = { trust: "owner" as const };
 const call = (name: string, args: any) => ({ name, args });
@@ -20,14 +20,18 @@ test("schedules: what is written in the files wakes whom it is for, with the tas
 		pine: { main: "main", schedules: [{ name: "tidy", every: "120ms", task: "Tidy your MEMORY.md." }, { name: "beat", every: "120ms" }] },
 		agents: { main: {}, books: { agent: { schedules: [{ name: "ledger", every: "120ms", task: "Close the ledger for {{today}}.", session: "april" }] } } },
 	});
-	await until(() => woken(h, "main").length && woken(h, "books").length && woken(h, "books", "april").length, 6000, "the schedules to wake the agents");
+	// Turns that ran. A time that comes while the last turn still works goes into that turn (`meta.steered`), and is done before
+	// that turn's request was made.
+	const ran = (agent: string, session?: string) => woken(h, agent, session).filter((t: any) => !t.meta?.steered);
+	await until(() => ran("main").length && ran("books").length && ran("books", "april").length, 6000, "the schedules to wake the agents");
 	// For all agents: each in their main conversation. For one conversation: there.
 	const tidy = h.mock.state.requests.find((q: any) => userText(q).includes("Tidy your MEMORY.md.") && h.system(q).includes("PERSONA-BOOKS"));
 	assert.match(userText(tidy), /^\[It is time for your schedule "tidy" \(every 120ms\)\. It was set up at your owner's wish, and this is what it says to do now\. If there is nothing to do or to tell, say so in one line\.\]\n\nTidy your MEMORY\.md\.$/);
 	assert.ok(!userText(tidy).includes("did not come from your owner") && h.toolsOffered(tidy).includes("bash"), "it is the owner's wish: no frame, the agent's usual tools");
 	const ledger = h.mock.state.requests.find((q: any) => userText(q).includes("Close the ledger"));
 	assert.ok(userText(ledger).endsWith("Close the ledger for {{today}}."), "a task is taken as it was written");
-	assert.equal(woken(h, "books", "april")[0].meta.label, "schedule: ledger");
+	// (A time that comes while the last turn still works goes into that turn, under a label that says so: the turn is what is labelled.)
+	assert.equal(ran("books", "april")[0].meta.label, "schedule: ledger");
 	assert.ok(!h.pine.agents.status().sessions.some((x: any) => x.tainted), "and nothing of it is outside content");
 	// The events are there for routes too; one without a task is only that.
 	assert.deepEqual([...new Set(h.pine.bus.query({ topic: "timer/#" }).map((e: any) => `${e.topic} ${e.trust}`))].sort(), ["timer/beat owner", "timer/ledger@books owner", "timer/tidy owner"]);
@@ -72,7 +76,8 @@ test("schedules: asked for a time, an agent schedules it for the conversation, f
 	assert.equal(asked.length, 0);
 	await until(() => woken(h, "books", "april").length === 1, 6000, "the reminder");
 	assert.ok(userText(h.mock.state.requests.at(-1)).endsWith("Remind the owner to call the dentist."));
-	await sleep(50);
+	// It takes itself out of the file once it has fired, a moment after the agent was woken.
+	await until(() => file("books") === undefined, 3000, "the schedule to leave the file");
 	assert.equal(file("books"), undefined, "the file is as it was before");
 	assert.equal(woken(h, "books", "april").length, 1);
 
@@ -129,7 +134,7 @@ test("schedules: asked for a time, an agent schedules it for the conversation, f
 	assert.deepEqual(h.pine.schedules.list().map((s) => s.name).sort(), ["hourly", "missed", "sunday"]);
 	await until(() => woken(h, "books").length === had + 1, 6000, "the missed one");
 	assert.match(userText(h.mock.state.requests.at(-1)), /Water the plants\.\n\n\(This was due at \d{4}-\d\d-\d\d \d\d:\d\d(:\d\d)? and comes late: pine was not running then\.\)$/);
-	await sleep(50);
+	await until(() => file("books") === undefined, 3000, "the missed one to leave the file");
 	assert.equal(file("books"), undefined);
 	await h.close();
 });

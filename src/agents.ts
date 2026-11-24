@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -28,6 +28,7 @@ import { type AgentChange, applyAgentChange, checkAgentChange, checkAgentId, cou
 import { createAgent, type NewAgent } from "./agent-admin.ts";
 import type { Router } from "./router.ts";
 import { fitQuotes, type SentQuote, shortQuotes, withQuotes } from "./quotes.ts";
+import { type Bookmark, bookmarkList, MAX_BOOKMARKS, readBookmark, remapBookmarks } from "./bookmarks.ts";
 import { Denials, fromOutput, gather, looksFailed, reaches, sortDenials, there, type Want, wantKey, wantText } from "./access.ts";
 import type { Bus, Kv, State, TaskStore } from "./store.ts";
 import { asksAtEnd, type Board, type BoardItem, type Boards, verdictOf } from "./boards.ts";
@@ -233,6 +234,11 @@ export interface SubmitOptions {
 	/** Files of the conversation's folder that the owner pointed at in the message ("src/a.ts", "src/a.ts#20-45"). */
 	mentions?: string[];
 	quotes?: SentQuote[];
+	/**
+	 * The owner's own words, where pine wrote words of its own around them in `prompt` (the first
+	 * message of a goal or a swarm): what a UI shows of the message. Kept as `TaskMeta.body`.
+	 */
+	shown?: string;
 	/** See TaskMeta.compact. */
 	compact?: boolean;
 	/** See TaskMeta.via. */
@@ -860,14 +866,20 @@ export class AgentManager {
 			prompt += `\n\n[your owner points at ${named.length === 1 ? "this file" : "these files"} in your working folder: ${named.join(", ")}. Read ${named.length === 1 ? "it" : "them"} before you answer.]`;
 		}
 		const head = quotes ? withQuotes(quotes, "") : "";
-		const body = quotes ? (prompt.startsWith(head) ? prompt.slice(head.length).replace(/^\n\n/, "") : "") : undefined;
+		const body = quotes ? (prompt.startsWith(head) ? prompt.slice(head.length).replace(/^\n\n/, "") : "") : trust === "owner" && typeof o.shown === "string" ? truncate(o.shown, limit) : undefined;
 
 		if (o.whenBusy === "steer" && !ephemeral) {
 			const live = this.lives.get(`${agent.id}:${session}`);
-			if (live?.current && live.session.isStreaming && !this.stopping) {
+			// An answer goes where the running work's answer goes, so a message whose answer goes somewhere else
+			// (a Telegram message during work started elsewhere) waits its turn and is answered where it came from.
+			const sameReply = !o.reply || JSON.stringify(o.reply) === JSON.stringify(live?.current?.task.reply);
+			if (live?.current && live.session.isStreaming && !this.stopping && sameReply) {
 				const into = live.current.task;
-				const steered = this.tasks.insert({ agent: agent.id, session, kind: o.kind ?? "event", prompt, status: "done", priority: o.priority ?? 0, created: Date.now(), event: o.event?.id || undefined, hops: o.event?.hops ?? 0, depth: 0, meta: { trust, images, steered: into.id, label: `steered into #${into.id}`, quotes, body } });
+				const steered = this.tasks.insert({ agent: agent.id, session, kind: o.kind ?? "event", prompt, status: "done", priority: o.priority ?? 0, created: Date.now(), event: o.event?.id || undefined, hops: o.event?.hops ?? 0, depth: 0, meta: { trust, images, steered: into.id, label: `steered into #${into.id}`, quotes, body, tainted: o.tainted } });
 				this.tasks.update(steered.id, { finished: Date.now(), result: `steered into task #${into.id}` });
+				// What a source that is not the owner's reports marks the conversation that reads it, steered in as
+				// when it starts a turn (execute): before the work reads it, so that what it sends next is asked about.
+				if (o.tainted) live.taint(o.tainted);
 				// Nobody but the daemon writes a note; an incoming text that carries the tag loses it.
 				const text = prompt.replace(/<(\/?)pine-note>/gi, "<$1pine_note>");
 				// Kept until the work has read it: work that ends or is stopped first leaves it here, and it
@@ -1205,6 +1217,7 @@ export class AgentManager {
 			this.kv.set(`note:${agentId}:${key}`, null);
 			this.kv.set(`branch:${agentId}:${key}`, null);
 			this.kv.set(`visited:${agentId}:${key}`, null);
+			this.kv.set(`bookmarks:${agentId}:${key}`, null);
 			this.slots.forget(`${agentId}:${key}`);
 			this.goals.drop(agentId, key);
 			this.swarms.drop(agentId, key);
@@ -1586,6 +1599,31 @@ export class AgentManager {
 		return [...list.filter((s) => s.pinned), ...list.filter((s) => !s.pinned)];
 	}
 
+	bookmarksOf(agentId: string, session: string): Bookmark[] {
+		if (!this.cfg.agents[agentId]) throw new Error(`unknown agent "${agentId}"`);
+		return bookmarkList(this.kv.get(`bookmarks:${agentId}:${sessionKey(session)}`));
+	}
+
+	addBookmark(agentId: string, session: string, value: unknown): Bookmark {
+		const read = readBookmark(value);
+		if (typeof read === "string") throw new Error(read);
+		const list = this.bookmarksOf(agentId, session);
+		const same = list.find((b) => JSON.stringify(b.source) === JSON.stringify(read.source) && b.start === read.start && b.end === read.end);
+		if (same) return same;
+		if (list.length >= MAX_BOOKMARKS) throw new Error(`a conversation has at most ${MAX_BOOKMARKS} bookmarks; remove one first`);
+		const made: Bookmark = { id: randomUUID(), ...read, created: Date.now() };
+		this.kv.set(`bookmarks:${agentId}:${sessionKey(session)}`, [...list, made]);
+		return made;
+	}
+
+	removeBookmark(agentId: string, session: string, id: string): boolean {
+		const list = this.bookmarksOf(agentId, session);
+		const kept = list.filter((b) => b.id !== id);
+		if (kept.length === list.length) return false;
+		this.kv.set(`bookmarks:${agentId}:${sessionKey(session)}`, kept.length ? kept : null);
+		return true;
+	}
+
 	/** Pin a conversation, so that it stays however long it is not used, or take the pin off. */
 	pinSession(agentId: string, session: string, on: boolean): boolean {
 		if (!this.cfg.agents[agentId]) throw new Error(`unknown agent "${agentId}"`);
@@ -1900,6 +1938,7 @@ export class AgentManager {
 			this.kv.set(`note:${agentId}:${key}`, null);
 			this.kv.set(`branch:${agentId}:${key}`, null);
 			this.kv.set(`visited:${agentId}:${key}`, null);
+			this.kv.set(`bookmarks:${agentId}:${key}`, null);
 			this.slots.forget(`${agentId}:${key}`);
 			this.kv.set(`folder:${agentId}:${key}`, null);
 			this.kv.set(`group:${agentId}:${key}`, null);
@@ -2075,7 +2114,7 @@ export class AgentManager {
 			const live = this.lives.get(`${agentId}:${a}${end}`);
 			if (live) await this.dispose(live);
 			if (fs.existsSync(path.join(root, `${a}${end}`))) fs.renameSync(path.join(root, `${a}${end}`), path.join(root, `${b}${end}`));
-			for (const mark of ["taint", "keep", "prefix", "note", "visited"]) {
+			for (const mark of ["taint", "keep", "prefix", "note", "visited", "bookmarks"]) {
 				const had = this.kv.get(`${mark}:${agentId}:${a}${end}`);
 				this.kv.set(`${mark}:${agentId}:${a}${end}`, null);
 				if (had !== undefined && had !== null) this.kv.set(`${mark}:${agentId}:${b}${end}`, had);
@@ -2185,6 +2224,8 @@ export class AgentManager {
 		// It is shown under the original, so it is in the original's group.
 		const group = this.kv.get<string>(`group:${agentId}:${from}`);
 		if (group) this.kv.set(`group:${agentId}:${to}`, group);
+		const bookmarks = remapBookmarks(this.bookmarksOf(agentId, from), ids);
+		if (bookmarks.length) this.kv.set(`bookmarks:${agentId}:${to}`, bookmarks);
 		this.kv.set(`branch:${agentId}:${to}`, { from, at: msg.id });
 		this.log.info(`the conversation ${from} of ${agentId} was branched after message #${msg.id} into ${to}${marks.taint ? " (it holds outside content)" : ""}`);
 		// In a worktree of its own: the branch writes its files apart from the original's. Should that
