@@ -234,6 +234,11 @@ export interface SubmitOptions {
 	/** Files of the conversation's folder that the owner pointed at in the message ("src/a.ts", "src/a.ts#20-45"). */
 	mentions?: string[];
 	quotes?: SentQuote[];
+	/**
+	 * The owner's own words, where pine wrote words of its own around them in `prompt` (the first
+	 * message of a goal or a swarm): what a UI shows of the message. Kept as `TaskMeta.body`.
+	 */
+	shown?: string;
 	/** See TaskMeta.compact. */
 	compact?: boolean;
 	/** See TaskMeta.via. */
@@ -861,7 +866,7 @@ export class AgentManager {
 			prompt += `\n\n[your owner points at ${named.length === 1 ? "this file" : "these files"} in your working folder: ${named.join(", ")}. Read ${named.length === 1 ? "it" : "them"} before you answer.]`;
 		}
 		const head = quotes ? withQuotes(quotes, "") : "";
-		const body = quotes ? (prompt.startsWith(head) ? prompt.slice(head.length).replace(/^\n\n/, "") : "") : undefined;
+		const body = quotes ? (prompt.startsWith(head) ? prompt.slice(head.length).replace(/^\n\n/, "") : "") : trust === "owner" && typeof o.shown === "string" ? truncate(o.shown, limit) : undefined;
 
 		if (o.whenBusy === "steer" && !ephemeral) {
 			const live = this.lives.get(`${agent.id}:${session}`);

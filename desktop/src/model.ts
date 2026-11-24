@@ -112,7 +112,14 @@ let quoteIds = 0;
 /** A number for a quote in a composer, which its badge is keyed by. */
 export const quoteId = () => ++quoteIds;
 
-const ownerText = (p: { prompt?: unknown; quotes?: unknown; body?: unknown }): { text: string; quotes?: SentQuote[] } => (Array.isArray(p.quotes) && p.quotes.length ? { text: String(p.body ?? ""), quotes: p.quotes as SentQuote[] } : { text: String(p.prompt ?? "") });
+/**
+ * What the owner wrote, as it is shown: quotes apart from what was typed after them, and where pine put a
+ * frame of its own around the owner's words (the first message of a goal or a swarm), those words alone.
+ */
+const ownerText = (p: { prompt?: unknown; quotes?: unknown; body?: unknown }): { text: string; quotes?: SentQuote[] } => (Array.isArray(p.quotes) && p.quotes.length ? { text: String(p.body ?? ""), quotes: p.quotes as SentQuote[] } : { text: String(typeof p.body === "string" ? p.body : (p.prompt ?? "")) });
+
+/** The same as one text, quotes as markdown: for a title, a search, an export. */
+const ownerSaid = (t: Task) => (t.meta?.quotes?.length ? t.prompt : (t.meta?.body ?? t.prompt));
 
 export type CodeView = "agent" | "files" | "changes" | "turn" | "output" | "running" | "board" | "terminal";
 
@@ -1098,7 +1105,7 @@ export class Store extends Model {
 		for (let i = this.said.length - 1; i >= 0; i--) {
 			const t = this.said[i];
 			const key = `${t.agent}:${t.session.replace(/~u$/, "")}`;
-			if (!titles.has(key) && t.kind === "prompt" && t.prompt.trim()) titles.set(key, short(oneLine(t.prompt), 48));
+			if (!titles.has(key) && t.kind === "prompt" && ownerSaid(t).trim()) titles.set(key, short(oneLine(ownerSaid(t)), 48));
 		}
 		this.titles = titles;
 		this.titled = true;
@@ -1137,11 +1144,11 @@ export class Store extends Model {
 			const session = t.session.replace(/~u$/, "");
 			const key = `${t.agent}:${session}`;
 			if (seen.has(key) || !this.agent(t.agent)) continue;
-			const asked = t.prompt.toLowerCase().indexOf(q);
+			const asked = ownerSaid(t).toLowerCase().indexOf(q);
 			const answered = asked < 0 ? (t.result ?? "").toLowerCase().indexOf(q) : -1;
 			if (asked < 0 && answered < 0) continue;
 			seen.add(key);
-			out.push({ agent: t.agent, session, who: asked >= 0 ? (t.kind === "prompt" ? "you" : t.kind) : t.agent, snippet: asked >= 0 ? around(t.prompt, asked) : around(t.result ?? "", answered), ts: t.created });
+			out.push({ agent: t.agent, session, who: asked >= 0 ? (t.kind === "prompt" ? "you" : t.kind) : t.agent, snippet: asked >= 0 ? around(ownerSaid(t), asked) : around(t.result ?? "", answered), ts: t.created });
 			if (out.length >= 30) break;
 		}
 		return out;
@@ -1529,7 +1536,7 @@ export class Store extends Model {
 		if (t.meta?.compact) return void tab.note(t.status === "done" ? (t.result ?? "The earlier part of the conversation was summarised.") : `Shortening the conversation: ${t.status}${t.error ? ` (${t.error})` : ""}`);
 		if (t.kind === "event" && t.meta?.label) tab.add({ t: "event", label: t.meta.label, body: eventBody(t.prompt) });
 		else if (isGoalRound(t.kind, t.meta?.label)) tab.note(`↻ ${t.meta.label}`);
-		else tab.add({ t: "user", text: t.meta?.quotes ? (t.meta.body ?? "") : t.prompt, quotes: t.meta?.quotes, from: t.kind === "prompt" ? undefined : t.kind, task: t.kind === "prompt" && t.meta?.trust === "owner" && t.meta?.steered === undefined ? t.id : undefined, steer: t.meta?.steered === undefined ? undefined : { task: t.id, into: t.meta.steered, read: t.meta.read } });
+		else tab.add({ t: "user", ...ownerText({ prompt: t.prompt, quotes: t.meta?.quotes, body: t.meta?.body }), from: t.kind === "prompt" ? undefined : t.kind, task: t.kind === "prompt" && t.meta?.trust === "owner" && t.meta?.steered === undefined ? t.id : undefined, steer: t.meta?.steered === undefined ? undefined : { task: t.id, into: t.meta.steered, read: t.meta.read } });
 		(t.meta?.images ?? []).forEach((_, i) => tab.add({ t: "media", kind: "image", name: `attached picture ${i + 1}`, url: media.task(t.id, i) }));
 		// It was read by work that was already running; the answer is that work's.
 		if (t.meta?.steered !== undefined) return;
@@ -2321,7 +2328,7 @@ export class Store extends Model {
 				out.push("", "---", "", `*${t.result || "The earlier part of the conversation was summarised here."}*`);
 				continue;
 			}
-			out.push("", t.kind === "prompt" ? (t.meta?.steered !== undefined ? "## You, while the agent worked" : "## You") : `## ${t.kind === "event" ? `Event${t.meta?.label ? `: ${t.meta.label}` : ""}` : `pine (${t.kind})`}`, "", t.prompt.trim());
+			out.push("", t.kind === "prompt" ? (t.meta?.steered !== undefined ? "## You, while the agent worked" : "## You") : `## ${t.kind === "event" ? `Event${t.meta?.label ? `: ${t.meta.label}` : ""}` : `pine (${t.kind})`}`, "", ownerSaid(t).trim());
 			if (t.meta?.steered !== undefined) continue;
 			if (full) {
 				const steps = (await api.transcript(t.id).catch(() => undefined))?.entries ?? [];

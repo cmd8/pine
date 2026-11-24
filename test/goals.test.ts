@@ -426,6 +426,8 @@ test("goal: /goal in the terminal UI sets it through the API; the status line sh
 	await until(() => again.screen().join("\n").includes("── now ──"));
 	const restored = again.screen().join("\n");
 	assert.ok(restored.includes("↻ goal: round 2 of 20") && restored.includes("goal met after 3 rounds") && restored.includes("the goal: ship both halves"), restored);
+	// The owner's first message is what they typed: pine's frame around it was for the agent.
+	assert.ok(restored.includes("ship both halves @@REF:work@@") && !restored.includes("your owner set this as the goal"), restored);
 	await again.stop();
 
 	// The API refuses what is not a goal, and clearing is the owner's too.

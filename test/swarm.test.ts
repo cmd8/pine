@@ -372,6 +372,9 @@ test("swarm: only the owner starts one, through the control API; it is paused, r
 	const started = await api("POST", "/agents/main/swarm", { session: "job", objective: "the job @@REF:lead@@" });
 	assert.deepEqual([started.status, started.body.swarm.status, started.body.swarm.round], [200, "active", 1]);
 	assert.equal((await api("GET", "/agents/main/swarm?session=job")).body.swarm.objective, "the job @@REF:lead@@");
+	// The lead is told the job in pine's frame; read back, the owner's message is the job as they wrote it.
+	const first = (await api("GET", "/tasks?agent=main&session=job")).body.find((t: any) => t.kind === "prompt" && t.parent === undefined);
+	assert.deepEqual([first.prompt, first.meta.body], [startPrompt("the job @@REF:lead@@"), "the job @@REF:lead@@"]);
 	assert.equal((await api("POST", "/agents/main/swarm", { session: "job", action: "nonsense" })).status, 400);
 	assert.equal((await api("POST", "/agents/main/swarm", { session: "job" })).status, 400);
 	assert.equal((await api("POST", "/agents/nobody/swarm", { session: "job", objective: "x" })).status, 404);
@@ -438,6 +441,14 @@ test("swarm: /swarm in the terminal UI starts one, shows what pine does about it
 	await sees("swarm done after 2 rounds: 1 task, and the answer was checked");
 	// The job was typed here, so it is shown once and as the owner's; what pine told the lead in a round is not shown as a message.
 	assert.ok(!text().includes("[elsewhere]") && !text().includes("[notify]") && !text().includes("the swarm is not finished") && !text().includes("your owner started a swarm") && !text().includes("Check the answer below"), text());
+	// Opened again, the conversation is read from pine's history: the owner's message is the job alone.
+	const again = new PineTui({ client, terminal: new FakeTerminal(130, 60) });
+	apps.push(again);
+	await again.start();
+	await until(() => again.screen().join("\n").includes("ALL-SHELVES-SORTED"), 5000, "the history to be shown");
+	const restored = again.screen().join("\n");
+	assert.ok(restored.includes("tidy the archive @@REF:lead@@") && !restored.includes("your owner started a swarm"), restored);
+	await again.stop();
 	await send("/swarm pause");
 	await sees("the swarm is not at work");
 	await send("/swarm clear");
