@@ -14,7 +14,8 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Item, ItemActions, ItemContent, ItemTitle } from "@/components/ui/item";
 import { Kbd } from "@/components/ui/kbd";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgentAvatar } from "@/components/agent-avatar";
@@ -256,7 +257,7 @@ function doingText(j: Job, w: World): string {
 
 function DoingIcon({ j }: { j: Job }) {
 	const c = "size-3 flex-none";
-	if (j.doing === "asking") return <span aria-hidden className="size-1.5 flex-none animate-pulse rounded-full bg-warn [animation-timing-function:steps(4,jump-none)]" />;
+	if (j.doing === "asking") return <Pulse label="asks you" className="size-1.5 bg-warn" />;
 	if (j.doing === "tool") return <WrenchIcon className={c} />;
 	if (j.doing === "writing") return <PenLineIcon className={c} />;
 	if (j.doing === "waiting") return <HourglassIcon className={c} />;
@@ -276,7 +277,7 @@ function Marks({ j }: { j: Job }) {
 			{held ? (
 				<HoverTooltip>
 					<TooltipTrigger render={<span className="flex-none text-warn" />}>
-						<ShieldIcon className="size-3" aria-label={`held to ${mode} mode`} />
+						<ShieldIcon className="size-3 shrink-0" aria-label={`held to ${mode} mode`} />
 					</TooltipTrigger>
 					<TooltipContent>Held to {mode} mode: it was handed on from work in that mode, and {j.agent} works in {own} by itself</TooltipContent>
 				</HoverTooltip>
@@ -284,7 +285,7 @@ function Marks({ j }: { j: Job }) {
 			{outside ? (
 				<HoverTooltip>
 					<TooltipTrigger render={<span className="flex-none text-warn" />}>
-						<TriangleAlertIcon className="size-3" aria-label="read outside content" />
+						<TriangleAlertIcon className="size-3 shrink-0" aria-label="read outside content" />
 					</TooltipTrigger>
 					<TooltipContent>The conversation read outside content ({outside}): sending something out asks you</TooltipContent>
 				</HoverTooltip>
@@ -297,7 +298,7 @@ function ModeBadge({ mode }: { mode: string }) {
 	const open = mode === "auto" || mode === "bypass";
 	return (
 		<HoverTooltip>
-			<TooltipTrigger render={<Badge variant="outline" className={cn("h-4.5 px-1.5", mode === "bypass" && "text-destructive")} />}>
+			<TooltipTrigger render={<Badge variant={mode === "bypass" ? "destructive" : "outline"} />}>
 				{open ? <ShieldOffIcon data-icon="inline-start" /> : <ShieldIcon data-icon="inline-start" />}
 				{mode}
 			</TooltipTrigger>
@@ -331,7 +332,7 @@ export function ViewAside() {
 			onClose={() => void store.command("view")}
 			bar={
 				<>
-					<RadarIcon className="size-3.5 text-muted-foreground" />
+					<RadarIcon className="size-3.5 shrink-0 text-muted-foreground" />
 					<ViewSelect id={id} />
 					<span className="min-w-0 flex-1" />
 					<HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" onClick={() => void store.command("view")} aria-label="Close the view"><XIcon /></Button>} /><TooltipContent>Close the view<Kbd>{shortcut("⇧⌘O")}</Kbd></TooltipContent></HoverTooltip>
@@ -354,16 +355,18 @@ function ViewSelect({ id }: { id: string }) {
 	const items = s.views.map((v) => ({ value: v.id, label: v.id }));
 	return (
 		<Select items={items} value={id} onValueChange={(v) => v && v !== id && void s.setView(String(v))} onOpenChange={(open) => open && void s.refreshViews()}>
-			<SelectTrigger size="sm" aria-label="Which view" data-slot="view-select" className="h-7 min-w-0 border-transparent bg-transparent px-1.5 font-medium shadow-none hover:bg-accent dark:bg-transparent">
+			<SelectTrigger size="sm" aria-label="Which view" data-slot="view-select" className="min-w-0">
 				<SelectValue />
 			</SelectTrigger>
 			<SelectContent alignItemWithTrigger={false} align="start" className="min-w-56">
-				{s.views.map((v) => (
-					<SelectItem key={v.id} value={v.id} disabled={Boolean(v.problem)} title={v.problem}>
-						<span className="truncate">{v.id}</span>
-						{v.problem ? <span className="truncate text-xs text-muted-foreground">{v.problem}</span> : null}
-					</SelectItem>
-				))}
+				<SelectGroup>
+					{s.views.map((v) => (
+						<SelectItem key={v.id} value={v.id} disabled={Boolean(v.problem)} title={v.problem}>
+							<span className="truncate">{v.id}</span>
+							{v.problem ? <span className="truncate text-xs text-muted-foreground">{v.problem}</span> : null}
+						</SelectItem>
+					))}
+				</SelectGroup>
 			</SelectContent>
 		</Select>
 	);
@@ -378,7 +381,7 @@ export function ViewPanel({ id }: { id: string }) {
 	const chosen = gone ? undefined : sel;
 	const pick = (next: Sel) => setSel((was) => (was && next && was.k === next.k && was.id === next.id && (was.k !== "board" || next.k !== "board" || was.task === next.task) ? undefined : next));
 	return (
-		<div data-slot="view" data-view={id} className="flex min-h-0 flex-1 flex-col">
+		<div data-slot="view" data-view={id} className="flex min-h-0 flex-1 flex-col text-sm">
 			<NeedsYou pick={pick} />
 			<div className="relative min-h-0 flex-1">
 				<ViewFrame key={id} id={id} sel={chosen} pick={(t) => setSel(t)} />
@@ -488,9 +491,10 @@ function ViewFrame({ id, sel, pick }: { id: string; sel: Sel; pick: (s: Sel) => 
 			{code ? <iframe ref={frame} src="view.html" sandbox="allow-scripts" title={`The view ${id}`} data-slot="view-frame" data-ready={ready || undefined} className="absolute inset-0 size-full border-0" /> : null}
 			{ready || error ? null : <ViewFrameSkeleton className="absolute inset-0" />}
 			{error ? (
-				<div data-slot="view-error" className="absolute inset-x-2 bottom-2 rounded-md border border-destructive/40 bg-background/95 px-2 py-1.5 text-xs text-destructive">
-					The view {id} stopped: {error}
-				</div>
+				<Alert variant="destructive" data-slot="view-error" className="absolute inset-x-2 bottom-2 w-auto">
+					<TriangleAlertIcon />
+					<AlertDescription>The view {id} stopped: {error}</AlertDescription>
+				</Alert>
 			) : null}
 		</>
 	);
@@ -543,7 +547,7 @@ function Inspector({ sel, pick }: { sel: Sel; pick: (s: Sel) => void }) {
 	const w = useWorld();
 	const now = useNow(1000);
 	return (
-		<ScrollArea data-slot="view-inspector" className="h-44 flex-none sm:h-52">
+		<ScrollArea data-slot="view-inspector" className="h-44 flex-none sm:h-52 *:data-[slot=scroll-area-viewport]:scroll-fade">
 			<div className="flex flex-col gap-1.5 p-3 text-xs">
 				{sel?.k === "board" ? <BoardDetail key={`${sel.id}:${sel.task ?? ""}`} id={sel.id} task={sel.task} pick={pick} /> : sel?.k === "job" && w.jobs.get(sel.id) ? <JobDetail j={w.jobs.get(sel.id)!} now={now} pick={pick} /> : sel?.k === "agent" && w.places.get(sel.id) ? (isSeeded() ? <AgentDetail id={sel.id} now={now} pick={pick} /> : <AgentDetail skeleton />) : <Feed now={now} pick={pick} />}
 			</div>
@@ -608,7 +612,7 @@ function AgentDetailLive({ id, now, pick }: { id: string; now: number; pick: (s:
 			<div className="flex items-center gap-2">
 				<AgentAvatar agent={{ id, color: colorOf(id), main: store.agent(id)?.main }} size="sm" />
 				<span className="truncate text-sm font-medium">{id}</span>
-				{a.main ? <Badge variant="secondary" className="h-4.5">main</Badge> : null}
+				{a.main ? <Badge variant="secondary">main</Badge> : null}
 				<ModeBadge mode={a.mode} />
 				<span className="min-w-0 flex-1" />
 				<Button variant="outline" size="xs" onClick={() => void store.openTab(id, "main")}><ExternalLinkIcon data-icon="inline-start" />Open</Button>
@@ -622,7 +626,7 @@ function AgentDetailLive({ id, now, pick }: { id: string; now: number; pick: (s:
 				<button key={r.session} type="button" className="flex items-center gap-2 rounded-sm text-start hover:bg-accent" onClick={() => !r.session.endsWith("~u") && void store.openTab(id, r.session)}>
 					{r.busy ? <Pulse className="size-1.5" /> : <span className="size-1.5 flex-none" />}
 					<span className="min-w-0 flex-1 truncate">{r.session.endsWith("~u") ? `${r.session.slice(0, -2)} (started from outside)` : r.session}</span>
-					{r.outside ? <TriangleAlertIcon className="size-3 text-warn" aria-label="read outside content" /> : null}
+					{r.outside ? <TriangleAlertIcon className="size-3 shrink-0 text-warn" aria-label="read outside content" /> : null}
 					<span className="text-faint">{r.mode}</span>
 				</button>
 			))}
@@ -680,7 +684,21 @@ function BoardDetail({ id, task, pick }: { id: number; task?: number; pick: (s: 
 			<Button variant="ghost" size="icon-xs" aria-label="Back to what happened" onClick={() => pick(undefined)}><XIcon /></Button>
 		</div>
 	);
-	if (!v) return <>{head}<span className="text-muted-foreground">{view.error ?? "Loading"}</span></>;
+	if (!v)
+		return (
+			<>
+				{head}
+				{view.error ? (
+					<span className="text-muted-foreground">{view.error}</span>
+				) : (
+					<div data-slot="board-detail-skeleton" className="flex flex-col gap-1.5">
+						<Skeleton className="h-3.5 w-2/3" />
+						<Skeleton className="h-3.5 w-1/2" />
+						<Skeleton className="h-3.5 w-3/4" />
+					</div>
+				)}
+			</>
+		);
 	if (t)
 		return (
 			<>
