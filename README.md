@@ -5,13 +5,12 @@
   </picture>
 </h1>
 
-[pine.pmnd.re](https://pine.pmnd.re)
-
 **[Download the Pine app](https://github.com/pmndre/pine/releases/latest)** for macOS, Windows and
-Linux. It carries everything pine needs, pine itself and the Node it runs on, so there is nothing
-else to install. It also gives your terminal the `pine` command.
+Linux. It also gives your terminal the `pine` command.
 
-pine is also a command line tool on its own, for a terminal or a server. That needs Node 24 or newer:
+---
+
+pine is also a command line tool on its own, for a terminal or a server (needs Node 24 or newer):
 
 ```bash
 npm install -g @pmndre/pine
