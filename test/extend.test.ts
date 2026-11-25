@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { buildArgv, run } from "../mcp/commands.ts";
 import { htmlToText, isPrivateAddress } from "../mcp/web.ts";
-import { harness, MCP_STUB, mockMsg, sleep, until } from "./support/harness.ts";
+import { harness, MCP_STUB, mockMsg, PATIENCE, sleep, until } from "./support/harness.ts";
 
 const owner = { trust: "owner" as const };
 const stub = (label: string, extra: Record<string, unknown> = {}) => ({ command: process.execPath, args: [MCP_STUB], env: { MCP_LABEL: label }, ...extra });
@@ -108,12 +109,12 @@ test("bundled commands server: fixed commands as tools, parameters cannot inject
 
 /** A command's answer, or why it failed, or nothing at all if it has not been answered within `ms`: it hangs. */
 const answered = (name: string, cmd: Parameters<typeof run>[1], ms: number): Promise<{ text?: string; e?: Error }> =>
-	Promise.race([run(name, cmd, {}).then((text) => ({ text }), (e: Error) => ({ e })), sleep(ms).then(() => ({}))]);
+	Promise.race([run(name, cmd, {}).then((text) => ({ text }), (e: Error) => ({ e })), sleep(ms * PATIENCE).then(() => ({}))]);
 
 /** A command that starts a program in the background, which writes its pid where the test can read it, and then hangs. */
-const background = (pidFile: string, start: string) => ["bash", "-lc", `${start} echo $! > ${pidFile}; echo started; sleep 20`];
+const background = (pidFile: string, start: string) => ["bash", "-c", `${start} echo $! > ${pidFile}; echo started; sleep 20`];
 
-test("bundled commands server: a timeout ends what the command started, which holds the command's output", async () => {
+test("bundled commands server: a timeout ends what the command started, which holds the command's output", { skip: process.platform === "win32" && "the command is a POSIX shell that starts a program in the background, and reads its pid with $!" }, async () => {
 	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-commands-")));
 	try {
 		const pidFile = path.join(dir, "pid");
@@ -151,6 +152,37 @@ test("bundled commands server: a command stopped at its timeout is answered thou
 			}
 		}
 		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("bundled commands server: a command still running when its session closes ends with it", { skip: process.platform === "win32" && "a process group is what the command runs in; on Windows the tree is ended by taskkill /T" }, async () => {
+	// The server started and closed as pi's MCP client does: in a group of its own, closed by ending its stdin and
+	// then by SIGTERM to that group. The command is in a group of its own, which that kill does not reach.
+	for (const close of ["stdin", "SIGTERM"] as const) {
+		const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-commands-")));
+		const pidFile = path.join(dir, "pid");
+		let pid = 0;
+		const options = { commands: { slow: { description: "", run: ["sh", "-c", `echo $$ > ${pidFile}; exec sleep 30`], timeoutSec: 60 } } };
+		const server = spawn(process.execPath, [path.resolve(import.meta.dirname, "../mcp/commands.ts")], { detached: true, stdio: ["pipe", "ignore", "ignore"], env: { ...process.env, PINE_MCP_OPTIONS: JSON.stringify(options) } });
+		try {
+			const send = (m: unknown) => server.stdin.write(`${JSON.stringify(m)}\n`);
+			send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "0" } } });
+			send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "slow", arguments: {} } });
+			await until(() => fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8").trim() !== "", 3000, "the command to start");
+			pid = Number(fs.readFileSync(pidFile, "utf8").trim());
+			if (close === "stdin") server.stdin.end();
+			else process.kill(-(server.pid as number), "SIGTERM");
+			await until(() => !alive(pid), 3000, `the command to end when the session closes by ${close}`);
+		} finally {
+			for (const p of [pid, -(server.pid as number)]) {
+				try {
+					if (p) process.kill(p, "SIGKILL");
+				} catch {
+					// already gone
+				}
+			}
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
 	}
 });
 

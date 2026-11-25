@@ -62,6 +62,9 @@ export function buildArgv(cmd: Command, args: Record<string, unknown>): string[]
 	return cmd.run.map((part) => part.replace(/\{\{\s*(\w+)\s*\}\}/g, (_m, name) => (name in values ? values[name] : "")));
 }
 
+/** Commands still running, each ended with its group when the session that called them closes. */
+const running = new Set<() => void>();
+
 export function run(name: string, cmd: Command, args: Record<string, unknown>): Promise<string> {
 	let argv = buildArgv(cmd, args);
 	if (cmd.sandbox && o.sandbox?.length) argv = [...o.sandbox, ...argv];
@@ -94,9 +97,11 @@ export function run(name: string, cmd: Command, args: Record<string, unknown>): 
 				// nobody left in it
 			}
 		};
+		running.add(group);
 		const settle = (code: number | null, signal: NodeJS.Signals | null) => {
 			if (settled) return;
 			settled = true;
+			running.delete(group);
 			clearTimeout(timer);
 			// Whatever still writes to them is not this call's answer, and must not hold the call open.
 			child.stdout.destroy();
@@ -116,6 +121,7 @@ export function run(name: string, cmd: Command, args: Record<string, unknown>): 
 		child.on("error", (e) => {
 			if (settled) return;
 			settled = true;
+			running.delete(group);
 			clearTimeout(timer);
 			reject(new Error(`${name}: ${e.message}`));
 		});
@@ -132,6 +138,14 @@ export function run(name: string, cmd: Command, args: Record<string, unknown>): 
 }
 
 if (import.meta.main) {
+	// A command is in a group of its own, out of reach of the kill of this server's group with which pi closes a
+	// session (stdin closed, then SIGTERM): end every one that still runs when that comes.
+	const endAll = () => {
+		for (const end of running) end();
+		process.exit(0);
+	};
+	process.stdin.on("end", endAll);
+	process.on("SIGTERM", endAll);
 	const tools: McpTool[] = Object.entries(o.commands ?? {}).map(([name, cmd]) => ({
 		name,
 		description: cmd.description,
