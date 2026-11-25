@@ -108,6 +108,13 @@ test("auto mode: outside content takes nothing away and ordinary work is not ask
 	// What is read as instructions for somebody else stays closed to the file tools.
 	await run([{ tools: [call("write", { path: "CLAUDE.md", content: "EVIL" })] }]);
 	assert.match(h.toolResults().at(-1)!, /holds agent instructions and cannot be changed in a run that has handled outside content/);
+	// Spelled in another case, where the file system ignores case: the next coding agent reads claude.md as CLAUDE.md.
+	if (process.platform === "darwin" || process.platform === "win32") {
+		const recased = ["claude.md", "Agents.md", ".PI/extensions/x.ts", ".GIT/config"];
+		await run([{ tools: recased.map((f) => call("write", { path: f, content: "EVIL" })) }]);
+		for (const r of h.toolResults().slice(-recased.length)) assert.match(r, /holds agent instructions|hooks or configuration/, r);
+		assert.deepEqual(recased.filter((f) => fs.existsSync(path.join(ws, f))), []);
+	}
 	assert.ok(h.mock.state.requests.flatMap((q: any) => notesOf(q)).join("\n").includes("Sending something out (an event, a message or a command through an event source, a task for an agent that can send) asks your owner first from here on"), "the agent is told what changed");
 
 	// Sending something out asks, with why, and offers "always" for the tool.

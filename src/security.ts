@@ -264,15 +264,25 @@ function ownRules(roots: Roots, target: string, p: string): string | undefined {
 	return undefined;
 }
 
+/**
+ * A name as the file system tells names apart. macOS and Windows ignore case by default, so
+ * `claude.md` written where there is no CLAUDE.md yet is read by the next coding agent as CLAUDE.md.
+ * realish() gives a file that exists the case it has on disk; a file that is still to be made
+ * keeps the case it was given, and only a comparison that folds case knows it for what it is.
+ * (These names only refuse: folding them on a volume that tells case apart refuses a little more.)
+ */
+const folded = (name: string) => (process.platform === "darwin" || process.platform === "win32" ? name.toLowerCase() : name);
+const named = (list: string[], name: string) => list.some((n) => folded(n) === folded(name));
+
 export function isInstructionPath(workspace: string, p: string): boolean {
 	if (!isInside(workspace, p)) return false;
-	const rel = path.relative(workspace, p);
-	return INSTRUCTION_FILES.includes(path.basename(p)) || INSTRUCTION_DIRS.some((d) => rel === d || rel.startsWith(d + path.sep));
+	const rel = folded(path.relative(workspace, p));
+	return named(INSTRUCTION_FILES, path.basename(p)) || INSTRUCTION_DIRS.map(folded).some((d) => rel === d || rel.startsWith(d + path.sep));
 }
 
 /** Whether a path is one of the files that are read into the agent's prompt from its workspace, or one of those for all agents in pine's home. */
 export function isOwnFile(roots: Roots, p: string): boolean {
-	return roots.shared.includes(p) || (path.dirname(p) === roots.workspace && WORKSPACE_FILES.includes(path.basename(p)));
+	return roots.shared.includes(p) || (path.dirname(p) === roots.workspace && named(WORKSPACE_FILES, path.basename(p)));
 }
 
 /** The files an agent keeps itself: its memory and instructions at the top of its workspace, and for the main agent what holds for all agents. */
@@ -289,7 +299,7 @@ export function ownFileOf(roots: Roots, given: string, cwd: string): string | un
 
 /** Whether a path in one of the agent's folders is a repository's hooks or configuration, or the repository's own folder. */
 export function isGitRunPath(root: string, p: string): boolean {
-	return isInside(root, p) && GIT_RUNS.test(`/${path.relative(root, p)}`);
+	return isInside(root, p) && GIT_RUNS.test(folded(`/${path.relative(root, p)}`));
 }
 
 /**
