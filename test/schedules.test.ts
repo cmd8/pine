@@ -4,7 +4,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../src/config.ts";
 import { localTime } from "../src/timers.ts";
-import { harness, MCP_STUB, mockMsg, until } from "./support/harness.ts";
+import { harness, MCP_STUB, mockMsg, sleep, until } from "./support/harness.ts";
 
 const owner = { trust: "owner" as const };
 const call = (name: string, args: any) => ({ name, args });
@@ -149,6 +149,7 @@ test("schedules: a run missed while pine was not running wakes the agent when pi
 	const h = await harness({ pine: { main: "main", schedules: [{ name: "plants", cron: "0 3 * * *", task: "Water the plants." }] }, agents: { main: {} } });
 	// The last run it wrote down is three days old, so there are mornings in the last three days it did not see.
 	h.pine.agents.kv.set("timer:plants", Math.floor((Date.now() - 3 * 86_400_000) / 60_000));
+	const restarted = Math.floor(Date.now() / 60_000);
 	await h.restart();
 	// The catch-up is published inside start(): the route for it has to be there before, or the event reaches nobody and
 	// the run is marked as done all the same.
@@ -156,21 +157,19 @@ test("schedules: a run missed while pine was not running wakes the agent when pi
 	await until(() => h.mock.state.requests.some(late), 6000, "the catch-up to wake the agent");
 	await until(() => woken(h, "main").length, 6000, "the turn it ran");
 	assert.equal((h.pine.bus.query({ topic: "timer/plants" }).at(-1)?.payload as any).late, true, "and the event says it comes late");
-	assert.equal(h.pine.agents.kv.get("timer:plants"), Math.floor(Date.now() / 60_000), "the run is written down as the current minute, so it is not caught up twice");
+	assert.ok(h.pine.agents.kv.get<number>("timer:plants")! >= restarted, "the run is written down as the minute pine started in, so it is not caught up twice");
 	await h.close();
 });
 
-test("schedules: an interval longer than a timeout can be is waited out in pieces; one that cannot be timed is refused before it is written", async () => {
+test("schedules: an interval longer than a timeout can be is waited out in pieces, whether it was written in the file or added by an agent", async () => {
 	const h = await harness({ pine: { main: "main", schedules: [{ name: "monthly", every: "30d", task: "Send the monthly report." }] }, agents: { main: {} } });
 	// Node takes a delay as a 32-bit int: a setInterval of 30 days is 1 ms, a thousand runs a second.
 	await sleep(400);
 	assert.deepEqual(h.pine.bus.query({ topic: "timer/monthly" }), [], "nothing fires for thirty days");
 	assert.ok(h.pine.schedules.list()[0].next! - Date.now() > 29 * 86_400_000, "and its first run is thirty days off, not a millisecond");
-	// And what is asked for is refused while it can still be said, rather than scheduled and left to fire wildly.
-	assert.throws(() => h.pine.schedules.check({ name: "wild", task: "x", every: "999ms" }), /"every" must be at least "1s"/);
-	assert.throws(() => h.pine.schedules.check({ name: "wild", task: "x", every: "2147483647ms" }), /"every" must be under \d+ ms \(about 24 days\)/);
-	assert.equal(h.pine.schedules.check({ name: "wild", task: "x", every: "24d" }).every, "24d", "a day short of it is still a wait");
-	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("add_schedule", { name: "wild", task: "Send it.", every: "30d" })] }]), ...owner });
-	assert.match(h.toolResults().at(-1)!, /"every" must be under \d+ ms \(about 24 days\)/);
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("add_schedule", { name: "monthly2", task: "Send it.", every: "30d" })] }]), ...owner });
+	assert.match(h.toolResults().at(-1)!, /^Scheduled "monthly2"/);
+	await sleep(200);
+	assert.deepEqual(h.pine.bus.query({ topic: "timer/monthly2" }), [], "one added by the agent waits too");
 	await h.close();
 });

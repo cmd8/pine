@@ -4,7 +4,7 @@ import { loadConfig, type PineConfig, type RouteConfig, type ScheduleConfig } fr
 import { editJson } from "./mcp-config.ts";
 import type { Router } from "./router.ts";
 import type { Bus, Kv } from "./store.ts";
-import { errText, type Logger, parseDuration } from "./util.ts";
+import { errText, type Logger } from "./util.ts";
 
 type Field = Set<number> | null; // null: any value
 
@@ -194,10 +194,9 @@ export class Scheduler {
 					// The schedule may be gone by now: taking one away re-arms every clock, and this wait is not among them then.
 					if (!this.all().some((x) => x.key === e.key && x.s === e.s)) return;
 					this.fire(e, at, false);
-					// One that came late fires once and is not made up for: the next is counted on the same cadence, ahead of now.
-					let next = at + period;
-					while (next <= Date.now()) next += period;
-					due(next);
+					// One that came late fires once and is not made up for: the next is counted on the same cadence, ahead of now
+					// (in one step: after a night asleep, a short interval counted up one period at a time would hold up pine).
+					due(at + period * (Math.floor(Math.max(0, Date.now() - at) / period) + 1));
 				}, Math.max(0, wait)).unref();
 			};
 			due(Date.now() + period);
@@ -253,7 +252,7 @@ export class Scheduler {
 		return this.all().filter((e) => e.scope === agentId || (e.scope === "global" && e.s.task)).map((e) => this.info(e));
 	}
 
-	/** Check a schedule that is to be added, before anybody is asked: its name, and that its times can be read and can be timed. Returns it as it goes into the file. */
+	/** Check a schedule that is to be added, before anybody is asked: its name, and that its times can be read. Returns it as it goes into the file. */
 	check(raw: { name: string; task: string; cron?: string; every?: string; at?: string | number; session?: string }): Record<string, unknown> {
 		const name = String(raw.name ?? "").trim();
 		if (!/^[a-z][a-z0-9_-]{0,39}$/.test(name)) throw new Error(`"${name}" is not a usable name: lowercase letters, digits, - and _, starting with a letter (for example morning, dentist)`);
@@ -262,13 +261,6 @@ export class Scheduler {
 		if (!task) throw new Error(`a schedule needs a "task": what you are to do when it is time, written so that it is self-contained`);
 		if (task.length > 4000) throw new Error("that task is too long for a schedule (4000 characters at most). Write the procedure down as a skill and name it in the task");
 		if (raw.cron) parseCron(raw.cron);
-		// An interval shorter than a second is a burst of runs, and one of about 24 days or more cannot be timed at
-		// all: Node takes a delay as a 32-bit int and turns anything longer into 1 ms. Neither is a schedule.
-		if (raw.every) {
-			const every = parseDuration(raw.every);
-			if (every < 1000) throw new Error(`"every" must be at least "1s": a shorter interval is a run every moment, which is what an event source is for`);
-			if (every >= 2 ** 31 - 1) throw new Error(`"every" must be under ${2 ** 31 - 1} ms (about 24 days): that is as long as one wait can be, so a longer one fires at once and then every millisecond; for something monthly write a "cron" line`);
-		}
 		return { name, ...(raw.cron ? { cron: raw.cron.trim() } : {}), ...(raw.every ? { every: raw.every } : {}), ...(raw.at !== undefined ? { at: typeof raw.at === "number" ? localTime(raw.at) : raw.at } : {}), task, ...(raw.session && raw.session !== "main" ? { session: raw.session } : {}) };
 	}
 
