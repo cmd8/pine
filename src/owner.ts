@@ -9,7 +9,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { addRoute, applyModelLimit, applySetting, checkModelLimit, checkRoute, checkSetting, dropRoute, type RouteInput, SETTINGS, settleModel } from "./admin.ts";
+import { addRoute, applyModelLimit, applySetting, checkModelLimit, checkRoute, checkSetting, dropRoute, type ModelPlan, planModelAdd, planModelChange, planModelRemove, type RouteInput, SETTINGS, settleModel } from "./admin.ts";
 import { AGENT_TOOLS } from "./agent-admin.ts";
 import type { AgentManager } from "./agents.ts";
 import { browserReady } from "./browser-build.ts";
@@ -337,7 +337,7 @@ export class OwnerApi {
 	/** A POST request. Undefined: not one of these. `long` is called by a request that takes as long as a person does. */
 	async post(parts: string[], body: any, long: () => void = () => {}): Promise<unknown | undefined> {
 		const at = parts.join("/");
-		const mine = ["settings", "shared", "skills", "skills/remove", "schedules", "schedules/remove", "routes", "routes/remove", "sources", "sources/propose", "sources/remove", "models/servers", "models/servers/remove", "models/servers/limit", "models/login", "models/logout", "mcp/login"].includes(at) || (parts[0] === "models" && parts[1] === "login" && parts.length === 3) || (parts[0] === "agents" && parts[2] === "view" && parts[3] === "write" && parts.length === 4);
+		const mine = ["settings", "shared", "skills", "skills/remove", "schedules", "schedules/remove", "routes", "routes/remove", "sources", "sources/propose", "sources/remove", "models/servers", "models/servers/remove", "models/servers/limit", "models/model", "models/model/set", "models/model/remove", "models/login", "models/logout", "mcp/login"].includes(at) || (parts[0] === "models" && parts[1] === "login" && parts.length === 3) || (parts[0] === "agents" && parts[2] === "view" && parts[3] === "write" && parts.length === 4);
 		if (!mine) return undefined;
 		try {
 			return await this.change(at, parts, body ?? {}, long);
@@ -502,6 +502,25 @@ export class OwnerApi {
 			}
 			applyModelLimit(cfg, checked);
 			return { name: checked.name, model: checked.model, ...(checked.limit !== undefined ? { limit: checked.limit } : {}), runs: cfg.limits.maxConcurrentRuns };
+		}
+		if (at === "models/model" || at === "models/model/set" || at === "models/model/remove") {
+			// One model of a server of the owner's own: added, set up, removed. The same plans as the main agent's
+			// add_model, configure_model and remove_model, without the question: the token is the owner.
+			const num = (v: unknown) => (v === undefined || v === null || v === "" ? undefined : Number(v));
+			const bool = (v: unknown) => (typeof v === "boolean" ? v : undefined);
+			let plan: ModelPlan;
+			try {
+				plan =
+					at === "models/model"
+						? await planModelAdd(cfg, manager, body.model, num(body.context))
+						: at === "models/model/set"
+							? await planModelChange(cfg, manager, body.model, { context: num(body.context), maxTokens: num(body.maxTokens), images: bool(body.images), reasoning: bool(body.reasoning), runs: num(body.runs) })
+							: planModelRemove(cfg, manager, body.model);
+			} catch (e) {
+				throw new Refusal(/in use by/.test(errText(e)) ? 409 : 400, errText(e));
+			}
+			await plan.apply();
+			return { model: plan.ref, changed: plan.lines.slice(1) };
 		}
 		if (at === "models/servers/remove") {
 			const name = String(body.name ?? "");

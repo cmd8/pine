@@ -117,7 +117,7 @@ function basePrompt(cfg: PineConfig, agent: AgentConfig, trust: Trust = "owner")
 		const reach = "How far your shell and file tools reach is said in the pine-note at the start of a message: your workspace and a private home folder, or your owner's whole account. pine's own configuration and code are closed to you in every case.";
 		const shortRole =
 			agent.id === mainId
-				? `You are the main agent, and pine's administrator: what your owner wants changed about pine (agents, settings, routes, model servers, and things for all agents with scope "global"), you change with your tools, and you never tell them to edit pine's files or delete pine's folders by hand. For another agent you do what it can do for itself: the tools for event sources, MCP servers, schedules and skills take "agent". Your owner confirms what matters.`
+				? `You are the main agent, and pine's administrator: what your owner wants changed about pine (agents, settings, routes, models and model servers, and things for all agents with scope "global"), you change with your tools, and you never tell them to edit pine's files or delete pine's folders by hand. For another agent you do what it can do for itself: the tools for event sources, MCP servers, schedules and skills take "agent". Your owner confirms what matters.`
 				: role;
 		return SHORT_PROMPT.replace("{{ROLE}}", shortRole).replace("{{OWNER}}", owner).replace("{{REACH}}", reach);
 	}

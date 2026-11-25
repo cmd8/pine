@@ -220,6 +220,31 @@ function editModels(home: string, change: (providers: Record<string, any>) => vo
 	fs.writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`, { mode: 0o600 });
 }
 
+/** The most tokens of context pine writes for a model: more is a typo, not a model. */
+const MAX_CONTEXT = 10_000_000;
+
+export function checkContext(context: number | undefined): void {
+	if (context !== undefined && (!positive(context) || context < 512 || context > MAX_CONTEXT)) throw new Error(`the context is a whole number of tokens from 512 to ${MAX_CONTEXT}, for example 65536: what the server was started with`);
+}
+
+/** A model's entry in models.json, as pine writes it for a model server of the owner's own. */
+function modelEntry(m: ServerModel, context: number, reasoningOverride?: boolean) {
+	const reasoning = reasoningOverride ?? m.reasoning;
+	// Where the server said which levels the model knows, the level chosen in pine is the one it gets.
+	const mapped = reasoning && m.efforts !== undefined;
+	return {
+		id: m.id,
+		contextWindow: context,
+		maxTokens: Math.min(8192, Math.floor(context / 2)),
+		input: m.images ? ["text", "image"] : ["text"],
+		...(reasoning ? { reasoning: true } : {}),
+		...(mapped ? { thinkingLevelMap: effortMap(m.efforts!) } : {}),
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		// What a plain server may reject is not sent.
+		compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: reasoning, ...(mapped ? { thinkingFormat: "openai" } : {}), maxTokensField: "max_tokens" },
+	};
+}
+
 /** Write a server into models.json, and its key into .env. Returns its models as "provider/id". */
 export function addModelServer(home: string, server: NewServer): string[] {
 	const unsized = server.models.filter((m) => !m.contextWindow && !server.context).map((m) => m.id);
@@ -230,23 +255,7 @@ export function addModelServer(home: string, server: NewServer): string[] {
 		baseUrl: server.baseUrl,
 		api: "openai-completions",
 		apiKey: server.key ? `$${modelKeyName(server.name)}` : "none",
-		models: server.models.map((m) => {
-			const contextWindow = server.context ?? m.contextWindow!;
-			const reasoning = server.reasoning ?? m.reasoning;
-			// Where the server said which levels the model knows, the level chosen in pine is the one it gets.
-			const mapped = reasoning && m.efforts !== undefined;
-			return {
-				id: m.id,
-				contextWindow,
-				maxTokens: Math.min(8192, Math.floor(contextWindow / 2)),
-				input: m.images ? ["text", "image"] : ["text"],
-				...(reasoning ? { reasoning: true } : {}),
-				...(mapped ? { thinkingLevelMap: effortMap(m.efforts!) } : {}),
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				// What a plain server may reject is not sent.
-				compat: { supportsStore: false, supportsDeveloperRole: false, supportsReasoningEffort: reasoning, ...(mapped ? { thinkingFormat: "openai" } : {}), maxTokensField: "max_tokens" },
-			};
-		}),
+		models: server.models.map((m) => modelEntry(m, server.context ?? m.contextWindow!, server.reasoning)),
 	};
 	// Checked before anything is written: the key of a server that is there must not be touched.
 	const there = read(() => JSON.parse(fs.readFileSync(modelsFile(home), "utf8")).providers, undefined) ?? {};
@@ -263,15 +272,168 @@ export function addModelServer(home: string, server: NewServer): string[] {
 	return entry.models.map((m) => `${server.name}/${m.id}`);
 }
 
-/** Who has a model of this server set: agents, the default, the judge of goals, the check of a swarm's answer. */
-export function modelServerUsers(cfg: PineConfig, name: string): string[] {
-	const of = (ref: string | undefined) => typeof ref === "string" && ref.startsWith(`${name}/`);
+/** Who has a model set that `of` says yes to: agents, the default, the judge of goals, the check of a swarm's answer, a route's model call. */
+function modelUsers(cfg: PineConfig, of: (ref: string) => boolean): string[] {
+	const is = (ref: string | undefined) => typeof ref === "string" && of(ref);
 	return [
-		...Object.values(cfg.agents).filter((a) => of(a.model)).map((a) => `agent ${a.id}`),
-		...(of(cfg.defaults.model) ? [`the default model (${Object.values(cfg.agents).filter((a) => !a.model).map((a) => a.id).join(", ") || "no agent right now"})`] : []),
-		...(of(cfg.defaults.judge) ? ["the judge of goals (defaults.judge)"] : []),
-		...(of(cfg.defaults.checker) ? ["the check of a swarm's answer (defaults.checker)"] : []),
+		...Object.values(cfg.agents).filter((a) => is(a.model)).map((a) => `agent ${a.id}`),
+		...(is(cfg.defaults.model) ? [`the default model (${Object.values(cfg.agents).filter((a) => !a.model).map((a) => a.id).join(", ") || "no agent right now"})`] : []),
+		...(is(cfg.defaults.judge) ? ["the judge of goals (defaults.judge)"] : []),
+		...(is(cfg.defaults.checker) ? ["the check of a swarm's answer (defaults.checker)"] : []),
+		...cfg.routes.filter((r) => is(r.call?.model)).map((r) => `the route ${r.name}`),
 	];
+}
+
+/** Who has a model of this server set. */
+export const modelServerUsers = (cfg: PineConfig, name: string): string[] => modelUsers(cfg, (ref) => ref.startsWith(`${name}/`));
+
+/** Who has this one model ("server/id") set. */
+export const modelRefUsers = (cfg: PineConfig, ref: string): string[] => modelUsers(cfg, (r) => r === ref);
+
+/** The entry of a model server of the owner's own in models.json, or an error that says what there is. */
+function serverEntry(home: string, name: string): any {
+	const providers = read(() => JSON.parse(fs.readFileSync(modelsFile(home), "utf8")).providers, undefined) ?? {};
+	const entry = providers[name];
+	if (!entry || typeof entry.baseUrl !== "string") {
+		const own = Object.entries<any>(providers).filter(([, p]) => typeof p?.baseUrl === "string").map(([n]) => n);
+		throw new Error(`"${name}" is not a model server of your owner's own${own.length ? `. Those are: ${own.join(", ")}` : ": there is none yet (add_model_server adds one)"}. The models of a provider pine signs in to (anthropic, openai, ...) come with pine and cannot be added, changed or removed; only how many runs one takes at a time can be set`);
+	}
+	return entry;
+}
+
+/** Whether `name` is a model server of the owner's own, in models.json. */
+export const isModelServer = (home: string, name: string): boolean => read(() => (serverEntry(home, name), true), false);
+
+/**
+ * The key to ask a server of the owner's own with, as pi would send it: from .env, or written in
+ * models.json. A key that a command prints is not run here: pine asks nothing of that server.
+ */
+export function serverKey(home: string, name: string): string | undefined {
+	const raw = serverEntry(home, name).apiKey;
+	if (typeof raw !== "string" || raw === "" || raw === "none") return undefined;
+	if (raw.startsWith("!")) throw new Error(`the key of "${name}" comes from a command, which pine does not run to ask the server. Your owner adds the model to models.json by hand, or removes the server and adds it again`);
+	if (!namesIn(raw).length) return raw;
+	const key = modelKeys(home).keys[name];
+	if (!key) throw new Error(`the key of "${name}" is not in pine's .env file: pine check says which line is missing`);
+	return key;
+}
+
+/** Add one model that a server of the owner's own serves to its entry. Returns it as "server/id". */
+export function addServerModel(home: string, name: string, model: ServerModel, context?: number): string {
+	const entry = serverEntry(home, name);
+	if ((entry.models ?? []).some((m: any) => m?.id === model.id)) throw new Error(`"${name}/${model.id}" is there already. To change how it is set up: configure_model`);
+	checkContext(context);
+	const size = context ?? model.contextWindow;
+	if (!size) throw new Error(`the server does not say how much context ${model.id} gets. Give it: the number of tokens one request may use (what the server was started with)`);
+	editModels(home, (providers) => {
+		providers[name].models = [...(Array.isArray(providers[name].models) ? providers[name].models : []), modelEntry(model, size)];
+	});
+	return `${name}/${model.id}`;
+}
+
+/** What can be changed about a model of a server of the owner's own. */
+export interface ModelChange {
+	/** Tokens of context one request gets. */
+	context?: number;
+	/** The most tokens one answer may have. */
+	maxTokens?: number;
+	/** Whether the model is sent pictures. */
+	images?: boolean;
+	/** Whether the model thinks before it answers, and is sent a level of effort. */
+	reasoning?: boolean;
+}
+
+/** How a model of a server of the owner's own is set up now, as configure_model names it. */
+export function serverModel(home: string, name: string, id: string): { context?: number; maxTokens?: number; images: boolean; reasoning: boolean } {
+	const m = (serverEntry(home, name).models ?? []).find((x: any) => x?.id === id);
+	if (!m) throw new Error(`"${name}" has no model "${id}" in pine. Its models: ${(serverEntry(home, name).models ?? []).map((x: any) => x?.id).join(", ") || "none"}. One that the server serves and pine does not have yet: add_model`);
+	return { context: positive(m.contextWindow), maxTokens: positive(m.maxTokens), images: Array.isArray(m.input) && m.input.includes("image"), reasoning: m.reasoning === true };
+}
+
+/**
+ * A change to one model, checked against what it is now. Returns what changes, in words
+ * (nothing when nothing would), and writes nothing.
+ */
+export function checkModelChange(home: string, name: string, id: string, change: ModelChange): string[] {
+	const now = serverModel(home, name, id);
+	checkContext(change.context);
+	const context = change.context ?? now.context ?? 0;
+	if (change.maxTokens !== undefined && (!positive(change.maxTokens) || change.maxTokens >= context)) throw new Error(`the longest answer is a whole number of tokens below the context (${context})`);
+	const lines: string[] = [];
+	if (change.context !== undefined && change.context !== now.context) lines.push(`context: ${now.context ?? "not set"} -> ${change.context} tokens`);
+	const max = outputFor(now, change);
+	if (max !== now.maxTokens) lines.push(`longest answer: ${now.maxTokens ?? "not set"} -> ${max} tokens`);
+	if (change.images !== undefined && change.images !== now.images) lines.push(`pictures: ${now.images ? "sent" : "not sent"} -> ${change.images ? "sent" : "not sent"}`);
+	if (change.reasoning !== undefined && change.reasoning !== now.reasoning) lines.push(`reasoning: ${now.reasoning ? "on" : "off"} -> ${change.reasoning ? "on" : "off"}`);
+	return lines;
+}
+
+/** The longest answer after a change: as given, else what there was, made to fit a smaller context. */
+function outputFor(now: { context?: number; maxTokens?: number }, change: ModelChange): number | undefined {
+	if (change.maxTokens !== undefined) return change.maxTokens;
+	if (change.context === undefined) return now.maxTokens;
+	return Math.min(now.maxTokens ?? 8192, Math.floor(change.context / 2));
+}
+
+/** Write a change that checkModelChange let through. */
+export function changeServerModel(home: string, name: string, id: string, change: ModelChange): void {
+	checkModelChange(home, name, id, change);
+	const now = serverModel(home, name, id);
+	editModels(home, (providers) => {
+		const m = providers[name].models.find((x: any) => x?.id === id);
+		if (change.context !== undefined) m.contextWindow = change.context;
+		const max = outputFor(now, change);
+		if (max !== undefined) m.maxTokens = max;
+		if (change.images !== undefined) m.input = change.images ? ["text", "image"] : ["text"];
+		if (change.reasoning !== undefined) {
+			m.compat = typeof m.compat === "object" && m.compat ? m.compat : {};
+			if (change.reasoning) {
+				m.reasoning = true;
+				m.compat.supportsReasoningEffort = true;
+			} else {
+				// Off is off: no level is sent, and no map of levels is left to send one.
+				delete m.reasoning;
+				delete m.thinkingLevelMap;
+				delete m.compat.thinkingFormat;
+				m.compat.supportsReasoningEffort = false;
+			}
+		}
+	});
+}
+
+/** Whether one model can be taken out of a server's entry: it is there, nothing uses it, and it is not the server's last. */
+export function checkServerModelRemoval(cfg: PineConfig, name: string, id: string): void {
+	const entry = serverEntry(cfg.home, name);
+	const models: any[] = Array.isArray(entry.models) ? entry.models : [];
+	if (!models.some((m) => m?.id === id)) throw new Error(`"${name}" has no model "${id}" in pine. Its models: ${models.map((m) => m?.id).join(", ") || "none"}`);
+	const ref = `${name}/${id}`;
+	const users = modelRefUsers(cfg, ref);
+	if (users.length) throw new Error(`"${ref}" is in use by ${users.join(", ")}. Give ${users.length === 1 ? "it" : "them"} another model first`);
+	if (models.length === 1) throw new Error(`"${ref}" is the only model of "${name}". To take the whole server out: remove_model_server`);
+}
+
+/** Take one model out of a server's entry. The server and its other models stay; its number of runs goes with it. */
+export function removeServerModel(cfg: PineConfig, name: string, id: string): void {
+	checkServerModelRemoval(cfg, name, id);
+	const ref = `${name}/${id}`;
+	editModels(cfg.home, (providers) => {
+		providers[name].models = providers[name].models.filter((m: any) => m?.id !== id);
+	});
+	dropLimits(cfg, [ref]);
+}
+
+/** Take the numbers of runs at a time of these models out of pine.json and the configuration in force. */
+function dropLimits(cfg: PineConfig, refs: string[]): void {
+	const mine = refs.filter((ref) => cfg.limits.models[ref] !== undefined);
+	if (!mine.length) return;
+	const file = path.join(cfg.home, "pine.json");
+	const json = read(() => JSON.parse(fs.readFileSync(file, "utf8")), undefined);
+	if (json?.limits?.models && typeof json.limits.models === "object") {
+		for (const k of mine) delete json.limits.models[k];
+		if (!Object.keys(json.limits.models).length) delete json.limits.models;
+		fs.writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`);
+	}
+	for (const ref of mine) delete cfg.limits.models[ref];
 }
 
 /** Take a server out of models.json again, with the key pine keeps for it. False when there is none of that name. */
@@ -288,17 +450,7 @@ export function removeModelServer(cfg: PineConfig, name: string): boolean {
 	});
 	if (ours) unsetEnv(cfg.home, [key]);
 	// The numbers of runs at a time that the owner gave its models go with it: the next server of that name starts without.
-	const mine = Object.keys(cfg.limits.models).filter((ref) => ref.startsWith(`${name}/`));
-	if (mine.length) {
-		const file = path.join(cfg.home, "pine.json");
-		const json = read(() => JSON.parse(fs.readFileSync(file, "utf8")), undefined);
-		if (json?.limits?.models && typeof json.limits.models === "object") {
-			for (const k of mine) delete json.limits.models[k];
-			if (!Object.keys(json.limits.models).length) delete json.limits.models;
-			fs.writeFileSync(file, `${JSON.stringify(json, null, 2)}\n`);
-		}
-		for (const ref of mine) delete cfg.limits.models[ref];
-	}
+	dropLimits(cfg, Object.keys(cfg.limits.models).filter((ref) => ref.startsWith(`${name}/`)));
 	return true;
 }
 

@@ -684,7 +684,10 @@ What no mode opens:
   instructions) and a model server of your own (`add_model_server`: you confirm the address
   every time, before any request goes there; its key is typed into pine's dialog and kept in
   `.env`; the name cannot be a provider's that exists, so no stored key is sent to a new
-  address; refused in a conversation that has read outside content). The main agent is also the
+  address; refused in a conversation that has read outside content), and one model of such a
+  server (`add_model`, `configure_model`, `remove_model`: no new address, you confirm every
+  change, and adding or changing one is refused in a conversation that has read outside
+  content). The main agent is also the
   one that changes, renames and removes agents and changes pine's settings and routes (`update_agent`,
   `rename_agent`, `remove_agent`, `set_setting`, `add_route`, `remove_route`): each takes a few named values and checks them, shows you the
   change before it is made, notes where it gives an agent more (the account, the network,
