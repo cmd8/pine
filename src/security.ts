@@ -15,8 +15,11 @@ export function realish(p: string): string {
 	const rest: string[] = [];
 	for (;;) {
 		try {
-			// (On Windows the system's own resolution, which also turns a short name like RUNNER~1 into the long one.)
-			return path.join(process.platform === "win32" ? fs.realpathSync.native(cur) : fs.realpathSync(cur), ...rest.reverse());
+			// The system's own resolution everywhere: it reports the case of the file on disk, where the
+			// JavaScript one hands back the case it was given, in a file system that ignores case (APFS by
+			// default) and would let a re-cased path past a check that compares text. On Windows it also
+			// turns a short name like RUNNER~1 into the long one.
+			return path.join(fs.realpathSync.native(cur), ...rest.reverse());
 		} catch {
 			const parent = path.dirname(cur);
 			if (parent === cur) return path.resolve(p);
