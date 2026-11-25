@@ -279,5 +279,5 @@ export function useFileActions(host: FileHost) {
 
 	/** Whether a row is cut and waits to be pasted: drawn faded, as editors draw it. */
 	const isCut = (p: string) => Boolean(clip && clip.op === "move" && clip.root === root && clip.paths.includes(p));
-	return { menu, keys, onCopy, onCut, onPaste, dialog, isCut };
+	return { menu, keys, onCopy, onCut, onPaste, dialog, isCut, own };
 }

@@ -265,7 +265,7 @@ function LinesSkeleton({ rows = 6 }: { rows?: number }) {
 }
 
 /** One row of the file tree: a folder (open or not) or a file with its size, indented by its depth. */
-export function DirRow(props: { name: string; dir: boolean; size: number; depth: number; open?: boolean; active?: boolean; /** Cut, and waiting to be pasted: drawn faded. */ cut?: boolean; /** git's color for it (`gitTones`). */ tone?: string; skeleton?: false } | { name?: undefined; dir?: undefined; size?: undefined; depth: number; open?: undefined; active?: undefined; /** While a folder is read: a row of its shape. */ skeleton: true }) {
+export function DirRow(props: { name: string; dir: boolean; size: number; depth: number; open?: boolean; active?: boolean; /** Cut, and waiting to be pasted: drawn faded. */ cut?: boolean; /** git's color for it (`gitTones`). */ tone?: string; /** One of the agent's own files (AGENTS.md and the others): its name drawn grey. */ own?: boolean; skeleton?: false } | { name?: undefined; dir?: undefined; size?: undefined; depth: number; open?: undefined; active?: undefined; /** While a folder is read: a row of its shape. */ skeleton: true }) {
 	const indent = { paddingLeft: `calc(var(--spacing) * ${2.5 + props.depth * 3.5})` };
 	if (props.skeleton || props.name === undefined)
 		return (
@@ -275,12 +275,12 @@ export function DirRow(props: { name: string; dir: boolean; size: number; depth:
 				<Skeleton className="h-4 w-28" />
 			</div>
 		);
-	const { name, dir, size: bytes, open, active, cut, tone } = props;
+	const { name, dir, size: bytes, open, active, cut, tone, own } = props;
 	return (
 		<TreeItemLabel className={cn(rowClass(active), cut && "opacity-50")} style={indent}>
 			{dir ? (open ? <ChevronDownIcon className="size-3.5 shrink-0 text-faint" /> : <ChevronRightIcon className="size-3.5 shrink-0 text-faint" />) : <span className="w-3.5 flex-none" />}
 			<FileKind name={name} dir={dir} open={open} tone={tone} />
-			<span className="min-w-0 flex-1 truncate">{name}</span>
+			<span className={cn("min-w-0 flex-1 truncate", own && "text-muted-foreground")}>{name}</span>
 			{!dir ? <span className="text-faint">{size(bytes)}</span> : null}
 		</TreeItemLabel>
 	);
@@ -372,6 +372,8 @@ interface Rows {
 	coarse: boolean;
 	/** git's color for a path (`gitTones`). */
 	tone: (path: string, dir?: boolean) => string | undefined;
+	/** One of the agent's own files, which pine reads as instructions: drawn grey. */
+	own: (path: string) => boolean;
 }
 const held = (e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; altKey: boolean }) => e.shiftKey || e.metaKey || e.ctrlKey || e.altKey;
 
@@ -434,7 +436,7 @@ function Dir({ tab, dir, depth, tick, onLoad, rows }: { tab: Tab; dir: string; d
 				const open = state.open.has(full);
 				return (
 					<TreeItem key={full} value={full} label={e.name} branch={e.dir} className={TREE_ITEM} data-path={full} onDoubleClick={e.dir ? undefined : (ev: React.MouseEvent) => held(ev) || rows.pick(full)}>
-						<DirRow name={e.name} dir={e.dir} size={e.size} depth={depth} open={open} active={state.file === full} cut={rows.isCut(full)} tone={rows.tone(full, e.dir)} />
+						<DirRow name={e.name} dir={e.dir} size={e.size} depth={depth} open={open} active={state.file === full} cut={rows.isCut(full)} tone={rows.tone(full, e.dir)} own={!e.dir && rows.own(full)} />
 						{e.dir ? <TreeGroup>{open ? <Dir tab={tab} dir={full} depth={depth + 1} tick={tick} onLoad={onLoad} rows={rows} /> : null}</TreeGroup> : null}
 					</TreeItem>
 				);
@@ -586,7 +588,7 @@ function Files({ tab, file, setFile }: { tab: Tab; file?: string; setFile: (file
 			redraw();
 		},
 	});
-	const rows: Rows = { pick: setFile, isCut: actions.isCut, coarse, tone: gitTones(git.data) };
+	const rows: Rows = { pick: setFile, isCut: actions.isCut, coarse, tone: gitTones(git.data), own: actions.own };
 	if (file) return <FileView tab={tab} file={file} close={() => setFile(undefined)} />;
 	const inside = state.contents ? "Search inside files too: on" : "Search inside files too";
 	return (
@@ -629,7 +631,7 @@ function Files({ tab, file, setFile }: { tab: Tab; file?: string; setFile: (file
 								{found.data.map((f) => (
 									<ListboxItem key={f.path} value={f.path} label={f.path} data-path={f.path} className={cn(rowClass(), rows.isCut(f.path) && "opacity-50")} onDoubleClick={(e) => held(e) || setFile(f.path)} onClick={coarse ? () => setFile(f.path) : undefined}>
 										<FileKind name={f.path.slice(f.path.lastIndexOf("/") + 1)} tone={rows.tone(f.path)} />
-										<span className={f.line ? "max-w-3/5 shrink-0 truncate" : "min-w-0 truncate"}>{f.path}</span>
+										<span className={cn(f.line ? "max-w-3/5 shrink-0 truncate" : "min-w-0 truncate", rows.own(f.path) && "text-muted-foreground")}>{f.path}</span>
 										{f.line ? <span className="min-w-0 flex-1 truncate font-mono text-faint">{f.line}: {f.text}</span> : null}
 									</ListboxItem>
 								))}
