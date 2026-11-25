@@ -21,7 +21,7 @@
         "value": "ECHO[second prompt as followUp]"
       }
     ],
-    "ms": 470
+    "ms": 474
   },
   {
     "id": "Q2",
@@ -82,7 +82,7 @@
         "value": false
       }
     ],
-    "ms": 1021
+    "ms": 1037
   },
   {
     "id": "Q3",
@@ -163,7 +163,7 @@
         "value": "ECHO[FOLLOWUP-TWO]"
       }
     ],
-    "ms": 521
+    "ms": 546
   },
   {
     "id": "Q4",
@@ -172,7 +172,7 @@
     "findings": [
       {
         "label": "abort() took ms",
-        "value": 2
+        "value": 8
       },
       {
         "label": "prompt() outcome",
@@ -217,7 +217,7 @@
         ]
       }
     ],
-    "ms": 2456
+    "ms": 2417
   },
   {
     "id": "Q5",
@@ -233,7 +233,7 @@
       },
       {
         "label": "abort() took ms",
-        "value": 1
+        "value": 3
       },
       {
         "label": "after abort: shell alive / child alive",
@@ -243,7 +243,7 @@
         ]
       }
     ],
-    "ms": 458
+    "ms": 462
   },
   {
     "id": "Q6",
@@ -265,7 +265,7 @@
         ]
       }
     ],
-    "ms": 803
+    "ms": 810
   },
   {
     "id": "Q7",
@@ -298,6 +298,6 @@
         "value": "ECHO[EVENT printer/finished job=benchy]"
       }
     ],
-    "ms": 4
+    "ms": 13
   }
 ]

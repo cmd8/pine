@@ -14,7 +14,7 @@
         ]
       }
     ],
-    "ms": 107
+    "ms": 67
   },
   {
     "id": "M0b",
@@ -24,12 +24,12 @@
       {
         "label": "servers whose tools were declared",
         "value": [
-          "fromglobaldir",
-          "fromproject"
+          "fromproject",
+          "fromglobaldir"
         ]
       }
     ],
-    "ms": 60
+    "ms": 53
   },
   {
     "id": "M1",
@@ -38,7 +38,7 @@
     "findings": [
       {
         "label": "first prompt ms (includes server connect)",
-        "value": 44
+        "value": 43
       },
       {
         "label": "tools declared",
@@ -81,10 +81,10 @@
       },
       {
         "label": "60 KB result tail",
-        "value": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\n[Full output: /var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-mcp-e603cd4a141878b4.txt (read it with offset/limit)]"
+        "value": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n\n[Full output: /var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-mcp-30382331ddd7590e.txt (read it with offset/limit)]"
       }
     ],
-    "ms": 52
+    "ms": 50
   },
   {
     "id": "M2",
@@ -118,7 +118,7 @@
         "value": "Script completed\nWall time 0.1 seconds\nOutput:\n\n{\"echo\":\"echo(test): from script\",\"who\":\"test\"}"
       }
     ],
-    "ms": 928
+    "ms": 3998
   },
   {
     "id": "M3",
@@ -175,7 +175,7 @@
         "value": "echo(test): after search"
       }
     ],
-    "ms": 930
+    "ms": 852
   },
   {
     "id": "M4",
@@ -186,8 +186,8 @@
         "label": "session gonzo sees",
         "value": {
           "label": "gonzo",
-          "pid": 44223,
-          "cwd": "/private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-AC27PX/mcp4/gonzo",
+          "pid": 67603,
+          "cwd": "/private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-0qOTvJ/mcp4/gonzo",
           "secret": "secret-gonzo",
           "cwdIsSessionCwd": true
         }
@@ -196,8 +196,8 @@
         "label": "session kevin sees",
         "value": {
           "label": "kevin",
-          "pid": 44224,
-          "cwd": "/private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-AC27PX/mcp4/kevin",
+          "pid": 67604,
+          "cwd": "/private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-0qOTvJ/mcp4/kevin",
           "secret": "secret-kevin",
           "cwdIsSessionCwd": true
         }
@@ -218,7 +218,7 @@
         "value": true
       }
     ],
-    "ms": 3054
+    "ms": 3066
   },
   {
     "id": "M5",
@@ -243,7 +243,7 @@
         ]
       }
     ],
-    "ms": 118
+    "ms": 112
   },
   {
     "id": "M6",
@@ -274,7 +274,7 @@
         "value": "Bearer tok-123"
       }
     ],
-    "ms": 12
+    "ms": 17
   },
   {
     "id": "M7",
@@ -283,7 +283,7 @@
     "findings": [
       {
         "label": "first prompt ms",
-        "value": 3038
+        "value": 3047
       },
       {
         "label": "mcp tools declared on first prompt",
@@ -297,7 +297,7 @@
         "value": "ECHO[first prompt]"
       }
     ],
-    "ms": 3044
+    "ms": 3053
   },
   {
     "id": "M8",
@@ -317,6 +317,6 @@
         "value": "Script completed\nWall time 0.0 seconds\nOutput:\n\nblocked: destructive MCP tool blocked"
       }
     ],
-    "ms": 796
+    "ms": 941
   }
 ]

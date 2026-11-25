@@ -136,7 +136,7 @@
         }
       }
     ],
-    "ms": 96
+    "ms": 88
   },
   {
     "id": "C2",
@@ -195,7 +195,7 @@
         }
       }
     ],
-    "ms": 25
+    "ms": 21
   },
   {
     "id": "C3",
@@ -206,7 +206,7 @@
         "label": "two 500s then ok",
         "value": {
           "requests": 3,
-          "ms": 878,
+          "ms": 421,
           "promptThrew": false,
           "retries": [
             "#1/3 in 50ms",
@@ -229,7 +229,7 @@
         "label": "429 then ok",
         "value": {
           "requests": 2,
-          "ms": 57,
+          "ms": 987,
           "promptThrew": false,
           "retries": [
             "#1/3 in 50ms"
@@ -271,7 +271,7 @@
         "label": "400 bad request (not transient)",
         "value": {
           "requests": 1,
-          "ms": 2,
+          "ms": 3,
           "promptThrew": false,
           "retries": [],
           "agentEnds": [
@@ -289,7 +289,7 @@
         "label": "five 500s (retries exhausted)",
         "value": {
           "requests": 4,
-          "ms": 1936,
+          "ms": 994,
           "promptThrew": false,
           "retries": [
             "#1/3 in 50ms",
@@ -311,7 +311,7 @@
         }
       }
     ],
-    "ms": 3385
+    "ms": 2922
   },
   {
     "id": "C4",
@@ -321,20 +321,20 @@
       {
         "label": "server down",
         "value": {
-          "ms": 160,
+          "ms": 164,
           "promptThrew": false,
           "retries": 2,
           "last": {
             "role": "assistant",
             "stopReason": "error",
-            "error": "Connection error.: connect ECONNREFUSED 127.0.0.1:62193"
+            "error": "Connection error.: connect ECONNREFUSED 127.0.0.1:56913"
           }
         }
       },
       {
         "label": "stream goes silent, httpIdleTimeoutMs=1500",
         "value": {
-          "ms": 8002,
+          "ms": 8001,
           "promptThrew": "TEST-GAVE-UP after 8 s",
           "last": {
             "role": "user"
@@ -346,7 +346,7 @@
         "value": "300000 (5 min) per docs/settings.md"
       }
     ],
-    "ms": 8182
+    "ms": 8191
   },
   {
     "id": "C5",
@@ -355,7 +355,7 @@
     "findings": [
       {
         "label": "default session file",
-        "value": "<PI_CODING_AGENT_DIR>/sessions/--private-var-folders-p_-7h2d2cr50rzbcy7cntnrpsyr0000gn-T-pi-baseline-xmPiET-persist-repo--/2026-11-21T13-30-03-691Z_01a1fe4c-ba2b-71e4-9ba4-1c73c24b6691.jsonl"
+        "value": "<PI_CODING_AGENT_DIR>/sessions/--private-var-folders-p_-7h2d2cr50rzbcy7cntnrpsyr0000gn-T-pi-baseline-S2pMC4-persist-repo--/2026-11-25T21-48-44-707Z_01a214ae-b923-7174-81de-45fafb0e1e0b.jsonl"
       },
       {
         "label": "createAgentSession({agentDir}) decides session location",
@@ -391,7 +391,7 @@
         "value": true
       }
     ],
-    "ms": 28
+    "ms": 29
   },
   {
     "id": "C6",
@@ -441,7 +441,7 @@
         }
       }
     ],
-    "ms": 96
+    "ms": 88
   },
   {
     "id": "C7",
@@ -468,9 +468,9 @@
       },
       {
         "label": "replaced prompt text",
-        "value": "You are gonzo, a legal aid agent. REPLACED-MARK\n\n<addendum>\nAPPENDED-MARK current house mode: away\n</addendum>\n\n<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path=\"/private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-xmPiET/sysprompt/repo/AGENTS.md\">\nMARK-AGENTS\n\n</project_instructions>\n</project_context>\n\n<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the ta"
+        "value": "You are gonzo, a legal aid agent. REPLACED-MARK\n\n<addendum>\nAPPENDED-MARK current house mode: away\n</addendum>\n\n<project_context>\nProject-specific instructions and guidelines:\n\n<project_instructions path=\"/private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-S2pMC4/sysprompt/repo/AGENTS.md\">\nMARK-AGENTS\n\n</project_instructions>\n</project_context>\n\n<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the ta"
       }
     ],
-    "ms": 12
+    "ms": 8
   }
 ]

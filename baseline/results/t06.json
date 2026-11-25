@@ -21,7 +21,7 @@
       },
       {
         "label": "what the parent model got back",
-        "value": "[gonzo] FINAL:: /private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-hBQkGv/sub/repos/gonzo"
+        "value": "[gonzo] FINAL:: /private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-1t9q9C/sub/repos/gonzo"
       },
       {
         "label": "child tools offered",
@@ -33,7 +33,7 @@
         ]
       }
     ],
-    "ms": 71
+    "ms": 70
   },
   {
     "id": "SA2",
@@ -42,7 +42,7 @@
     "findings": [
       {
         "label": "3 children x 800 ms model delay took ms",
-        "value": 825
+        "value": 827
       },
       {
         "label": "results",
@@ -69,7 +69,7 @@
         "value": 0
       }
     ],
-    "ms": 1637
+    "ms": 1641
   },
   {
     "id": "SA3",
@@ -104,7 +104,7 @@
         "value": false
       }
     ],
-    "ms": 6
+    "ms": 8
   },
   {
     "id": "SA4",
@@ -113,7 +113,7 @@
     "findings": [
       {
         "label": "stdin ignored: wall ms for a 2-request run",
-        "value": 38
+        "value": 37
       },
       {
         "label": "peak RSS MB",
@@ -132,10 +132,10 @@
       },
       {
         "label": "stdin left as an open pipe (default for child_process)",
-        "value": "completed in 37 ms"
+        "value": "completed in 35 ms"
       }
     ],
-    "ms": 76
+    "ms": 73
   },
   {
     "id": "SA5",
@@ -159,6 +159,6 @@
         "value": "Error: Agent process exited (code=1 signal=null). Stderr: node:internal/modules/cjs/loader:1573\n  throw err;\n  ^\n\nError: Cannot find module '/Users/dev/dev/pine/baseline/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1569:15)"
       }
     ],
-    "ms": 102
+    "ms": 103
   }
 ]

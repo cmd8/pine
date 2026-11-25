@@ -36,7 +36,7 @@
         "value": {
           "topic": "agent/kevin/said",
           "payload": "hi",
-          "cwd": "/private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-Vr3rBp/tools/cwd",
+          "cwd": "/private/var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-baseline-vVb30q/tools/cwd",
           "hasUI": false,
           "ctxKeys": [
             "ui",
@@ -66,7 +66,7 @@
         "value": "FINAL:: published agent/kevin/said"
       }
     ],
-    "ms": 66
+    "ms": 61
   },
   {
     "id": "T2",
@@ -104,7 +104,7 @@
         "value": true
       }
     ],
-    "ms": 10
+    "ms": 11
   },
   {
     "id": "T3",
@@ -172,7 +172,7 @@
         }
       }
     ],
-    "ms": 29
+    "ms": 25
   },
   {
     "id": "T4",
@@ -181,7 +181,7 @@
     "findings": [
       {
         "label": "3 x sleep 1 took ms",
-        "value": 1011
+        "value": 1024
       },
       {
         "label": "tool results",
@@ -195,15 +195,15 @@
         "label": "execution events",
         "value": [
           "tool_execution_start@1",
-          "tool_execution_start@2",
-          "tool_execution_start@2",
-          "tool_execution_end@1008",
-          "tool_execution_end@1009",
-          "tool_execution_end@1009"
+          "tool_execution_start@1",
+          "tool_execution_start@1",
+          "tool_execution_end@1016",
+          "tool_execution_end@1017",
+          "tool_execution_end@1017"
         ]
       }
     ],
-    "ms": 1012
+    "ms": 1026
   },
   {
     "id": "T5",
@@ -236,7 +236,7 @@
         "value": "SUMMARY-OK chars=1890"
       }
     ],
-    "ms": 8
+    "ms": 12
   },
   {
     "id": "T6",
@@ -253,10 +253,10 @@
       },
       {
         "label": "tail of what the model got",
-        "value": "23456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789\n\n[Showing lines 174472-176471 of 176471. Full output: /var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-bash-8611bf62e5333b81.log]"
+        "value": "23456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789abcdef\n0123456789\n\n[Showing lines 174472-176471 of 176471. Full output: /var/folders/p_/7h2d2cr50rzbcy7cntnrpsyr0000gn/T/pi-bash-550366deb8258489.log]"
       }
     ],
-    "ms": 22
+    "ms": 24
   },
   {
     "id": "T7",
@@ -284,7 +284,7 @@
       },
       {
         "label": "sleep 20 with timeout:1 took ms",
-        "value": 1007
+        "value": 1014
       },
       {
         "label": "tool result",
@@ -293,7 +293,7 @@
         ]
       }
     ],
-    "ms": 1010
+    "ms": 1016
   },
   {
     "id": "T8",
@@ -315,7 +315,7 @@
         "value": true
       }
     ],
-    "ms": 3
+    "ms": 8
   },
   {
     "id": "T9",
