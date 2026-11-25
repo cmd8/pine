@@ -74,8 +74,15 @@ async function pickUp(p: Page, name: string, part = false): Promise<void> {
 	);
 }
 
+/** What the app made of the last drag that ended (`tabDragEnded` in electron/main.ts), for a failure to say why nothing happened. */
+async function whyNot(): Promise<string> {
+	const said = await app?.evaluate(({ BrowserWindow }: any) => ({ ended: (globalThis as any).tabDragEnded ?? "the app was not told the drag ended", windows: BrowserWindow.getAllWindows().map((w: any) => w.getBounds()) })).catch((e: Error) => e.message);
+	return JSON.stringify(said);
+}
+
 /** Lets go of the tab picked up in a window where nothing takes it, at a place of the screen. */
 async function letGo(p: Page, at: { x: number; y: number }): Promise<void> {
+	await app?.evaluate(() => void delete (globalThis as any).tabDragEnded);
 	await p.evaluate((at) => {
 		const { tab, dataTransfer } = (window as any).__dragged;
 		tab.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer, screenX: at.x, screenY: at.y }));
@@ -162,7 +169,9 @@ test("a tab let go outside every window opens in a window of its own there, with
 	const point = { x: b1.x + b1.width + 200, y: b1.y + 120 };
 	const area = await app.evaluate(({ screen }: any, p: { x: number; y: number }) => screen.getDisplayNearestPoint(p).workArea, point);
 	await pickUp(win1, "tear-me", true);
-	const win2 = await waitForWindow(app, () => letGo(win1, point));
+	const win2 = await waitForWindow(app, () => letGo(win1, point)).catch(async (e) => {
+		throw new Error(`no window was torn off at ${JSON.stringify(point)}: ${await whyNot()} (${e.message})`);
+	});
 	await win2.waitForSelector("[data-slot=tab][data-active] [data-slot=tab-name] >> text=tear-me", { timeout: 20_000 });
 	await win2.waitForFunction(() => (document.querySelector("[data-slot=composer] textarea") as HTMLTextAreaElement | null)?.value === "torn off with me");
 	await win1.waitForFunction(() => ![...document.querySelectorAll("[data-slot=tab]")].some((el) => el.textContent?.includes("tear-me")));
@@ -197,20 +206,24 @@ test("a window's only tab let go outside moves the window there instead of openi
 	await pickUp(win1, "main");
 	await letGo(win1, point);
 	const want = tearOffBounds(point, b1, area);
-	await app.evaluate(
-		({ BrowserWindow }: any, want: { x: number; y: number }) =>
-			new Promise<void>((resolve, reject) => {
-				const deadline = Date.now() + 5000;
-				const check = () => {
-					const b = BrowserWindow.getAllWindows()[0].getBounds();
-					if (b.x === want.x && b.y === want.y) resolve();
-					else if (Date.now() > deadline) reject(new Error(`window stayed at ${JSON.stringify(b)}, wanted ${JSON.stringify(want)}`));
-					else setTimeout(check, 50);
-				};
-				check();
-			}),
-		want,
-	);
+	await app
+		.evaluate(
+			({ BrowserWindow }: any, want: { x: number; y: number }) =>
+				new Promise<void>((resolve, reject) => {
+					const deadline = Date.now() + 5000;
+					const check = () => {
+						const b = BrowserWindow.getAllWindows()[0].getBounds();
+						if (b.x === want.x && b.y === want.y) resolve();
+						else if (Date.now() > deadline) reject(new Error(`window stayed at ${JSON.stringify(b)}, wanted ${JSON.stringify(want)}`));
+						else setTimeout(check, 50);
+					};
+					check();
+				}),
+			want,
+		)
+		.catch(async (e: Error) => {
+			throw new Error(`${e.message}: ${await whyNot()}`);
+		});
 	assert.equal(await windowCount(app), 1);
 	assert.deepEqual(await tabNames(win1), ["main"]);
 });
