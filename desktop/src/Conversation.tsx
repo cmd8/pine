@@ -347,7 +347,8 @@ function SteerLine({ tab, steer }: { tab: Tab; steer: Steer }) {
 	);
 }
 
-function Entry({ entry, agent }: { entry: TranscriptEntry; agent: string }) {
+/** One step of a piece of work, as its record has it: what it was given, a thought, a tool call, or what it wrote. Also drawn under the view. */
+export function Entry({ entry, agent }: { entry: TranscriptEntry; agent: string }) {
 	if (entry.kind === "user") return <OwnerTurn text={entry.text ?? ""} from="task" />;
 	if (entry.kind === "text")
 		return (

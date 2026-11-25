@@ -28,12 +28,13 @@ import { cn } from "@/lib/utils";
 import type { ViewHappening, ViewTarget } from "../../src/view-kit.ts";
 import { api } from "./api.ts";
 import { boardLabel, taskLine } from "./Board.tsx";
+import { Entry } from "./Conversation.tsx";
 import { useLoad } from "./use-load.ts";
 import { ROOM, store, useModel } from "./model.ts";
 import { AGENT_COLORS } from "./theme.ts";
 import { type Holdings, happeningsOf, knownTarget, talkHappenings, viewStateOf } from "./view-state.ts";
 import { colorFor, ENDED, type From, fromText, type Job, World } from "./view-world.ts";
-import { shortcut } from "./text.ts";
+import { count, shortcut } from "./text.ts";
 
 
 const NARROW_TO_WIDE = ["manual", "plan", "safe", "auto", "bypass"];
@@ -597,7 +598,7 @@ function Feed({ now, pick }: { now: number; pick: (s: Sel) => void }) {
 				[0, 1, 2].map((i) => <JobLine key={i} skeleton />)
 			) : lines.length ? (
 				lines.map((l, i) => (
-					<button key={`${l.at}:${i}`} type="button" disabled={l.job === undefined || !w.jobs.has(l.job)} onClick={() => l.job !== undefined && pick({ k: "job", id: l.job })} className="flex items-baseline gap-2 rounded-sm text-start hover:enabled:bg-accent">
+					<button key={`${l.at}:${i}`} type="button" disabled={l.job === undefined || !w.jobs.has(l.job)} onClick={() => l.job !== undefined && pick({ k: "job", id: l.job })} onDoubleClick={() => l.job !== undefined && w.jobs.has(l.job) && openJob(w.jobs.get(l.job)!)} className="flex items-baseline gap-2 rounded-sm text-start hover:enabled:bg-accent">
 						<span className="w-8 flex-none text-end text-faint tabular-nums">{ago(now + w.skew - l.at)}</span>
 						<span className={cn("min-w-0 flex-1 truncate", l.tone === "ask" && "text-warn", l.tone === "bad" && "text-destructive")}>{l.text}</span>
 					</button>
@@ -795,7 +796,40 @@ function JobDetail({ j, now, pick }: { j: Job; now: number; pick: (s: Sel) => vo
 			</dl>
 			{children.length ? <span className="mt-1 font-medium text-muted-foreground">It handed on</span> : null}
 			{children.map((c) => <JobLine key={c.id} j={c} now={now} pick={pick} />)}
+			<JobRecord j={j} />
 		</>
+	);
+}
+
+/**
+ * What the piece of work was given and did, as pine keeps it: the task's text, each thought and tool
+ * call with what it returned, and what it wrote, drawn as the conversation draws them. This is the
+ * app's own panel, which shows the owner everything; the view above it is told none of it. Read again
+ * as the work moves on.
+ */
+function JobRecord({ j }: { j: Job }) {
+	const got = useLoad(() => api.transcript(j.id, true), [j.id, j.doing, j.tools, j.finished]);
+	const stats = got.data?.task.meta.stats;
+	if (!got.data)
+		return got.error ? (
+			<span className="mt-1 text-muted-foreground">Its record cannot be read: {got.error}</span>
+		) : (
+			<div data-slot="job-record-skeleton" className="mt-1 flex flex-col gap-1.5">
+				<Skeleton className="h-3.5 w-24" />
+				<Skeleton className="h-3.5 w-3/4" />
+				<Skeleton className="h-3.5 w-1/2" />
+			</div>
+		);
+	const entries = got.data.entries;
+	return (
+		<section data-slot="job-record" className="mt-1 flex flex-col gap-1.5">
+			<div className="flex items-baseline gap-2">
+				<span className="font-medium text-muted-foreground">What it did</span>
+				{stats ? <span className="min-w-0 flex-1 truncate text-end text-faint tabular-nums">{count(stats.input)} tokens read · {count(stats.output)} written · {stats.turns} turn{stats.turns === 1 ? "" : "s"}</span> : null}
+			</div>
+			{entries.length ? entries.map((e, i) => <Entry key={i} entry={e} agent={j.agent} />) : <span className="text-faint">Nothing yet.</span>}
+			{got.data.task.error && !entries.some((e) => e.kind === "text") ? <span className="text-destructive">{got.data.task.error}</span> : null}
+		</section>
 	);
 }
 

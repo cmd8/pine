@@ -124,6 +124,20 @@ test("the line between the view and what happened is dragged to give either more
 	await page.waitForFunction(() => Math.abs((document.querySelector("[data-slot=view-inspector]")?.getBoundingClientRect().height ?? 0) - 208) <= 2, null, { timeout: 3000 });
 });
 
+test("a piece of work chosen under the view shows what it was given, what it did and what it answered", async () => {
+	await page.locator("[data-slot=view-inspector] button", { hasText: "main handed books a task" }).click();
+	await page.waitForSelector("[data-slot=view-inspector] [data-slot=job-record]", { timeout: 10_000 });
+	await page.waitForFunction(() => /the books are balanced/.test(document.querySelector("[data-slot=job-record]")?.textContent ?? ""), null, { timeout: 10_000 });
+	const record = await page.textContent("[data-slot=job-record]");
+	assert.match(record, /What it did/);
+	assert.match(record, /Check the books/, "the task books was given, in full");
+	assert.match(record, /tokens read/, "and what it cost");
+	await page.locator("[data-slot=job-record]").scrollIntoViewIfNeeded();
+	await shoot("job-record");
+	await page.locator("[data-slot=view-inspector]").getByRole("button", { name: "Back to what happened" }).click();
+	await page.waitForSelector("[data-slot=view-inspector] [data-slot=job-record]", { state: "detached", timeout: 5000 });
+});
+
 test("a piece of work opens from under the view, and the browser opens in the side panel beside the view", async () => {
 	await page.locator("[data-slot=view-inspector] button", { hasText: "you asked main" }).click();
 	await page.locator("[data-slot=view-inspector]").getByRole("button", { name: "Open" }).click();
