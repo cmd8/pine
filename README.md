@@ -7,6 +7,12 @@
 
 [pine.pmnd.re](https://pine.pmnd.re)
 
+**[Download the Pine app](https://github.com/pmndre/pine/releases/latest)** for macOS, Windows and
+Linux. It carries everything pine needs, pine itself and the Node it runs on, so there is nothing
+else to install. It also gives your terminal the `pine` command.
+
+pine is also a command line tool on its own, for a terminal or a server. That needs Node 24 or newer:
+
 ```bash
 npm install -g @pmndre/pine
 ```
@@ -103,12 +109,12 @@ the output of its tool calls. `/undo` takes your last message back, with the fil
 pine .
 ```
 
-There is also a desktop app for macOS, with the same conversations in a window, an editor for
-a conversation's folder and a settings panel for agents, models, MCP servers, skills and
-events. It starts pine itself, or uses the one that runs ([desktop.md](docs/references/desktop.md)).
-Each [release](https://github.com/pmndre/pine/releases/latest) has it as a disk image, for
-Apple silicon and for Intel. It carries pine and the Node it runs on, so nothing else has to
-be installed, and it gives your shell the `pine` command. From a checkout:
+The Pine app has the same conversations in a window, an editor for a conversation's folder and
+a settings panel for agents, models, MCP servers, skills and events. It starts pine itself, or
+uses the one that runs ([desktop.md](docs/references/desktop.md)). Each
+[release](https://github.com/pmndre/pine/releases/latest) has it for macOS (a disk image for
+Apple silicon and one for Intel), Windows and Linux. It carries pine and the Node it runs on, so
+nothing else has to be installed, and it gives your shell the `pine` command. From a checkout:
 
 ```bash
 npm run desktop
