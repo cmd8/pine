@@ -143,3 +143,33 @@ test("schedules: a timer source from an older setup is named with what to write 
 	assert.throws(() => loadConfig(h.home), /sources\.morning: there is no "timer" source any more\. Something that happens at a time is a schedule: ask the agent[^\n]*or write \{ "name": "morning", "cron": "0 7 \* \* \*", "task": "what to do" \} under "schedules"/);
 	await h.close();
 });
+
+test("schedules: a run missed while pine was not running wakes the agent when pine starts, not only writes the time down", async () => {
+	const h = await harness({ pine: { main: "main", schedules: [{ name: "plants", cron: "0 3 * * *", task: "Water the plants." }] }, agents: { main: {} } });
+	// The last run it wrote down is three days old, so there are mornings in the last three days it did not see.
+	h.pine.agents.kv.set("timer:plants", Math.floor((Date.now() - 3 * 86_400_000) / 60_000));
+	await h.restart();
+	// The catch-up is published inside start(): the route for it has to be there before, or the event reaches nobody and
+	// the run is marked as done all the same.
+	const late = (q: any) => /Water the plants\.\n\n\(This was due at \d{4}-\d\d-\d\d 03:00 and comes late: pine was not running then\.\)$/.test(userText(q));
+	await until(() => h.mock.state.requests.some(late), 6000, "the catch-up to wake the agent");
+	await until(() => woken(h, "main").length, 6000, "the turn it ran");
+	assert.equal((h.pine.bus.query({ topic: "timer/plants" }).at(-1)?.payload as any).late, true, "and the event says it comes late");
+	assert.equal(h.pine.agents.kv.get("timer:plants"), Math.floor(Date.now() / 60_000), "the run is written down as the current minute, so it is not caught up twice");
+	await h.close();
+});
+
+test("schedules: an interval longer than a timeout can be is waited out in pieces; one that cannot be timed is refused before it is written", async () => {
+	const h = await harness({ pine: { main: "main", schedules: [{ name: "monthly", every: "30d", task: "Send the monthly report." }] }, agents: { main: {} } });
+	// Node takes a delay as a 32-bit int: a setInterval of 30 days is 1 ms, a thousand runs a second.
+	await sleep(400);
+	assert.deepEqual(h.pine.bus.query({ topic: "timer/monthly" }), [], "nothing fires for thirty days");
+	assert.ok(h.pine.schedules.list()[0].next! - Date.now() > 29 * 86_400_000, "and its first run is thirty days off, not a millisecond");
+	// And what is asked for is refused while it can still be said, rather than scheduled and left to fire wildly.
+	assert.throws(() => h.pine.schedules.check({ name: "wild", task: "x", every: "999ms" }), /"every" must be at least "1s"/);
+	assert.throws(() => h.pine.schedules.check({ name: "wild", task: "x", every: "2147483647ms" }), /"every" must be under \d+ ms \(about 24 days\)/);
+	assert.equal(h.pine.schedules.check({ name: "wild", task: "x", every: "24d" }).every, "24d", "a day short of it is still a wait");
+	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("add_schedule", { name: "wild", task: "Send it.", every: "30d" })] }]), ...owner });
+	assert.match(h.toolResults().at(-1)!, /"every" must be under \d+ ms \(about 24 days\)/);
+	await h.close();
+});
