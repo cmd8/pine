@@ -495,6 +495,27 @@ class WithMicrophone implements Component {
 const PEEK = 4;
 
 /**
+ * What a text is not drawn with: a control sequence, a command of the terminal's own (its title,
+ * its clipboard), the two characters an escape can be, a tab (spaces are drawn in its place), and
+ * the control characters but a line break - among them a C1 control, such as a raw CSI.
+ */
+const NOT_TEXT = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][\s\S]*?(?:\x07|\x1b\\|$)|\x1b[P^_X][\s\S]*?(?:\x1b\\|$)|\x1b[@-Z\\-_]|\t|[\x00-\x09\x0b-\x1f\x7f\x80-\x9f]/g;
+/** A color: the one kind of sequence that cannot reach past the line it is on. */
+const COLOUR = /^\x1b\[[0-9;]*m$/;
+
+/**
+ * Somebody else's text drawn as text. A summary, an error, a tool's output, an event of another
+ * machine: an escape sequence in it moves the cursor, clears the screen, or paints over the line
+ * the owner is about to allow, and none of them is ours. Tabs become spaces, so that a table of a
+ * tool's output keeps its shape.
+ *
+ * `styled`: the text is one this UI has colored itself already, as say() is given it, so a color
+ * stays - it cannot leave its line - and everything else goes.
+ */
+const asText = (text: unknown, styled = false): string =>
+	String(text ?? "").replace(NOT_TEXT, (what) => (what === "\t" ? "  " : styled && COLOUR.test(what) ? what : ""));
+
+/**
  * What a model thought before it answered. While it thinks, its last few lines are shown. A click
  * opens all of it, and a click anywhere on it closes it again, so there is nothing small to find
  * after scrolling. A thought that was not opened becomes one line when the thinking ends.
@@ -533,7 +554,7 @@ class Thought implements Component {
 	private lines(width: number): string[] {
 		if (this.wrapped?.width !== width) {
 			// A model's text, shown as it is: nothing in it may move the cursor or color the screen.
-			const clean = stripTerminalSequences(this.text).replace(/\t/g, "  ").replace(/[\x00-\x09\x0b-\x1f\x7f]/g, "").replace(/\n{3,}/g, "\n\n").trim();
+			const clean = asText(this.text).replace(/\n{3,}/g, "\n\n").trim();
 			this.wrapped = { width, lines: clean ? wrapTextWithAnsi(clean, Math.max(10, width - 4)) : [] };
 		}
 		return this.wrapped.lines;
@@ -1056,14 +1077,15 @@ class ApprovalDialog implements Component {
 
 	render(width: number): readonly string[] {
 		const inner = Math.max(20, width - 4);
+		// What the request says is the tool's and the agent's: it is drawn as text, never obeyed.
 		const body = [
 			c.bold(c.yellow(this.fields.length ? "Approval needed, and something only you have" : "Approval needed")),
 			"",
 			`${c.gray("agent ")} ${this.req.agent}${this.req.task ? ` ${c.gray(`(task #${this.req.task})`)}` : ""}`,
-			`${c.gray("action")} ${c.bold(String(this.req.tool))}`,
-			...String(this.req.summary ?? "").split("\n").slice(0, 8).flatMap((l) => wrapTextWithAnsi(`  ${l}`, inner)).slice(0, 12),
+			`${c.gray("action")} ${c.bold(asText(this.req.tool))}`,
+			...asText(this.req.summary).split("\n").slice(0, 8).flatMap((l) => wrapTextWithAnsi(`  ${l}`, inner)).slice(0, 12),
 			"",
-			...wrapTextWithAnsi(c.gray(`Why you are asked: ${this.req.why}`), inner),
+			...wrapTextWithAnsi(c.gray(`Why you are asked: ${asText(this.req.why)}`), inner),
 			...(this.req.holds ? wrapTextWithAnsi(c.gray(`"Allow" holds for ${this.req.holds}: you are not asked about it again there.`), inner) : []),
 			...(this.req.remember ? wrapTextWithAnsi(c.gray(`"Always here" stops asking about ${this.req.remember} in this conversation.`), inner) : []),
 			...(!this.req.remember && !this.req.holds && !this.fields.length ? wrapTextWithAnsi(c.gray("You are asked about this each time: there is no \"always\" for it."), inner) : []),
@@ -1075,7 +1097,8 @@ class ApprovalDialog implements Component {
 		this.fields.forEach((f, i) => {
 			const active = i === this.field;
 			// A label that reads "name: what it is" or "NAME (what it is)" is its name and, under it, the rest.
-			const [, name, about] = f.label.match(/^([\w.-]+): ([\s\S]+)$/) ?? f.label.match(/^([\w.-]+) \(([\s\S]+)\)$/) ?? [null, f.label, ""];
+			const label = asText(f.label);
+			const [, name, about] = label.match(/^([\w.-]+): ([\s\S]+)$/) ?? label.match(/^([\w.-]+) \(([\s\S]+)\)$/) ?? [null, label, ""];
 			const count = this.fields.length > 1 ? `${i + 1} of ${this.fields.length}` : "";
 			// A secret is never shown: a dot for each character, so that you see it arrive.
 			const shown = f.secret ? "•".repeat(Math.min(f.value.length, bar - 2)) : f.value.slice(-(bar - 2));
@@ -1164,11 +1187,11 @@ class QuestionDialog implements Component {
 
 	render(width: number): readonly string[] {
 		const inner = Math.max(20, width - 4);
-		const body = [c.bold(c.accent(`${this.req.agent} asks`)), "", ...String(this.req.summary ?? "").split("\n").flatMap((l) => wrapTextWithAnsi(l, inner)).slice(0, 14), ""];
+		const body = [c.bold(c.accent(`${this.req.agent} asks`)), "", ...asText(this.req.summary).split("\n").flatMap((l) => wrapTextWithAnsi(l, inner)).slice(0, 14), ""];
 		this.rows = [];
 		this.choices.forEach((choice, i) => {
 			this.rows.push({ row: 1 + body.length, index: i });
-			const label = truncateToWidth(`${i + 1}  ${choice}`, inner - 2);
+			const label = truncateToWidth(`${i + 1}  ${asText(choice)}`, inner - 2);
 			body.push(i === this.at && !this.own ? c.bgAccent(` ${label} `) : ` ${label}`);
 		});
 		body.push("", `${c.gray(this.choices.length ? "or in your own words:" : "your answer:")} ${c.yellow(this.own.slice(-(inner - 26)))}${c.inverse(" ")}`, "", c.gray(this.choices.length ? "enter or a click answers · 1-9 picks by number · esc: later" : "enter answers · esc: later"));
@@ -1763,7 +1786,8 @@ export class PineTui {
 	}
 
 	private say(tab: Tab, text: string, gap = true): Text {
-		const t = new Text(text, 1, 0);
+		// Whatever was said here may be somebody else's words: a tool's, a model's, another machine's.
+		const t = new Text(asText(text, true), 1, 0);
 		this.add(tab, t, gap);
 		return t;
 	}
@@ -1881,7 +1905,7 @@ export class PineTui {
 	/** The agent's list of steps (its `todo` tool), drawn: done, in work, still to do. */
 	private stepsText(items: Array<{ text: string; status: string }>): string {
 		const done = items.filter((t) => t.status === "done").length;
-		const lines = items.map((t) => (t.status === "done" ? `${c.green("✓")} ${c.gray(t.text)}` : t.status === "in_progress" ? `${c.yellow("◐")} ${c.bold(t.text)}` : `${c.gray("☐")} ${t.text}`));
+		const lines = items.map((t) => (t.status === "done" ? `${c.green("✓")} ${c.gray(asText(t.text))}` : t.status === "in_progress" ? `${c.yellow("◐")} ${c.bold(asText(t.text))}` : `${c.gray("☐")} ${asText(t.text)}`));
 		return [c.gray(`steps · ${done} of ${items.length} done`), ...lines].join("\n");
 	}
 
@@ -3097,7 +3121,7 @@ export class PineTui {
 		for (const tab of this.tabs) {
 			for (const [id, a] of tab.approvals) {
 				if (open.has(id)) continue;
-				a.card.setText(`${c.gray("– no longer open:")} ${c.bold(a.req.tool)} ${c.gray("(pine was restarted, or the question ran out of time)")}`);
+				a.card.setText(`${c.gray("– no longer open:")} ${c.bold(asText(a.req.tool))} ${c.gray("(pine was restarted, or the question ran out of time)")}`);
 				tab.approvals.delete(id);
 				this.asked.delete(id);
 				if (this.dialog?.id === id) this.closeDialog();
@@ -3151,8 +3175,8 @@ export class PineTui {
 				// A question of the agent's is not a permission: it is shown as what it is.
 				const card =
 					p.tool === "question"
-						? this.say(tab, `${c.accent("? the agent asks")} ${short(oneLine(String(p.summary ?? "")), 300)}\n${c.gray("  answer it in the dialog, or with /approve")}`)
-						: this.say(tab, `${c.yellow("⚠ approval needed")} ${c.bold(p.tool)} ${c.gray(short(oneLine(String(p.summary ?? "")), 120))}\n${c.gray(`  ${p.why} · ${p.inputs?.length ? "it needs something only you have: /approve opens the dialog to enter it" : `/approve${p.remember ? ", /approve always" : ""}`} or /deny`)}`);
+						? this.say(tab, `${c.accent("? the agent asks")} ${short(oneLine(asText(p.summary)), 300)}\n${c.gray("  answer it in the dialog, or with /approve")}`)
+						: this.say(tab, `${c.yellow("⚠ approval needed")} ${c.bold(asText(p.tool))} ${c.gray(short(oneLine(asText(p.summary)), 120))}\n${c.gray(`  ${asText(p.why)} · ${p.inputs?.length ? "it needs something only you have: /approve opens the dialog to enter it" : `/approve${p.remember ? ", /approve always" : ""}`} or /deny`)}`);
 				tab.approvals.set(p.id, { card, req: p });
 				this.attention(p.tool === "question" ? `pine: ${tab.agent} has a question for you` : `pine: ${tab.agent} needs your approval`);
 				this.ask(tab, p);
@@ -3160,8 +3184,8 @@ export class PineTui {
 				for (const tab of this.tabs) {
 					const a = tab.approvals.get(p.id);
 					if (!a) continue;
-					if (a.req.tool === "question") a.card.setText(`${c.accent("?")} ${short(oneLine(String(a.req.summary ?? "")), 300)}\n${c.gray(`  ${p.allow ? `answered (${p.by})` : `no answer (${p.by})`}`)}`);
-					else a.card.setText(`${p.allow ? c.green("✓ allowed") : c.red("✗ denied")} ${c.bold(a.req.tool)} ${c.gray(`(${p.by})${p.always ? ` · ${p.remember} will not ask again in this conversation` : ""}`)}`);
+					if (a.req.tool === "question") a.card.setText(`${c.accent("?")} ${short(oneLine(asText(a.req.summary)), 300)}\n${c.gray(`  ${p.allow ? `answered (${p.by})` : `no answer (${p.by})`}`)}`);
+					else a.card.setText(`${p.allow ? c.green("✓ allowed") : c.red("✗ denied")} ${c.bold(asText(a.req.tool))} ${c.gray(`(${p.by})${p.always ? ` · ${p.remember} will not ask again in this conversation` : ""}`)}`);
 					tab.approvals.delete(p.id);
 				}
 				this.asked.delete(p.id);
@@ -3438,7 +3462,7 @@ export class PineTui {
 				this.endBlock(tab, p.task);
 				tab.streamed.delete(p.task);
 				const key = `${p.task}:${p.call}`;
-				const label = `${c.bold(p.tool)}${p.subject ? ` ${c.gray(short(oneLine(p.subject), 100))}` : ""}`;
+				const label = `${c.bold(asText(p.tool))}${p.subject ? ` ${c.gray(short(oneLine(asText(p.subject)), 100))}` : ""}`;
 				if (p.phase === "start") {
 					tab.toolCalls++;
 					if (depth === 0) this.foldWords(tab, p.task);
@@ -3447,7 +3471,7 @@ export class PineTui {
 				} else {
 					const t = tab.tools.get(key);
 					const took = p.ms !== undefined ? c.gray(` ${p.ms < 1000 ? `${Math.round(p.ms)} ms` : `${(p.ms / 1000).toFixed(1)} s`}`) : "";
-					const failed = p.ok ? "" : `\n${indent}  ${c.red(short(oneLine(String(p.preview ?? "")), 160))}`;
+					const failed = p.ok ? "" : `\n${indent}  ${c.red(short(oneLine(asText(p.preview)), 160))}`;
 					const text = `${indent}${p.ok ? c.green("✓") : c.red("✗")} ${t?.label ?? label}${took}${failed}`;
 					// A call that began before this tab was opened has no line of its own yet.
 					if (t) t.line.setText(text);
@@ -3467,7 +3491,7 @@ export class PineTui {
 					const child = tab.children.get(p.task);
 					if (child) child.running = false;
 					const n = p.stats?.tools?.length ?? 0;
-					const how = p.status === "done" ? `${childKind(p.kind ?? child?.kind ?? "task")} #${p.task} answered (${Math.round((p.stats?.ms ?? 0) / 100) / 10} s${n ? `, ${n} tool call${n === 1 ? "" : "s"}` : ""})` : `${childKind(p.kind ?? child?.kind ?? "task")} #${p.task} ${p.status}: ${p.error ?? ""}`;
+					const how = p.status === "done" ? `${childKind(p.kind ?? child?.kind ?? "task")} #${p.task} answered (${Math.round((p.stats?.ms ?? 0) / 100) / 10} s${n ? `, ${n} tool call${n === 1 ? "" : "s"}` : ""})` : asText(`${childKind(p.kind ?? child?.kind ?? "task")} #${p.task} ${p.status}: ${p.error ?? ""}`);
 					this.did(tab, new Button(new Text(`${indent}${p.status === "done" ? c.green("✓") : c.red("✗")} ${c.bold(p.agent)} ${c.gray(how)} ${open}`, 1, 0), () => void this.openTask(p.task)));
 					break;
 				}
@@ -3486,7 +3510,7 @@ export class PineTui {
 						this.answerPictures(tab, p.agent, p.text);
 					}
 				} else if (p.status === "cancelled") this.say(tab, c.gray("■ stopped"));
-				else this.say(tab, c.red(`✗ ${p.status}${p.error && p.error !== p.status ? `: ${p.error}` : ""}`));
+				else this.say(tab, c.red(asText(`✗ ${p.status}${p.error && p.error !== p.status ? `: ${p.error}` : ""}`)));
 				tab.streamed.delete(p.task);
 				if (tab.kind === "task") this.say(tab, c.gray(this.taskSummary(p.status, p.stats)));
 				else void this.refreshTaints();

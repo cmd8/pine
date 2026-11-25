@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { after, test } from "node:test";
 import { PineTui, searchItems, urlAt } from "../src/tui/app.ts";
 import { Client } from "../src/tui/client.ts";
-import { remoteMcp } from "../src/tui/run.ts";
+import { endOnFailure, remoteMcp } from "../src/tui/run.ts";
 import { harness, type Harness, MCP_STUB, mockMsg, notesOf, sleep, until } from "./support/harness.ts";
 import { FakeTerminal, KEY } from "./support/terminal.ts";
 import { sandboxAvailable } from "../src/security.ts";
@@ -39,6 +39,11 @@ async function open(spec: Parameters<typeof harness>[0], size: [number, number] 
 }
 
 const count = (haystack: string, needle: string) => haystack.split(needle).length - 1;
+/** Whether the last thing the UI wrote left the terminal as it found it: alt screen, cursor and mouse back. */
+const restored = (written: string) => {
+	const at = (what: string) => written.lastIndexOf(what);
+	return at("\x1b[?1049l") > at("\x1b[?1049h") && at("\x1b[?25h") > at("\x1b[?25l") && at("\x1b[?1000l") > at("\x1b[?1000h");
+};
 const done = (h: Harness, n: number) => until(() => h.pine.tasks.list({ status: "done" }).length >= n, 4000, `${n} finished tasks`);
 
 test("tui: a conversation streams in, tools and delegated work are shown, and history returns on reopen", async () => {
@@ -336,6 +341,41 @@ test("tui: requests that are open side by side each get their dialog, one after 
 	t.term.type("a");
 	await until(() => count(t.text(), "✓ allowed remove_source") === 3, 4000, "three answers in the conversation");
 	await until(() => Object.keys(t.h.pine.cfg.sources).length === 0, 4000, "the three sources to be gone");
+	await t.close();
+});
+
+test("tui: an escape sequence in an approval summary is drawn as text", async () => {
+	const t = await open({ agents: { main: {} } });
+	await t.sees("type a message");
+
+	// A guard's summary of a command an agent wrote, with sequences in it: on a terminal they would set
+	// its title, clear the screen and paint over the dialog that asks whether to run the command at all.
+	const summary = "bash: rm f \x1b]0;PWNED\x07\x1b[2J\x1b[38;5;196mNOT-A-COLOUR";
+	const asked = t.h.pine.approvals.request({ agent: "main", task: 1, root: 1, tool: "bash", summary, why: "this action always needs your approval" });
+	await t.sees("│ Approval needed");
+	assert.match(t.text(), /bash: rm f NOT-A-COLOUR/, t.text());
+	// The fake terminal keeps what a real one would obey; none of the UI's own output is either of these.
+	assert.ok(!t.term.written.includes("]0;PWNED"), "the tool's title sequence reached the terminal");
+	assert.ok(!t.term.written.includes("38;5;196"), "the tool's color reached the terminal");
+
+	t.h.pine.approvals.decide(t.h.pine.approvals.pending()[0].id, false, "owner");
+	assert.equal((await asked).allow, false);
+	await t.sees("✗ denied bash");
+	await t.close();
+});
+
+test("tui: a UI that ends without being asked puts the terminal back", async () => {
+	const t = await open({ agents: { main: {} } });
+	await t.sees("type a message");
+	assert.ok(!restored(t.term.written), "the UI is on the alt screen, with the mouse on and the cursor hidden");
+
+	// Its window closed: a SIGHUP nobody in the UI is there to act on. It ends the way /quit does, so
+	// the alt screen, raw mode and the mouse tracking go before the process does.
+	const off = endOnFailure(t.app);
+	process.emit("SIGHUP");
+	await until(() => t.quit(), 4000, "the UI to end on SIGHUP");
+	off();
+	assert.ok(restored(t.term.written), `the terminal was left as it was:\n${t.term.written.slice(-600)}`);
 	await t.close();
 });
 

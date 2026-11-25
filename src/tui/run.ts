@@ -2,6 +2,7 @@ import { ProcessTerminal } from "@earendil-works/pi-tui";
 import { loadConfig, type PineConfig } from "../config.ts";
 import { findServer, listServers, piMcp, serverStates } from "../mcp-config.ts";
 import { ensureDaemon } from "../service.ts";
+import { errText } from "../util.ts";
 import { PineTui, type TuiOptions } from "./app.ts";
 import { Client } from "./client.ts";
 
@@ -67,6 +68,38 @@ function needsTerminal(): void {
 	if (!process.stdout.isTTY || !process.stdin.isTTY) throw new Error("the terminal UI needs an interactive terminal");
 }
 
+/**
+ * The ways the UI can end that nothing else ends for it: a signal, an exception in a timer callback
+ * (the spinner, the programs of a conversation) and a rejection nobody caught. Left alone they take
+ * the process with them and leave the alt screen, raw mode and the mouse tracking on the terminal
+ * they were given. Each stops the app, which puts the terminal back before it waits for anything;
+ * `report` is told what went wrong, to be said once the screen is the owner's own again. What is
+ * returned takes the handlers off.
+ */
+export function endOnFailure(app: Pick<PineTui, "stop">, report: (why: string) => void = () => {}): () => void {
+	let ending = false;
+	const stop = (crash?: string): void => {
+		// The first way out is the one that counts: a second signal, or a crash while the terminal is
+		// being put back, must not start stopping again.
+		if (ending) return;
+		ending = true;
+		if (crash !== undefined) report(crash);
+		void app.stop().catch(() => {});
+	};
+	const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT", "SIGHUP"];
+	const onSignal = () => stop();
+	// An exception has no caller left to go on with, so the process ends with the app.
+	const onCrash = (e: unknown) => stop(`\npine stopped: ${errText(e)}\n`);
+	for (const signal of signals) process.on(signal, onSignal);
+	process.on("uncaughtException", onCrash);
+	process.on("unhandledRejection", onCrash);
+	return () => {
+		for (const signal of signals) process.off(signal, onSignal);
+		process.off("uncaughtException", onCrash);
+		process.off("unhandledRejection", onCrash);
+	};
+}
+
 async function open(client: Client, mode: string, stop: () => Promise<void>, opts: Opening, more: Pick<TuiOptions, "mcp" | "remote">): Promise<void> {
 	const cleanup: Array<() => Promise<void> | void> = [stop];
 	const done = Promise.withResolvers<void>();
@@ -80,15 +113,23 @@ async function open(client: Client, mode: string, stop: () => Promise<void>, opt
 			done.resolve();
 		},
 	});
-	process.on("SIGTERM", () => void app.stop());
+	// What a crash said goes onto the terminal once the app has given it back.
+	let complaint = "";
+	const off = endOnFailure(app, (why) => {
+		complaint = why;
+		process.exitCode = 1;
+	});
 	try {
 		await app.start();
 		// Started as "pine <folder>": the same tabs as always, and one on that folder.
 		if (opts.folder) await app.openFolder(opts.folder, opts.worktree);
 	} catch (e) {
+		off();
 		await app.stop();
 		throw e;
 	}
 	await done.promise;
-	process.exit(0);
+	off();
+	if (complaint) process.stderr.write(complaint);
+	process.exit(process.exitCode ?? 0);
 }
