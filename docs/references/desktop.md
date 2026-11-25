@@ -557,6 +557,7 @@ group; the side panel and the view each open in a group of their own at the righ
 | Drag a tab to an edge of the window | Right at the window's edge (the outermost 48 pixels of a group that lies along it), it goes into a new group along that whole edge, a third of the window wide or tall: a column the height of the window beside groups split one above another, or a row along the whole bottom |
 | Split Right, Split Down | In a tab's right click, where its group has another tab: the tab gets a group of its own beside or under it |
 | Drag the edge between two groups | Makes one larger and the other smaller; focus the edge with Tab and use the arrow keys (`⇧` for larger steps), a double click shares the room equally |
+| How small a group gets | Never narrower than a conversation at its narrowest (340 pixels) nor lower than 160, however its edge is dragged or a tab is let go beside it: the room it lacks comes from the groups beside it. A window too small for all its groups at that size makes them all smaller alike, and each one's content is cut at its own edge, never drawn over another group |
 | Click into a group | Its tab in front is the tab in front of the window: new tabs (`⌘T`) go into its group, and `⌃Tab` and `⌘1` to `⌘9` go through its tabs |
 | Close a group's last tab | The group goes, and its neighbour takes its room |
 

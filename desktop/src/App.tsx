@@ -1191,12 +1191,17 @@ function DropZones({ group, rect, sides, area }: { group: string; rect: dock.Rec
 /** The one empty group a window with no tab shows. */
 const NONE: dock.Group = { kind: "group", id: "g-none", items: [] };
 
-/** The least a group is wide or tall when the edge beside it is dragged. */
-const LEAST = { row: 300, column: 160 };
 /** The room between two groups: the edge that is dragged. */
 const GAP = 6;
+/** The page's root font size in pixels, which rem are of. */
+const rem = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+/**
+ * The least a group is wide or tall, in pixels, however its edges are dragged or its tabs are moved: as wide as a
+ * conversation is at its narrowest (`min-w-85` in Conversation.tsx), so that none spills over the group beside it.
+ */
+const least = (): dock.Least => ({ row: 21.25 * rem(), column: 10 * rem() });
 /** How tall a group's bar is (h-11 along the top of the window, h-9 elsewhere), in pixels at the page's root font size. */
-const barHeight = (top: boolean) => (top ? 2.75 : 2.25) * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+const barHeight = (top: boolean) => (top ? 2.75 : 2.25) * rem();
 
 /**
  * The edge between two groups: dragged, it moves the room from one to the other; double-clicked, it shares it
@@ -1205,12 +1210,8 @@ const barHeight = (top: boolean) => (top ? 2.75 : 2.25) * (parseFloat(getCompute
  */
 function Edge({ h, next }: { h: dock.Handle; next?: string }) {
 	const row = h.dir === "row";
-	const by = (px: number) => {
-		const split = dock.findNode(store.dock, h.split);
-		if (split?.kind !== "split") return;
-		const length = (row ? h.whole.width : h.whole.height) - GAP * (split.sizes.length - 1);
-		store.resizeSplit(h.split, dock.dragEdge(split.sizes, h.index, px, length, LEAST[h.dir]), true);
-	};
+	// From the shares as drawn, which keep each group at its least whatever the tree says: the edge moves from where it is seen.
+	const by = (px: number) => store.resizeSplit(h.split, dock.dragEdge(h.sizes, h.index, px, h.length, h.least), true);
 	return (
 		<div
 			data-slot="dock-edge"
@@ -1230,14 +1231,11 @@ function Edge({ h, next }: { h: dock.Handle; next?: string }) {
 			className={cn("absolute z-10 touch-none rounded-full after:absolute after:rounded-full after:bg-ring/0 after:transition-colors hover:after:bg-ring/50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden", row ? "cursor-col-resize after:inset-y-2 after:left-1/2 after:w-0.5 after:-translate-x-1/2" : "cursor-row-resize after:inset-x-2 after:top-1/2 after:h-0.5 after:-translate-y-1/2")}
 			style={{ left: h.rect.x, top: h.rect.y, width: h.rect.width, height: h.rect.height }}
 			onPointerDown={(e) => {
-				const split = dock.findNode(store.dock, h.split);
-				if (split?.kind !== "split") return;
 				e.preventDefault();
 				e.currentTarget.setPointerCapture(e.pointerId);
 				const from = row ? e.clientX : e.clientY;
-				const sizes = split.sizes;
-				const length = (row ? h.whole.width : h.whole.height) - GAP * (sizes.length - 1);
-				const move = (ev: PointerEvent, done: boolean) => store.resizeSplit(h.split, dock.dragEdge(sizes, h.index, (row ? ev.clientX : ev.clientY) - from, length, LEAST[h.dir]), done);
+				const { sizes, length, least } = h;
+				const move = (ev: PointerEvent, done: boolean) => store.resizeSplit(h.split, dock.dragEdge(sizes, h.index, (row ? ev.clientX : ev.clientY) - from, length, least), done);
 				const el = e.currentTarget;
 				const onMove = (ev: PointerEvent) => move(ev, false);
 				const onUp = (ev: PointerEvent) => {
@@ -1282,7 +1280,7 @@ function DockArea({ column }: { column: boolean }) {
 	const tree = s.tabs.length ? s.dock : NONE;
 	const groups = dock.groupsOf(tree);
 	const area = room ? { x: column ? 0 : GAP, y: 0, width: room.width - GAP - (column ? 0 : GAP), height: room.height - GAP } : undefined;
-	const at = area ? dock.layout(tree, area, GAP) : undefined;
+	const at = area ? dock.layout(tree, area, GAP, least()) : undefined;
 	/** Where a group's body lies: under its bar. */
 	const bodyOf = (id: string): dock.Rect | undefined => {
 		const r = at?.groups.get(id);
@@ -1314,7 +1312,8 @@ function DockArea({ column }: { column: boolean }) {
 								data-slot="group-body"
 								data-group={g.id}
 								data-focus={s.focus === g.id || undefined}
-								className="absolute flex"
+								// Clipped: in a window too small for every group's least, a group's content is cut at its edge and never drawn over its neighbour.
+								className="absolute flex overflow-hidden"
 								style={{ left: r.x, top: r.y, width: r.width, height: r.height }}
 								// A click into a group brings its tab to the front of the window. Not a focus: a conversation that comes
 								// into view focuses its input by itself, which would take the window from the tab just moved.

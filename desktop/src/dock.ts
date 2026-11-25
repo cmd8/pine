@@ -258,6 +258,46 @@ export interface Handle {
 	rect: Rect;
 	/** The rect of the whole split, which its shares are of. */
 	whole: Rect;
+	/** The shares of the split's children as they are drawn: as kept, but none under its least. A drag starts from these. */
+	sizes: number[];
+	/** The least each child of the split takes along its direction, in pixels. */
+	least: number[];
+	/** The pixels the shares are of: the split's length without the edges between its children. */
+	length: number;
+}
+
+/** The least a group is wide (`row`) and tall (`column`), in pixels. */
+export interface Least {
+	row: number;
+	column: number;
+}
+
+/** The least room a node takes along a direction (`row`: its width, `column`: its height): its groups' least, side by side or the widest. */
+export function leastOf(node: Node, dir: Split["dir"], least: Least, gap: number): number {
+	if (node.kind === "group") return least[dir];
+	const each = node.children.map((c) => leastOf(c, dir, least, gap));
+	return node.dir === dir ? each.reduce((a, b) => a + b, 0) + gap * (each.length - 1) : Math.max(...each);
+}
+
+/**
+ * The pixels each child of a split takes of `length`: its share, but never under its least, the room it lacks taken from
+ * the others in proportion to theirs. Where the room is less than all the leasts together, each gets its least scaled
+ * down alike. However small a share was kept, its child is drawn where it can be seen and its edge reached.
+ */
+export function spans(sizes: number[], length: number, least: number[]): number[] {
+	if (length <= 0) return sizes.map(() => 0);
+	const need = least.reduce((a, b) => a + b, 0);
+	if (need >= length) return least.map((l) => (need > 0 ? (length * l) / need : length / least.length));
+	const fixed = new Set<number>();
+	for (;;) {
+		const free = length - [...fixed].reduce((a, i) => a + least[i], 0);
+		const shares = sizes.reduce((a, s, i) => (fixed.has(i) ? a : a + s), 0);
+		const out = sizes.map((s, i) => (fixed.has(i) ? least[i] : shares > 0 ? (free * s) / shares : free / (sizes.length - fixed.size)));
+		const under = out.flatMap((o, i) => (!fixed.has(i) && o < least[i] ? [i] : []));
+		// Some child always stays free: what is free is more than the leasts of the free children together.
+		if (!under.length) return out;
+		for (const i of under) fixed.add(i);
+	}
 }
 
 /** Which sides of the window a group touches: the top row carries the title bar, the corners the window's buttons. */
@@ -270,25 +310,29 @@ export interface Sides {
 
 /**
  * Where everything lies in `rect`: each group's rect, the edges between neighbours (`gap` wide), and which sides of
- * the window each group touches. Only arithmetic: the page draws what it says.
+ * the window each group touches. No group is drawn under `least` where the room allows it (`spans`), whatever shares
+ * the tree keeps. Only arithmetic: the page draws what it says.
  */
-export function layout(node: Node, rect: Rect, gap: number): { groups: Map<string, Rect>; handles: Handle[]; sides: Map<string, Sides> } {
+export function layout(node: Node, rect: Rect, gap: number, least: Least = { row: 0, column: 0 }): { groups: Map<string, Rect>; handles: Handle[]; sides: Map<string, Sides> } {
 	const groups = new Map<string, Rect>();
 	const sides = new Map<string, Sides>();
 	const handles: Handle[] = [];
 	const walk = (n: Node, r: Rect, s: Sides) => {
 		if (n.kind === "group") return void (groups.set(n.id, r), sides.set(n.id, s));
 		const row = n.dir === "row";
-		const length = (row ? r.width : r.height) - gap * (n.children.length - 1);
+		const length = Math.max(0, (row ? r.width : r.height) - gap * (n.children.length - 1));
+		const floors = n.children.map((c) => leastOf(c, n.dir, least, gap));
+		const each = spans(n.sizes, length, floors);
+		const drawn = each.map((p) => (length > 0 ? p / length : 1 / each.length));
 		let at = row ? r.x : r.y;
 		n.children.forEach((c, i) => {
-			const span = Math.max(0, length * n.sizes[i]);
+			const span = each[i];
 			const part: Rect = row ? { x: at, y: r.y, width: span, height: r.height } : { x: r.x, y: at, width: r.width, height: span };
 			const last = i === n.children.length - 1;
 			walk(c, part, row ? { ...s, left: s.left && i === 0, right: s.right && last } : { ...s, top: s.top && i === 0, bottom: s.bottom && last });
 			at += span;
 			if (!last) {
-				handles.push({ split: n.id, index: i, dir: n.dir, rect: row ? { x: at, y: r.y, width: gap, height: r.height } : { x: r.x, y: at, width: r.width, height: gap }, whole: r });
+				handles.push({ split: n.id, index: i, dir: n.dir, rect: row ? { x: at, y: r.y, width: gap, height: r.height } : { x: r.x, y: at, width: r.width, height: gap }, whole: r, sizes: drawn, least: floors, length });
 				at += gap;
 			}
 		});
@@ -298,15 +342,18 @@ export function layout(node: Node, rect: Rect, gap: number): { groups: Map<strin
 }
 
 /**
- * The shares of a split after the edge `index` was dragged by `delta` pixels, with no child narrower than `least`
- * pixels (as far as the two beside the edge allow). Only the two neighbours of the edge change.
+ * The shares of a split after the edge `index` was dragged by `delta` pixels, with no child under its least: `least`
+ * pixels for each, or each child's own (`Handle.least`), as far as the room of the two beside the edge allows. Only
+ * the two neighbours of the edge change.
  */
-export function dragEdge(sizes: number[], index: number, delta: number, length: number, least: number): number[] {
+export function dragEdge(sizes: number[], index: number, delta: number, length: number, least: number | number[]): number[] {
 	if (length <= 0 || index < 0 || index >= sizes.length - 1) return sizes;
 	const a = sizes[index] * length;
 	const b = sizes[index + 1] * length;
-	const floor = Math.min(least, (a + b) / 2);
-	const moved = Math.max(floor - a, Math.min(b - floor, delta));
+	const [la, lb] = typeof least === "number" ? [least, least] : [least[index] ?? 0, least[index + 1] ?? 0];
+	// Two that have less room than their leasts together share it in proportion to them.
+	const k = la + lb > 0 ? Math.min(1, (a + b) / (la + lb)) : 1;
+	const moved = Math.max(la * k - a, Math.min(b - lb * k, delta));
 	const next = [...sizes];
 	next[index] = (a + moved) / length;
 	next[index + 1] = (b - moved) / length;

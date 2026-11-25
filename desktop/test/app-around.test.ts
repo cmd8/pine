@@ -764,12 +764,16 @@ test("the panel's Agent view scrolls up and down only, however narrow the panel 
 	await sees("[data-slot=code-panel] [data-slot=scroll-area] >> text=What it remembers");
 	const width = () => page.$eval("[data-slot=code-panel]", (el: Element) => el.getBoundingClientRect().width);
 	const was = await width();
+	// A window short enough that the view has more to show than room, whatever the panel's width: it scrolls, and shows its bar.
+	await page.setViewportSize({ width: 1280, height: 640 });
 	const edge = await page.$eval(CODE_EDGE, (el: Element) => el.getBoundingClientRect());
 	await page.mouse.move(edge.x + edge.width / 2, 300);
 	await page.mouse.down();
 	await page.mouse.move(edge.x + edge.width / 2 + 600, 300, { steps: 6 });
 	await page.mouse.up();
-	assert.ok((await width()) < was, "the panel was not made narrower");
+	// Narrower, or already as narrow as a group gets (340 pixels: dock.ts, `least` in App.tsx).
+	const now = await width();
+	assert.ok(now < was || now <= 341, `the panel was not made narrower: ${was} → ${now}, at the edge ${JSON.stringify(edge)}`);
 	const fits = () => page.$eval("[data-slot=code-panel] [data-slot=scroll-area]:has-text(\"What it remembers\") > [data-slot=scroll-area-viewport]", (el: Element) => {
 		const wide = [...el.querySelectorAll("*")].filter((c) => c.getBoundingClientRect().right > el.getBoundingClientRect().right + 0.5).slice(0, 5).map((c) => `${c.tagName}.${c.className}`.slice(0, 120));
 		return { scroll: el.scrollWidth, client: el.clientWidth, wide };
@@ -783,6 +787,7 @@ test("the panel's Agent view scrolls up and down only, however narrow the panel 
 	await page.mouse.down();
 	await page.mouse.move(back.x + back.width / 2 - (was - (await width())), 300, { steps: 6 });
 	await page.mouse.up();
+	await page.setViewportSize({ width: 1280, height: 820 });
 });
 
 test("a phone-wide window lays the side bar and the panel over the conversation, and a wide one puts them back beside it", async () => {
@@ -1075,6 +1080,49 @@ test("tabs and the side panel are dragged into groups beside and under each othe
 		// One group again, without the panel, and the width the start of this file set, for the tests that follow.
 		if (await page.$("[data-slot=code-panel]")) await menu("code");
 		await page.setViewportSize({ width: 1280, height: 820 });
+	}
+});
+
+/**
+ * What is wrong with how the groups lie, in words, or "" when nothing is: a group's content wider or taller than its
+ * group, two groups over each other, an edge between groups that something else covers.
+ */
+const misplaced = () =>
+	page.evaluate(() => {
+		const bodies = [...document.querySelectorAll("[data-slot=group-body]")].map((b) => ({ id: b.id || b.getAttribute("data-group"), at: b.getBoundingClientRect(), inner: b.firstElementChild?.getBoundingClientRect() }));
+		const wrong: string[] = [];
+		for (const b of bodies) if (b.inner && (b.inner.right > b.at.right + 0.5 || b.inner.bottom > b.at.bottom + 0.5)) wrong.push(`${b.id} is drawn ${Math.round(b.inner.right - b.at.right)}px past its group`);
+		for (const [i, a] of bodies.entries())
+			for (const b of bodies.slice(i + 1)) if (a.at.left < b.at.right - 0.5 && b.at.left < a.at.right - 0.5 && a.at.top < b.at.bottom - 0.5 && b.at.top < a.at.bottom - 0.5) wrong.push(`${a.id} and ${b.id} overlap`);
+		for (const e of document.querySelectorAll("[data-slot=dock-edge]")) {
+			const r = e.getBoundingClientRect();
+			if (document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) !== e) wrong.push("an edge is covered");
+		}
+		return wrong.join("; ");
+	});
+
+test("the side panel dragged onto the edge of the conversation's group, again and again, leaves the conversation at its least and every group and edge in reach", async () => {
+	try {
+		await page.setViewportSize({ width: 1280, height: 820 });
+		await page.click("[data-slot=tab] >> nth=0");
+		if (!(await page.$("[data-slot=code-panel]"))) await page.click(CODE_TOGGLE);
+		await sees("#code-panel [data-slot=code-panel]");
+		const width = () => page.$eval("#code-panel", (el: Element) => el.getBoundingClientRect().width);
+		const was = await width();
+		// As the owner did: picked up by its tab and let go at the right of the conversation, which gives it half its room each time.
+		for (let i = 0; i < 3; i++) {
+			await dragTo("@code", "main", "right");
+			await page.waitForFunction((w) => document.querySelector("#code-panel")!.getBoundingClientRect().width > w + 50, was);
+			const wrong = await misplaced();
+			assert.equal(wrong, "", `after drag ${i + 1}: ${wrong}`);
+		}
+		// The conversation is as narrow as it gets, and still whole; so it is after a start, from the arrangement kept.
+		await shot("dock-least");
+		await page.reload();
+		await sees("#code-panel [data-slot=code-panel]");
+		assert.equal(await misplaced(), "");
+	} finally {
+		if (await page.$("[data-slot=code-panel]")) await menu("code");
 	}
 });
 

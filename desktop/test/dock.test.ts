@@ -1,7 +1,7 @@
 // The tree that arranges a window's tabs (src/dock.ts): pure functions, no window.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { dragEdge, windowEdgeOf, windowRect, findGroup, group, groupHolding, groupsOf, insert, itemsOf, layout, type Node, prune, remove, resize, restore, same, save, setFront, split, splitWindow, zoneOf } from "../src/dock.ts";
+import { dragEdge, leastOf, spans, windowEdgeOf, windowRect, findGroup, group, groupHolding, groupsOf, insert, itemsOf, layout, type Node, prune, remove, resize, restore, same, save, setFront, split, splitWindow, zoneOf } from "../src/dock.ts";
 
 /** The shape of a tree as text: `[a b*]` a group with b in front, `row(...)` and `col(...)` splits. */
 const show = (n: Node): string => (n.kind === "group" ? `[${n.items.map((i) => (i === n.front ? `${i}*` : i)).join(" ")}]` : `${n.dir === "row" ? "row" : "col"}(${n.children.map(show).join(" ")})`);
@@ -88,6 +88,60 @@ test("dragging an edge moves room between its neighbours, never below the least"
 	assert.deepEqual(dragEdge([0.5, 0.25, 0.25], 1, -900, 1000, 100), [0.5, 0.1, 0.4]);
 	const t = split(group(["a", "b"]), groupsOf(group(["a", "b"]))[0].id, "right", "b");
 	assert.equal(resize(t, "nope", [1]), t);
+});
+
+/** Whether two rects overlap by more than a rounding error. */
+const overlaps = (a: { x: number; y: number; width: number; height: number }, b: typeof a) => a.x < b.x + b.width - 0.5 && b.x < a.x + a.width - 0.5 && a.y < b.y + b.height - 0.5 && b.y < a.y + a.height - 0.5;
+
+test("no group is drawn under its least, whatever shares were kept, and the room it lacks comes from the others", () => {
+	const least = { row: 340, column: 160 };
+	assert.deepEqual(spans([0.5, 0.5], 1000, [340, 340]), [500, 500]);
+	assert.deepEqual(spans([0.05, 0.95], 1000, [340, 340]), [340, 660]);
+	assert.deepEqual(spans([0.05, 0.05, 0.9], 1000, [100, 100, 100]), [100, 100, 800]);
+	// Less room than the leasts together: each gets its least, scaled down alike, and the room is filled exactly.
+	assert.deepEqual(spans([0.9, 0.1], 500, [400, 100]), [400, 100]);
+	assert.deepEqual(spans([0.5, 0.5], 300, [400, 200]), [200, 100]);
+	// A conversation beside a column of the side panel over the view: the column is as wide as the widest of the two.
+	const right = { kind: "split", id: "col", dir: "column", children: [group(["code"]), group(["view"])], sizes: [0.5, 0.5] } as Node;
+	assert.equal(leastOf(right, "row", least, 6), 340);
+	assert.equal(leastOf(right, "column", least, 6), 326);
+	assert.equal(leastOf({ kind: "split", id: "r", dir: "row", children: [group(["a"]), right], sizes: [0.5, 0.5] }, "row", least, 6), 686);
+});
+
+test("a layout kept with a group squeezed to nothing comes back with every group and edge where it can be seen and reached", () => {
+	const least = { row: 340, column: 160 };
+	// As the owner left it: the conversation's share all but gone, the side panel over the view at the right.
+	const kept = { kind: "split", dir: "row", children: [{ kind: "group", items: ["c"] }, { kind: "split", dir: "column", children: [{ kind: "group", items: ["code"] }, { kind: "group", items: ["view"] }], sizes: [0.6, 0.4] }], sizes: [0.02, 0.98] };
+	const t = restore(kept, (x) => (typeof x === "string" ? x : undefined))!;
+	const area = { x: 6, y: 0, width: 1018, height: 800 };
+	const at = layout(t, area, 6, least);
+	const rects = groupsOf(t).map((g) => at.groups.get(g.id)!);
+	for (const r of rects) assert.ok(r.width >= least.row - 1e-6 && r.height >= least.column - 1e-6, JSON.stringify(r));
+	for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) assert.ok(!overlaps(rects[i], rects[j]), JSON.stringify([rects[i], rects[j]]));
+	// The edge between the conversation and the column lies between them, and a drag starts from the shares as drawn.
+	const edge = at.handles.find((h) => h.dir === "row")!;
+	const conv = at.groups.get(groupHolding(t, "c")!.id)!;
+	assert.equal(edge.rect.x, conv.x + conv.width);
+	assert.ok(edge.sizes[0] * edge.length >= least.row - 1e-6);
+	assert.deepEqual(edge.least, [340, 340]);
+	// Dragged left as far as it goes, the conversation stays at its least; dragged right, it grows from where it was seen.
+	const left = dragEdge(edge.sizes, 0, -2000, edge.length, edge.least);
+	assert.ok(Math.abs(left[0] * edge.length - 340) < 1e-6, String(left));
+	const wider = dragEdge(edge.sizes, 0, 100, edge.length, edge.least);
+	assert.ok(Math.abs(wider[0] * edge.length - 440) < 1e-6, String(wider));
+});
+
+test("splitting the conversation's group again and again, as a tab dragged to its edge does, never draws one group over another", () => {
+	const least = { row: 340, column: 160 };
+	const area = { x: 6, y: 0, width: 1018, height: 800 };
+	let t: Node = splitWindow(group(["c"]), "right", "code", 0.36);
+	for (let i = 0; i < 4; i++) {
+		t = split(t, groupHolding(t, "c")!.id, "right", "code");
+		const at = layout(t, area, 6, least);
+		const rects = groupsOf(t).map((g) => at.groups.get(g.id)!);
+		for (const r of rects) assert.ok(r.width >= least.row - 1e-6, `${i}: ${JSON.stringify(r)}`);
+		for (let a = 0; a < rects.length; a++) for (let b = a + 1; b < rects.length; b++) assert.ok(!overlaps(rects[a], rects[b]));
+	}
 });
 
 test("the band along the window's edges: only where the group touches the window, and only near it", () => {
