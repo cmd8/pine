@@ -4,7 +4,7 @@ import { Type } from "typebox";
 import { isInside, realish } from "../security.ts";
 import type { SourceType } from "../source-types.ts";
 import type { SourceApi } from "../sources.ts";
-import { parseDuration, resolvePath } from "../util.ts";
+import { errText, parseDuration, resolvePath } from "../util.ts";
 
 /**
  * A folder: reports every new or changed file once it has stopped growing. For things that drop
@@ -78,9 +78,14 @@ export default function folder(source: SourceApi): void {
 	const settleMs = parseDuration(o.settle ?? "1.5s");
 	const pending = new Map<string, NodeJS.Timeout>();
 	const seen = new Map<string, number>();
+	// How many more looks a file that is there but empty gets before it is reported as it is: written
+	// in one go a file is empty for an instant, while one made to be empty (a `touch`ed marker, a
+	// lock) stays so, and waiting on it for ever kept a timer for it as long as pine ran and never
+	// reported it at all.
+	const EMPTY_ROUNDS = 2;
 	source.media(dir);
 
-	const check = (file: string, lastSize: number) => {
+	const check = (file: string, lastSize: number, round = 0) => {
 		pending.delete(file);
 		let stat: fs.Stats;
 		try {
@@ -90,7 +95,7 @@ export default function folder(source: SourceApi): void {
 		} catch {
 			return;
 		}
-		if (stat.size !== lastSize || stat.size === 0) return void pending.set(file, setTimeout(() => check(file, stat.size), settleMs));
+		if (stat.size !== lastSize || (stat.size === 0 && round < EMPTY_ROUNDS)) return void pending.set(file, setTimeout(() => check(file, stat.size, round + 1), settleMs));
 		if (seen.get(file) === stat.mtimeMs) return;
 		seen.set(file, stat.mtimeMs);
 		if (seen.size > 5000) for (const k of [...seen.keys()].slice(0, 2500)) seen.delete(k);
@@ -98,15 +103,39 @@ export default function folder(source: SourceApi): void {
 		source.emit("added", { path: file, file: path.relative(dir, file), size: stat.size, images: mimeType && stat.size < 10 * 1024 * 1024 ? [{ path: file, mimeType }] : undefined });
 	};
 
-	const watcher = fs.watch(dir, { recursive: o.recursive !== false }, (_type, name) => {
-		if (!name) return;
-		const file = path.join(dir, String(name));
-		if ((pattern && !pattern.test(file)) || (mask && !mask.test(path.basename(file))) || ignore.test(String(name)) || pending.has(file)) return;
-		pending.set(file, setTimeout(() => check(file, -1), 200));
-	});
+	// A watcher gives up for reasons that are none of the folder's doing: an inotify limit reached, its
+	// rights taken away, the folder replaced. Unhandled that arrives as an exception that takes the
+	// daemon down while the source still says it runs, so it goes into the source's status, the dead
+	// watcher is dropped, and a new one is tried, further apart each time.
+	const RETRY_FIRST = 1000;
+	let watcher: fs.FSWatcher | undefined;
+	let retry: NodeJS.Timeout | undefined;
+	let waitMs = RETRY_FIRST;
+	const open = () => {
+		watcher = fs.watch(dir, { recursive: o.recursive !== false }, (_type, name) => {
+			// One that reports something is a working one: the wait for a new one starts over.
+			waitMs = RETRY_FIRST;
+			if (!name) return;
+			const file = path.join(dir, String(name));
+			if ((pattern && !pattern.test(file)) || (mask && !mask.test(path.basename(file))) || ignore.test(String(name)) || pending.has(file)) return;
+			pending.set(file, setTimeout(() => check(file, -1), 200));
+		});
+		watcher.on("error", (e) => {
+			watcher?.close();
+			watcher = undefined;
+			source.log.warn(`stopped watching ${dir}`, errText(e));
+			source.status(`not watching ${dir}: ${errText(e)}. Trying again in ${waitMs / 1000} s, and less often each time it fails.`);
+			retry = setTimeout(open, waitMs);
+			waitMs = Math.min(waitMs * 2, 60_000);
+		});
+		// A watcher that works has nothing to say about itself: this clears the line a failure wrote.
+		source.status("");
+		source.log.info(`watching ${dir}`);
+	};
+	open();
 	source.onStop(() => {
-		watcher.close();
+		if (retry) clearTimeout(retry);
+		watcher?.close();
 		pending.forEach((t) => clearTimeout(t));
 	});
-	source.log.info(`watching ${dir}`);
 }
