@@ -1182,7 +1182,7 @@ function DropZones({ group, rect, sides, area }: { group: string; rect: dock.Rec
 				landed(e, z.zone === "center" ? { group } : { group, edge: z.zone, window: z.window });
 			}}
 		>
-			{mark ? <div className="pointer-events-none absolute rounded-xl bg-primary/15 ring-2 ring-primary/60 transition-all duration-100" style={{ left: mark.x, top: mark.y, width: mark.width, height: mark.height }} /> : null}
+			{mark ? <div className="pointer-events-none absolute rounded-xl bg-primary/15 ring-2 ring-primary/60 ring-inset transition-all duration-100" style={{ left: mark.x, top: mark.y, width: mark.width, height: mark.height }} /> : null}
 		</div>
 	);
 }
