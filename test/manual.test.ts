@@ -32,8 +32,11 @@ test("manual: a file is cut into a part per heading and a part per row that desc
 test("manual: questions in an agent's own words find the part of pine's manual that answers them", () => {
 	const manual = createManual(loadManual(DOCS));
 	assert.ok(manual.parts.length > 300, `${manual.parts.length} parts`);
-	const top = (q: string, n = 3) => manual.search(q, n).hits.map((h) => h.id);
-	// [what is asked, a part that must be among the first three]
+	// What the agent is shown: the `manual` tool gives 6 parts for one question and 4 for each of several
+	// (`showSearch`), so an answer among the first 4 is found. Asking for less would hold every question
+	// to the ranking of all the others, and a sentence added anywhere in docs/ could push one out.
+	const top = (q: string, n = 4) => manual.search(q, n).hits.map((h) => h.id);
+	// [what is asked, a part that must be among the first four]
 	const cases: Array<[string, RegExp]> = [
 		["telegram pairing code", /^source-types#telegram$/],
 		["can the agent use bold text and formatting in telegram messages, markdown", /^source-types#telegram$/],

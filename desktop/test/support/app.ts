@@ -83,12 +83,23 @@ export function builtApp(): Promise<string> {
  * nor their pointer and keys, and theirs never reach a test. A test that has to measure the real
  * window hands in `PINE_DESKTOP_HEADLESS: ""`; `PINE_DESKTOP_SHOW=1` shows the window of every test, to watch one.
  */
+/**
+ * How much longer than on a desk to wait, as the root suite's `PATIENCE` (test/support/harness.ts):
+ * the Test workflow sets PINE_TEST_PATIENCE=4, since a runner of GitHub's with two processors and
+ * several apps side by side is that much slower. Only how long is waited changes, never what for.
+ */
+export const PATIENCE = Math.max(1, Number(process.env.PINE_TEST_PATIENCE) || 1);
+/** A wait of `ms` on a desk, as long as it has to be here. */
+export const patient = (ms: number) => ms * PATIENCE;
+
 export async function launchApp(env: Record<string, string | undefined>): Promise<ElectronApplication> {
 	const all = { ...env, PINE_DESKTOP_HEADLESS: process.env.PINE_DESKTOP_SHOW ? "" : (env.PINE_DESKTOP_HEADLESS ?? "1") };
 	// Electron takes only set variables; a spread of process.env may hold unset ones.
 	const set: Record<string, string> = {};
 	for (const [name, value] of Object.entries(all)) if (value !== undefined) set[name] = value;
-	const app = await electron.launch({ args: [await builtApp()], env: set });
+	const app = await electron.launch({ args: [await builtApp()], env: set, timeout: patient(30_000) });
+	// What a test waits for without saying how long (Playwright's 30 seconds) waits as long as the rest.
+	app.context().setDefaultTimeout(patient(30_000));
 	await quiet(app);
 	return app;
 }

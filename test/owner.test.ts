@@ -606,7 +606,7 @@ test("the owner's file tree makes, renames, copies, moves and deletes files of a
 	assert.deepEqual((await mine({ op: "folder", path: "sub" })).body, { paths: ["sub"] });
 	assert.deepEqual((await mine({ op: "move", paths: ["MEMORY.md", "notes.md"], into: "sub" })).body, { paths: ["sub/notes.md"], kept: ["MEMORY.md"] });
 	assert.deepEqual((await mine({ op: "delete", paths: ["AGENTS.md", "sub/notes.md"] })).body, { paths: [], kept: ["AGENTS.md"] });
-	assert.match((await mine({ op: "rename", path: "agents.md", to: "old.md" })).body.error, /one of the agent's own files/);
+	assert.match((await mine({ op: "rename", path: "AGENTS.md", to: "old.md" })).body.error, /one of the agent's own files/);
 	assert.deepEqual((await mine({ op: "copy", paths: ["AGENTS.md"], into: "sub" })).body, { paths: ["sub/AGENTS.md"] }, "a copy is no harm");
 	assert.deepEqual((await mine({ op: "delete", paths: ["sub"] })).body, { paths: [] }, "a copy deeper down is just a file");
 	assert.deepEqual(["AGENTS.md", "MEMORY.md"].map((f) => fs.readFileSync(path.join(ws, f), "utf8")), ["AGENTS.md\n", "MEMORY.md\n"]);

@@ -44,7 +44,7 @@ function pressed(e: KeyboardEvent, keys: string): boolean {
  * An agent's own files at the top of its workspace (`WORKSPACE_FILES` in src/config.ts): edited and
  * copied, never deleted, moved or renamed here. The daemon keeps them too; this says so before asking it.
  */
-const OWN = ["AGENTS.md", "SOUL.md", "TOOLS.md", "MEMORY.md"].map((f) => f.toLowerCase());
+const OWN = ["AGENTS.md", "SOUL.md", "TOOLS.md", "MEMORY.md"];
 
 /** Files cut or copied, waiting to be pasted: one place for the whole page, and only into the folder they came from. */
 let clip: { root: string; op: "copy" | "move"; paths: string[] } | undefined;
@@ -86,7 +86,8 @@ export function useFileActions(host: FileHost) {
 	const showIn = SHOW_IN[store.platform] ?? SHOW_IN.darwin;
 	const abs = (p: string) => (p ? `${root}/${p}` : root!);
 	// Only in the agent's workspace (no folder opened): elsewhere an AGENTS.md is the project's own.
-	const own = (p: string) => !tab.folder && OWN.includes(p.toLowerCase());
+	// The tree lists a name as it lies on disk, so it is compared as it is (the daemon decides by the file itself).
+	const own = (p: string) => !tab.folder && OWN.includes(p);
 	const keptSaid = (kept: string[], what: string) => kept.length && store.flash(`${kept.join(", ")} ${kept.length === 1 ? "stays" : "stay"} where ${kept.length === 1 ? "it is" : "they are"}: an agent's own files are edited, not ${what}.`, "warn", 6000);
 	/** Where a new name or a paste goes: into a folder, or beside a file; the top for nothing. */
 	const dirFor = (paths: string[]) => (paths.length === 1 ? (isDir(paths[0]) ? paths[0] : parentOf(paths[0])) : "");

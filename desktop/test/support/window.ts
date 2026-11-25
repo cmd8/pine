@@ -13,7 +13,7 @@ import path from "node:path";
 import { after, afterEach, before } from "node:test";
 import { startMock } from "../../../baseline/tests/mock.mjs";
 import { sandboxMissing } from "../../../src/security.ts";
-import { launchApp } from "./app.ts";
+import { launchApp, patient } from "./app.ts";
 
 export const root = path.resolve(import.meta.dirname, "..", "..");
 export const shots = process.env.PINE_DESKTOP_SHOTS;
@@ -45,7 +45,7 @@ export async function shot(name: string): Promise<void> {
 }
 
 /** Wait for something on screen; when it does not come, say what is there instead. */
-export async function sees(selector: string, timeout = 20_000): Promise<void> {
+export async function sees(selector: string, timeout = patient(20_000)): Promise<void> {
 	try {
 		await page.waitForSelector(selector, { timeout });
 	} catch {
@@ -285,7 +285,7 @@ export const named = (pattern: RegExp, is = true) =>
 			return field?.getAttribute("role") === "combobox" && option !== null && new RegExp(source).test(option.textContent ?? "") === is;
 		},
 		[pattern.source, is],
-		{ timeout: 20_000 },
+		{ timeout: patient(20_000) },
 	);
 
 /**
@@ -301,7 +301,7 @@ export const inDialog = () =>
 			return !dialog.querySelector("[role=option]") || Boolean(dialog.querySelector("[role=option][aria-selected=true]"));
 		},
 		undefined,
-		{ timeout: 20_000 },
+		{ timeout: patient(20_000) },
 	);
 
 /** Answers the dialog with that title with Enter, once it has the keyboard. */

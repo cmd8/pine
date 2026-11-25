@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { mockMsg, startMock } from "../../baseline/tests/mock.mjs";
-import { launchApp } from "./support/app.ts";
+import { launchApp, patient } from "./support/app.ts";
 
 // PINE_DESKTOP_SHOTS=<folder> also saves pictures there, and PINE_DESKTOP_THEME=<theme> runs it in that theme of pine's (github-light, nord ...).
 const shots = process.env.PINE_DESKTOP_SHOTS;
@@ -34,7 +34,7 @@ const call = (method: string, url: string, body?: unknown) => page.evaluate(([m,
 const frame = () => page.frameLocator("[data-slot=view-frame]");
 const said = (agent: string) => frame().locator(`[data-slot=office-words] > li[data-agent=${agent}]`).textContent();
 
-async function sees(selector: string, why: string, timeout = 15_000): Promise<void> {
+async function sees(selector: string, why: string, timeout = patient(15_000)): Promise<void> {
 	try {
 		await page.waitForSelector(selector, { timeout });
 	} catch {

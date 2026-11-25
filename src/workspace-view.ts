@@ -369,6 +369,15 @@ function nameIn(base: string, rel: unknown, what: string): string {
 	return path.join(dir, path.basename(named));
 }
 
+/** The entry itself (a link as the link), or undefined where there is none. */
+const same = (p: string) => {
+	try {
+		return fs.lstatSync(p);
+	} catch {
+		return undefined;
+	}
+};
+
 const exists = (p: string) => {
 	try {
 		fs.lstatSync(p);
@@ -417,7 +426,13 @@ const SCRIPTS = {
  */
 export async function changeFiles(root: string, change: FileChange, keep: string[] = []): Promise<{ paths: string[]; kept?: string[] }> {
 	const base = realish(root);
-	const own = (p: string) => path.dirname(p) === base && keep.some((k) => k.toLowerCase() === path.basename(p).toLowerCase());
+	// One of `keep` is the same entry of the folder, whatever case the name was asked in: where the
+	// system ignores case "agents.md" is AGENTS.md, and where it does not it is another file.
+	const kept = keep.map((k) => same(path.join(base, k))).filter((s): s is fs.Stats => Boolean(s));
+	const own = (p: string) => {
+		const s = path.dirname(p) === base ? same(p) : undefined;
+		return Boolean(s && kept.some((k) => k.ino === s.ino && k.dev === s.dev));
+	};
 	const rel = (p: string) => path.relative(base, p).split(path.sep).join("/");
 	const run = async (script: string, args: string[], what: string) => {
 		const done = await inFolder(base, script, args);
