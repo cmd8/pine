@@ -1020,7 +1020,6 @@ const TAB_DROP_GRACE_MS = 2000;
 function startTabDrag(w: ManagedWindow, drag: TabDrag): void {
 	broadcast("pine:tab-drag", false);
 	tabDrag = { ...drag, from: w, host: w.host };
-	if (HEADLESS) (globalThis as any).tabDragStarted = { tab: drag.tab, window: w.id };
 	for (const other of windowsForHost(w.host)) if (other !== w) sendTo(other, "pine:tab-drag", true);
 }
 
@@ -1033,37 +1032,28 @@ function startTabDrag(w: ManagedWindow, drag: TabDrag): void {
 function endTabDrag(w: ManagedWindow, raw: unknown): boolean {
 	const drag = tabDrag;
 	broadcast("pine:tab-drag", false);
-	// What ended the drag, for a test that has to say why nothing happened (the app's tests only).
-	const ended = (left: boolean, why: string, more?: object): boolean => {
-		if (HEADLESS) (globalThis as any).tabDragEnded = { left, why, raw, ...more };
-		return left;
-	};
-	if (!drag) return ended(false, "no drag was started");
-	if (drag.from !== w) return ended(false, "the drag began in another window");
-	if (drag.done) return ended(false, "the drag was taken already");
+	if (!drag || drag.from !== w || drag.done) return false;
 	drag.ended = Date.now();
 	const end = cleanTabDragEnd(raw);
-	if (!end.outside) return ended(false, "a drop took it");
-	if (w.win.isDestroyed()) return ended(false, "its window is gone");
+	if (!end.outside || w.win.isDestroyed()) return false;
 	const point = HEADLESS && end.x !== undefined && end.y !== undefined ? { x: end.x, y: end.y } : screen.getCursorScreenPoint();
-	const windowsAt = [...windows.values()].filter((o) => !o.win.isDestroyed()).map((o) => o.win.getBounds());
 	// On a window of the app (the source's own page included) it was no tear-off: a drop there that nothing took.
-	if (windowsAt.some((b) => insideRect(point, b))) return ended(false, "let go on a window of the app", { point, windowsAt });
+	if ([...windows.values()].some((o) => !o.win.isDestroyed() && insideRect(point, o.win.getBounds()))) return false;
 	// A window that fills the screen is not moved by its only tab.
-	if (end.alone && (w.win.isFullScreen() || w.win.isMaximized())) return ended(false, "the window fills the screen", { full: w.win.isFullScreen(), maximized: w.win.isMaximized() });
+	if (end.alone && (w.win.isFullScreen() || w.win.isMaximized())) return false;
 	drag.done = true;
 	const bounds = tearOffBounds(point, w.win.getBounds(), screen.getDisplayNearestPoint(point).workArea);
 	if (end.alone) {
 		w.win.setBounds(bounds);
-		return ended(false, "the window was moved", { point, bounds, now: w.win.getBounds() });
+		return false;
 	}
 	try {
 		openNewWindow({ host: w.host ?? null, tab: drag.tab, moveFrom: true, ...(drag.draft ? { draft: drag.draft } : {}) }, w, bounds);
-	} catch (e) {
+	} catch {
 		// As many windows as there may be: the tab stays where it was.
-		return ended(false, `no window was opened: ${e instanceof Error ? e.message : String(e)}`);
+		return false;
 	}
-	return ended(true, "torn off", { point, bounds });
+	return true;
 }
 
 /**
