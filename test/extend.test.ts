@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { buildArgv } from "../mcp/commands.ts";
+import { buildArgv, run } from "../mcp/commands.ts";
 import { htmlToText, isPrivateAddress } from "../mcp/web.ts";
 import { harness, MCP_STUB, mockMsg, sleep, until } from "./support/harness.ts";
 
@@ -103,6 +104,54 @@ test("bundled commands server: fixed commands as tools, parameters cannot inject
 	assert.ok(/stopped after 0.2 s/.test(slow), slow);
 	assert.equal(r.status, "done");
 	await h.close();
+});
+
+/** A command's answer, or why it failed, or nothing at all if it has not been answered within `ms`: it hangs. */
+const answered = (name: string, cmd: Parameters<typeof run>[1], ms: number): Promise<{ text?: string; e?: Error }> =>
+	Promise.race([run(name, cmd, {}).then((text) => ({ text }), (e: Error) => ({ e })), sleep(ms).then(() => ({}))]);
+
+/** A command that starts a program in the background, which writes its pid where the test can read it, and then hangs. */
+const background = (pidFile: string, start: string) => ["bash", "-lc", `${start} echo $! > ${pidFile}; echo started; sleep 20`];
+
+test("bundled commands server: a timeout ends what the command started, which holds the command's output", async () => {
+	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-commands-")));
+	try {
+		const pidFile = path.join(dir, "pid");
+		// A program of the command's own group, with the stdout and stderr it inherited: the answer cannot wait for the
+		// pipes to close, which is the program's whole life.
+		const answer = await answered("lingering", { description: "", run: background(pidFile, "sleep 20 &"), timeoutSec: 1.5 }, 4000);
+		assert.ok(answer.e, `a command stopped at its timeout is answered: ${JSON.stringify(answer)}`);
+		assert.match(answer.e.message, /^lingering was stopped after 1\.5 s\n/);
+		assert.match(answer.e.message, /started/, "what the command wrote before it hung is in the answer");
+		const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
+		await until(() => !alive(pid), 3000, "the program the command started to end with it");
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("bundled commands server: a command stopped at its timeout is answered though another group holds its output", { skip: process.platform === "win32" && "job control in a POSIX shell is what puts a program in a group of its own" }, async () => {
+	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-commands-")));
+	let pid = 0;
+	try {
+		const pidFile = path.join(dir, "pid");
+		// `set -m` gives the background program a group of its own, which the kill of the command's group does not reach:
+		// it keeps the inherited pipes open, so only the command's own exit can be answered from.
+		const answer = await answered("escaped", { description: "", run: background(pidFile, "set -m; sleep 20 &"), timeoutSec: 1.5 }, 4000);
+		assert.ok(answer.e, `a command stopped at its timeout is answered: ${JSON.stringify(answer)}`);
+		assert.match(answer.e.message, /^escaped was stopped after 1\.5 s\n/);
+		pid = Number(fs.readFileSync(pidFile, "utf8").trim());
+		assert.ok(alive(pid), "a program in a group of its own is not reached by the kill, and must not hold the call open");
+	} finally {
+		if (pid) {
+			try {
+				process.kill(pid, "SIGKILL");
+			} catch {
+				// it ended by itself
+			}
+		}
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("bundled web server: refuses private addresses, and using it taints the session", async () => {
