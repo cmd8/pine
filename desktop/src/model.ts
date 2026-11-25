@@ -1733,9 +1733,9 @@ export class Store extends Model {
 	}
 
 	/**
-	 * A tab the layout does not hold yet goes at the end of the group the tab in front is in (else the group last
-	 * clicked into, else the first that holds a tab), behind what is in front there. Where every group holds only
-	 * panes, it gets a group of its own at the left.
+	 * A tab the layout does not hold yet goes at the end of the group last clicked into (where that holds tabs), else
+	 * of the group the tab in front is in, else of the first that holds a tab, behind what is in front there. Where
+	 * every group holds only panes, it gets a group of its own at the left.
 	 */
 	private place(tab: Tab): void {
 		if (dock.groupHolding(this.dock, tab.item)) return;
@@ -1743,7 +1743,7 @@ export class Store extends Model {
 		const holdsTab = (g: dock.Group) => !g.items.length || g.items.some((i) => !paneOf(i));
 		const ofActive = this.active && this.active !== tab ? dock.groupHolding(this.dock, this.active.item) : undefined;
 		const focused = this.focus ? dock.findGroup(this.dock, this.focus) : undefined;
-		const target = ofActive ?? (focused && holdsTab(focused) ? focused : undefined) ?? groups.find(holdsTab);
+		const target = (focused && holdsTab(focused) ? focused : undefined) ?? ofActive ?? groups.find(holdsTab);
 		if (!target) return void (this.dock = dock.splitWindow(this.dock, "left", tab.item, 1 - CODE_SHARE));
 		const front = target.front;
 		this.dock = dock.insert(this.dock, target.id, tab.item);
@@ -2048,6 +2048,8 @@ export class Store extends Model {
 	 * outside every window: the tab then lives in a window of its own, and goes from this one. `x` and `y` are where it ended on the screen.
 	 */
 	async endTabDrag(tab: Tab, outside: boolean, x: number, y: number): Promise<void> {
+		// A drop this window took is never one outside it, whatever the drag's end says.
+		if (this.tookDrop) outside = false;
 		this.endDrag();
 		if (typeof bridge.tabDragEnd !== "function") return;
 		const alone = this.tabs.length === 1;
@@ -2057,6 +2059,7 @@ export class Store extends Model {
 
 	/** A tab or a pane of this window is picked up: the groups show where it can go, and the app's browser page steps aside. */
 	startDrag(item: string): void {
+		this.tookDrop = false;
 		// After the drag has begun: what is drawn over the window for it must not be there while the page starts the drag.
 		window.clearTimeout(this.dragTimer);
 		this.dragTimer = window.setTimeout(() => ((this.dragging = item), this.touch()));
@@ -2070,6 +2073,14 @@ export class Store extends Model {
 	}
 
 	private dragTimer?: number;
+	/** The drag under way was let go on this window, which took it (App.tsx, `landed`). */
+	private tookDrop = false;
+
+	/** A tab dragged in this window was let go on it, and it took the drop. */
+	tookTheDrop(): void {
+		this.tookDrop = true;
+		this.endDrag();
+	}
 
 	/**
 	 * A tab of another window was let go on this one: before a tab of a group, at the end of one, or at one of its edges.

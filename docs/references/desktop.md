@@ -353,7 +353,7 @@ What is this computer's stays this computer's. With another machine's pine:
 |---|---|
 | Folders | A conversation's folder is a path on that machine: choosing one asks for the path instead of opening the Finder, and a folder dropped from the Finder is refused. Show in the Finder is not offered |
 | The terminal and Run | The terminal beside a conversation and the Run button of a command in an answer are shells of this computer: they are not offered, and that pine's agents are not told about them |
-| The browser | The Browser aside shows the browser on that machine; an address you type there (`localhost:3000`) is one of that machine |
+| The browser | The browser in the side panel shows the browser on that machine; an address you type there (`localhost:3000`) is one of that machine |
 | Settings > General | About the app and this computer's pine (home folder, Keep pine running, the browser build). It says which machine's pine is in use |
 | Local actions from the system | Opening a local folder from the Finder or file manager (or `Pine <folder>`), opening a `pine://pair` address, and the Dock menu's `Add a Device…` always target the most recently active window on this computer, or open a new local window automatically when only remote windows (or no windows) are open |
 
@@ -516,47 +516,61 @@ agent's:
 |---|---|
 | Side bar | Search at the top, then your agents (see above). Drag its right edge to make it wider or narrower, or focus the edge with Tab and use the arrow keys (a double click on the edge sets it back), `⌘B` hides it and shows it again (in a window narrower than 768 pixels it opens it over the page instead: see the table below), and it is after a restart as you left it; where nothing is to click, it moves the window. Under an agent with more than one conversation come its groups of conversations, each with its conversations, then the conversations in no group. In each, an agent's own conversation (`main conversation`) comes first, then pinned ones, then by when they were last used, or by name: the agent's right click chooses (Sort by Last Used, Sort by Name), and the groups are sorted the same way. A click on a conversation opens it in a tab, and so does Enter: Tab reaches an agent's line (Enter or Space folds it, or opens its conversation when it has only one), then a group's line (the same), then the conversations, where the arrow keys move; a line's buttons come with Tab right after it (see "When the row buttons show" above); a right click offers Pin, Rename, Move to Group…, Remove (or Start over for an agent's own). Groups: see the next row At the bottom: the event log, the settings, and whether pine answers |
 | Groups of conversations | A group keeps an agent's conversations in order, one level deep, and keeps them however long they are not used ([agents.md](agents.md#groups-of-conversations)). Make one with New Group… in the agent's right click. Drag a conversation onto a group's line or into its list to put it there, onto the agent's line or among the conversations in no group to take it out; it takes its branches along, and a branch is not dragged by itself. Without a mouse: Move to Group… in a conversation's right click, or `Move conversation to group` in the palette (`/group` in the input), for the conversation in front. A group's right click: New Conversation in it, Rename…, Remove Group…, which removes the group and every conversation in it for good after you confirm (an agent's own conversation stays, in no group). A folded group still shows when something in it waits for you, works or is new |
-| Tabs | One conversation each, with its agent's initial, as in the terminal UI. With the keyboard the row of tabs is one Tab stop: the arrow keys move from tab to tab, Enter or Space brings one to the front, and `⌘W` closes the tab in front (its `×` is not a Tab stop). A tab shows a grey dot that pulses while the agent works, a dot when something arrived while you were elsewhere, `!` when it waits for your approval, `★` for a conversation that is kept for good. Drag a tab to move it within its window, onto another window's tabs (or an empty window) to move it there, or out of every window to give it a window of its own (see "Multiple windows"). A right click on a tab offers Close (`⌘W`), Close Others, Close to the Right, Close All, Move to New Window, and Pin or Unpin for its conversation; the close actions are in the palette too (Close other tabs, Close tabs to the right, Close all tabs). Closing a tab only closes the view: the conversation stays in the side bar, what was typed in its input and not sent is there again when you open it, and tab-scoped subscriptions of a non-main conversation end only when no other open window on that pine still has it open. Any tab can be closed, the agent's own conversation's and the last one too; with none open, the window says so and offers a new conversation or the main agent's (and pressing `⌘W` again closes that window). What waits for your answer is never left without a place: Close Others, Close to the Right and Close All leave a tab that waits open and say so, a tab closed by itself hands what it waits for to another tab (of the same agent if one is open, else the one in front), where its `!` and its buttons are, and the last tab that waits stays until it is answered. An approval that arrives with no tab open opens the agent's main conversation. The daemon keeps the union of tabs open across all windows on that pine; when a first window opens on an environment with none, it opens the main agent's conversation |
+| Tabs | One conversation each, with its agent's initial, as in the terminal UI. With the keyboard each row of tabs is one Tab stop: the arrow keys move from tab to tab, Enter or Space brings one to the front, and `⌘W` closes the tab in front (its `×` is not a Tab stop). A tab shows a grey dot that pulses while the agent works, a dot when something arrived while you were elsewhere, `!` when it waits for your approval, `★` for a conversation that is kept for good. Settings, the event log, a task's work, the side panel and the view are tabs too, and every tab lies in a group (see "Groups of tabs"). Drag a tab before or after another, into another group, to an edge of a group to give it a group of its own there, onto another window's tabs (or an empty window) to move it there, or out of every window to give it a window of its own (see "Multiple windows"; only a conversation's tab goes to another window). A right click on a tab offers Close (`⌘W`), Close Others, Close to the Right, Close All (all of its group), Split Right and Split Down (where its group has another tab), Move to New Window, and Pin or Unpin for its conversation; the close actions are in the palette too (Close other tabs, Close tabs to the right, Close all tabs). Closing a tab only closes the view: the conversation stays in the side bar, what was typed in its input and not sent is there again when you open it, and tab-scoped subscriptions of a non-main conversation end only when no other open window on that pine still has it open. Any tab can be closed, the agent's own conversation's and the last one too; with none open, the window says so and offers a new conversation or the main agent's (and pressing `⌘W` again closes that window). What waits for your answer is never left without a place: Close Others, Close to the Right and Close All leave a tab that waits open and say so, a tab closed by itself hands what it waits for to another tab (of the same agent if one is open, else the one in front), where its `!` and its buttons are, and the last tab that waits stays until it is answered. An approval that arrives with no tab open opens the agent's main conversation. The daemon keeps the union of tabs open across all windows on that pine; when a first window opens on an environment with none, it opens the main agent's conversation |
 | Conversation | A conversation in which nothing was said yet shows who its agent is: what it is for, its model and mode, whom it hands work to, and how many skills, event sources, schedules and MCP servers it has. Then your messages, the agent's answers drawn as markdown, and the work of each turn (tool calls, thoughts, sub-tasks, what it said on the way) folded into one line that a click opens (it stays open while the turn runs, with its last lines). A `↳ … ↗` line opens a sub-agent's or delegated task's work in a tab of its own. A request of the agent's waits in the conversation with its buttons until it is answered, then becomes a line. Above your last message a line offers to take it back (**Take back**, `/undo`). Scrolled up, the conversation holds still while the answer goes on, and a button at its foot brings you back to the end. Text you select in it can be quoted in your next message (see "Quoting part of a conversation" below) or bookmarked (see "Bookmarks") |
 | Input | `↩` sends; while the agent works the message is given to that work, and `⌥↩` makes it wait its turn. `⇧↩` is a new line, `↑` brings back earlier inputs, `esc` stops the agent. `/` offers the commands of the terminal UI, `@` the files of the conversation's folder. Under a message given to work, the app says whether the work has read it ("not read yet", "read 14:03"), and until then offers **send now**, which stops the step under way (a long command ends) so that the work reads it at once ([agents.md](agents.md#a-message-while-the-agent-works)) |
 | The line at the top of a conversation | Whose it is and which (`main / notes`), the folder it works in, how full its context is (tokens read and the share of the window; hover for the cache share and speed) |
-| The top right of the title bar | Up to three buttons: the side panel (`⌥⌘B`), the browser (`⇧⌘B`) and the view (`⇧⌘O`, where there is one), each a panel of its own at the right. Each is pressed while what it shows is open. A click opens what is closed, closes what is in front, and brings to the front one that is open but behind the others (in a window narrower than 1024 pixels the sheet covers these buttons: there `⌥⌘B`, `⇧⌘B` and `⇧⌘O` do it). On a tab that is not a conversation (Settings, Events) the side panel's and the browser's stay in their place and cannot be pressed; the view needs no conversation |
+| The top right of the window | Two buttons: the side panel (`⌥⌘B`) and the view (`⇧⌘O`, where there is one). Each is pressed while what it shows is in front of its group. A click opens what is closed (in a group of its own at the right of the window), closes what is in front, and brings to the front one that is open but behind another tab of its group (pressed more lightly). In a window narrower than 1024 pixels a sheet covers these buttons: there `⌥⌘B` and `⇧⌘O` do it. The side panel shows the conversation last in front, so it can be opened while Settings or the event log is in front too |
 | The bar under the input | `+` attaches files (or drop them on the input; a dropped folder is opened for the conversation); then the agent's model, how much it reasons and its mode, and where the conversation works (the agent's own workspace, or a folder of yours). The model and the folder open a list to search, the reasoning and the mode a menu right above the button. `outside content` appears when the conversation has read something from outside; each button says what it is in a tooltip |
-| Side panel | Beside a conversation (`⌥⌘B`): its files, changes, output and terminal, and the agent. See "The code panel and the editor" |
-| View | At the right of the window, after the browser (`⇧⌘O`): all agents and their work at a glance, drawn by a view of yours. See "The view" |
-| Browser | At the right of the window, after the side panel (`⇧⌘B`): the browser the agent of the conversation works in. Drag its left edge to make it wider or narrower; its width is its own, apart from the side panel's. Its `×` closes it. See "The browser" |
+| Side panel | A tab of its own (`⌥⌘B`), with the conversation it shows in its name (`Side panel · main`): the files, changes, output, terminal and browser of the conversation last in front, and its agent. Bring another conversation to the front and the panel shows that one; Settings or the event log in front leave it on the last conversation. See "The code panel and the editor" and "The browser" |
+| View | A tab of its own (`⇧⌘O`): all agents and their work at a glance, drawn by a view of yours. See "The view" |
 | Search | `⌘K`, or Search in the side bar: see "Finding a conversation" |
 
-The window can be made as narrow as a phone (360 pixels). Where there is no room for columns,
-the side bar, the side panel and the browser lie over the conversation instead of beside it. What you chose
-(side bar shown or hidden, side panel and browser open or closed) and how wide you dragged them is kept, and a
-wide window puts them back as they were. Whether the side panel and the browser are open is the same
-for every conversation.
+The window can be made as narrow as a phone (360 pixels). Where there is no room for columns, the
+side bar with your conversations, the side panel and the view lie over the conversation instead of
+beside it. Below 1024 pixels there are no groups: one row holds every tab of every group (the side
+panel and the view are not in it), the tab in front fills the window, and the side panel and the view
+lie over it as a sheet when asked for. Below 768 pixels the side bar lies over the page too. Whether the
+side bar is shown is kept, and a wide window puts the side bar and the groups back as they were.
 
-| Window | Side bar | Side panel and browser |
+| Window | Side bar | Side panel and view |
 |---|---|---|
-| 1024 pixels and wider | A column | A column each. Two at once where the room beside the side bar is 1100 pixels or more, all three (with the view) from 1500; with less, the ones you opened last, the others open behind them |
-| 768 to 1023 | A column | Over the conversation, from the right: `esc`, a click beside it or its `×` closes it. With both open, only the one you opened last lies there, and the other stays open behind it. The sheet covers the buttons of the title bar, so its key (`⌥⌘B` or `⇧⌘B`) brings the other to the front. Closing the one in front does not bring the other up: it stays open behind, shown as a column when the window is wide again, or as a sheet by its key |
+| 1024 pixels and wider | A column | Tabs in the groups, wherever you put them |
+| 768 to 1023 | A column | Over the tab in front, from the right, when its button or its key (`⌥⌘B`, `⇧⌘O`, `⇧⌘B` for the side panel on its browser) asks for it: `esc`, a click beside it or its `×` puts it away. One at a time |
 | Narrower than 768 | Over the page, from the left, when its button at the top left or `⌘B` asks for it. Picking a conversation, `esc` or a click beside it puts it away; `⌘B` there does not hide the column of a wide window | As above: the whole width of a window narrower than 640 pixels, and at most 540 pixels wide from 640 to 767 |
-
-With more of the side panel, the browser and the view open than there is room for side by
-side (a sheet each, less than 1100 pixels beside the side bar for two, less than 1500 for three), none
-comes first: the ones you opened last show, and the others are open behind them. Its button is pressed more lightly. In a window 1024 pixels and wider a
-click on that button brings it to the front and puts the other behind, and a click on the button of
-the one in front closes it, which shows the other again. Below 1024 pixels each is a sheet over the
-conversation, which covers the buttons of the title bar: there only `⌥⌘B` and `⇧⌘B` switch, and
-closing the sheet in front does not bring the other up. The other stays open behind, and shows as a
-column when the window is wide enough, or as a sheet by its key. The agent's `browser_show`, a port's link under Running and a link in an answer open the browser in front.
-Narrowing the window never closes anything: when there is room again, both show without a click.
 
 Settings follow the room they have, not the window: narrower than about 720 pixels, the list of
 pages is a row along the top that scrolls sideways, and a setting's control goes under its text.
+
+### Groups of tabs
+
+A window 1024 pixels and wider arranges its tabs in groups, as VS Code does: each group has its row of
+tabs and shows one of them, and groups lie side by side and one above another. At first there is one
+group; the side panel and the view each open in a group of their own at the right.
+
+| You do | What happens |
+|---|---|
+| Drag a tab onto another tab | It goes before or after that one (the half you let go over), in that tab's group |
+| Drag a tab to the end of a row | It goes last in that group |
+| Drag a tab over a group | Where it would go is marked: the middle puts it into the group, an edge (the outer quarter) into a new group on that side, which takes half the room |
+| Split Right, Split Down | In a tab's right click, where its group has another tab: the tab gets a group of its own beside or under it |
+| Drag the edge between two groups | Makes one larger and the other smaller; focus the edge with Tab and use the arrow keys (`⇧` for larger steps), a double click shares the room equally |
+| Click into a group | Its tab in front is the tab in front of the window: new tabs (`⌘T`) go into its group, and `⌃Tab` and `⌘1` to `⌘9` go through its tabs |
+| Close a group's last tab | The group goes, and its neighbour takes its room |
+
+The groups along the top are the window's title bar: they move the window where nothing is to click,
+the first carries the side bar's button when the side bar is hidden, the last the environment, the
+buttons of the side panel and the view, and the window's controls. The arrangement is the window's,
+and is as you left it after a restart; a window opened again after the last one closed starts with one
+group. A tab that moves keeps what it shows: a conversation its place, the terminal its shell, the view
+its frame. The agent's `browser_show`, a port's link under Running and a link in an answer show the
+browser in the side panel, opening it where it is closed.
 
 ### Multiple windows
 
 You can open as many windows as you need — on different environments side by side, or on the same
 environment to watch several conversations at once. Each window owns its own tabs, active tab,
-panel visibility and widths, folded sidebar state, and theme background (while OS chrome appearance
+arrangement of groups, side bar width, folded sidebar state, and theme background (while OS chrome appearance
 follows the focused window).
 
 | Action | How |
@@ -824,19 +838,19 @@ command is always at the bottom of the conversation and not somewhere above.
 
 ## The browser
 
-The browser (`⇧⌘B`, `/browser`, or its button at the top right of the title bar) shows the browser
-of the conversation at the right of the window, after the side panel: the same one the agent opens
-pages in, with its logins. In the terminal UI that browser has no window until the agent puts
-one on your screen (`browser_show`); in the app it is in its own place beside the conversation,
-and no other window opens. The side panel and the browser can be open at once, to watch the page
-and the agent's changes together.
+The browser is a part of the side panel, beside its terminal (`⇧⌘B`, `/browser`, `/code browser`, or
+Browser in the panel): the browser of the conversation the panel shows, the same one the agent opens
+pages in, with its logins. In the terminal UI that browser has no window until the agent puts one on
+your screen (`browser_show`); in the app it is in the side panel, and no other window opens. `⇧⌘B`
+shows it, and puts the side panel away when the browser is in front there. The side panel lies in a
+group of its own, so the page and the agent's answers are seen together.
 
 | | |
 |---|---|
-| What you see | With this computer's pine, the page itself: a tab of the app's own browser laid over the panel, which you click, scroll, type and paste in like any browser while the agent drives it. Multiple local windows viewing different conversations' browsers show their live pages side by side at once; if two local windows view the same browser tab at the same time, the focused window holds the live page and the other switches cleanly to the live picture stream until focused again. With another machine's pine, on the phone and in the web client, a picture of the page, a few times a second. The page is laid out for the room the browser has, so it is shown at its real size; drag its edge to make it wider and the page gets wider. The browser's tabs are a row of tabs above the page, the agent's and yours alike |
+| What you see | With this computer's pine, the page itself: a tab of the app's own browser laid over the panel, which you click, scroll, type and paste in like any browser while the agent drives it. Multiple local windows viewing different conversations' browsers show their live pages side by side at once; if two local windows view the same browser tab at the same time, the focused window holds the live page and the other switches cleanly to the live picture stream until focused again. With another machine's pine, on the phone and in the web client, a picture of the page, a few times a second. The page is laid out for the room the browser has, so it is shown at its real size; drag the edge of its group to make it wider and the page gets wider. The browser's tabs are a row of tabs above the page, the agent's and yours alike |
 | What you can do | Click, type, turn the wheel, drag, paste, go back and forward, load again, open a tab (`+`), choose one, close one (closing the last one leaves the browser without a page, with its logins kept), and type an address into the line above the page. Enough to log in, solve a captcha or confirm something yourself |
 | An address of your own | Opened like any other, through pine's guard. One on this computer or your network (`localhost:3000`) is allowed for this conversation by your typing it, as a yes to the agent's question would. pine's own control port stays closed |
-| When the agent wants you to look | It calls `browser_show`: the browser opens at the right of the window, in front where there is room for one only. While the app runs, that call opens no window on your screen |
+| When the agent wants you to look | It calls `browser_show`: the side panel opens on the browser. While the app runs, that call opens no window on your screen |
 | What the agent knows | What you do there, it sees when it next looks at the page. When you took the browser to another page, the agent is told so before it acts, and does not act on a page it has not seen ([mcp.md](mcp.md), "Seeing the browser, and logging in yourself") |
 | No page | The browser is empty until the agent opens a page, or you open an address. The browser of a conversation closes when the conversation has been idle for a while (`idleMs`, 15 minutes) and when pine restarts. Opening an address starts it again, without a turn of the agent's; its logins are kept |
 | Running in this conversation | While no page is open, the view lists the ports of the programs this conversation left running (a dev server the agent started), as under Running. A click opens `localhost:<port>` in this browser |
@@ -857,11 +871,10 @@ the terminal UI to show the browser, or set `"headed": true` for the browser.
 ## The view
 
 The view (`⇧⌘O`, View > Toggle View, the radar at the top right of the title bar, or "View" in the
-palette) shows all of pine at a glance, in a panel of its own at the right of the window: every agent,
+palette) shows all of pine at a glance, in a tab of its own (a group of its own at the right of the window, until you move it): every agent,
 the work each one does right now, where that work came from, who handed what to whom, the copies
 (sub-agents) at work, and what waits for you. It needs no conversation: it opens with Settings or the
-event log in front too, and stays open beside the side panel and the browser where there is room (see
-the table above).
+event log in front too, and stays open beside the side panel (see "Groups of tabs").
 
 What the panel draws is a view: a script of yours in the `views` folder of pine's home, chosen with
 the view's name at the top of the panel, which is a list of the views in the folder (`ui.view`). pine
@@ -1141,14 +1154,15 @@ desktop/
   src/             the page (React)
     model.ts       what the page knows: tabs, what each conversation shows, the daemon's live events
     api.ts         the control API, typed
-    App.tsx        the window: side bar, tabs, the dialogs for keys, updates and the browser
+    App.tsx        the window: side bar, the groups of tabs and their bars, what a dragged tab would do, the dialogs for keys, updates and the browser
+    dock.ts        how a window's tabs are arranged: a tree of splits and groups, laid out, changed, kept and read back (no DOM)
     ApprovalDialog.tsx, QuestionDialog.tsx     a request for the owner's approval, a question of an agent's
     Palette.tsx, PickDialog.tsx  everything by name, a choice from a list
     Conversation.tsx, Composer.tsx, markdown.tsx     a conversation, the input, an answer drawn (a picture
                    in either opens larger in a stock Dialog of its own)
-    CodePanel.tsx  changes, files and the editor, output, what is running
+    CodePanel.tsx  the side panel: changes, files and the editor, output, what is running, the terminal, the browser
     Board.tsx      the Board tab: the tasks and notes a conversation shares with its sub-agents
-    Browser.tsx    the agent's browser in its aside: the app's own browser laid over it (electron/browser-host.ts), or its page as a picture, and what is done in it handed back
+    Browser.tsx    the agent's browser in the side panel: the app's own browser laid over it (electron/browser-host.ts), or its page as a picture, and what is done in it handed back
     View.tsx       the view's panel: what asks you, the view in its sandboxed frame, what happened, what is
                    chosen. view-world.ts is pine as the page knows it, made from the live events; view-state.ts
                    is what a view is told of it (names and states, no text); view-frame.ts (view.html) is the
@@ -1262,7 +1276,7 @@ text color. Settings keeps to this; other parts of the page are brought to it as
 | shadcn's core chat components (`src/components/ui/`), composed per shadcn's AI Elements patterns | The conversation, composed in `Conversation.tsx`: Message Scroller (the thread), Message, Bubble and Attachment (the turns), Trace (the work of a turn, tool calls, thoughts, sub-tasks, steps), Code Block (what a tool returned), Item (a request waiting for you), Marker (notes, dividers, the goal, the line above the input, the point to take back to), Hover Card and Progress (how full the context is). The input, in `Composer.tsx`, is the Prompt Input pattern: an Input Group with the attached files as Attachments above the text, the goal and dictation as Alerts, and the reasoning and the mode as the Model Selector pattern's Dropdown Menus. The code pane's output (`CodePanel.tsx`) is a Code Block, with the terminal's colors. AI Elements' own registry serves code written on Radix and has none on Base UI, so it is never added: its pages say which core components a pattern uses, and pine composes them in its own files. |
 | Streamdown | Answers drawn from markdown, with code colored by Shiki. `markdown.tsx` replaces three of its defaults (see below). |
 | lucide | Every icon. The pine logo is the one drawing of pine's own (`Logo` in `components/logo.tsx`). |
-| usehooks-ts | `useMediaQuery`: the breakpoint of the side panel and the browser (`ROOM`). Nothing that stock shadcn already has a hook for. |
+| usehooks-ts | `useMediaQuery`: the breakpoint below which the groups give way to one tab at a time and the panes to sheets (`ROOM`). Nothing that stock shadcn already has a hook for. |
 | ui-sdk (`@ui-sdk/react`) | Only what shadcn has no component for: the tree of files and the lists of rows (`src/lists.tsx`). Never a piece shadcn has (no second dialog, button or select). |
 
 - A stock shadcn component is never edited. Add and update them with the shadcn CLI
@@ -1372,15 +1386,15 @@ from "loading".
 
 ### Stories
 
-Buttons, switches, inputs, fields, toggle groups (the segmented controls), selects, the edges that resize
-the side bar, the code panel and the browser (Resizable), the side bar itself (Sidebar, fixed in place with
+Buttons, switches, inputs, fields, toggle groups (the segmented controls), selects, the edge that resizes
+the side bar (Resizable), the side bar itself (Sidebar, fixed in place with
 `collapsible="none"` in a wide window and stock's own sheet, `offcanvas` with its `openMobile` and the
 breakpoint of its `useIsMobile`, in a narrow one: its header, groups, menu buttons, badges and actions),
-the side panel and the browser over a conversation in a narrow window (Sheet), the title bar's buttons for them (Toggle) and the agents' groups in it
+the side panel and the view over a tab in a narrow window (Sheet), the buttons for them at the top right (Toggle) and the agents' groups in it
 (Collapsible) are shadcn's own components (`src/components/ui/`, added with the shadcn CLI and left as they are), and the icons
 are lucide's. The page has three ways to follow the window's width, each in one place: stock `useIsMobile`
-(768 pixels) for the side bar in `App.tsx`, `useMediaQuery` of usehooks-ts (1024 pixels, `ROOM` in `model.ts`) for the side panel in
-`CodePanel.tsx` and the browser in `Browser.tsx`, and container queries on their own width (`@container/settings`) for the settings. A new
+(768 pixels) for the side bar in `App.tsx`, `useMediaQuery` of usehooks-ts (1024 pixels, `ROOM` in `model.ts`) for the groups in
+`App.tsx` and the panes in `CodePanel.tsx` and `View.tsx`, and container queries on their own width (`@container/settings`) for the settings. A new
 breakpoint uses one of the three, not a fourth way. They have no stories of their own. What shadcn has no primitive for (a tree, a list
 of rows to open) is ui-sdk's (`@ui-sdk/react`), used directly, with the row's look from `src/lists.tsx`; ui-sdk is never used for a
 piece shadcn has. The two meet in the side bar: each agent's list is a ui-sdk list drawn as the

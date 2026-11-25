@@ -72,3 +72,15 @@ export const MoveToNewWindow: Story = {
 		await expect(await within(document.body).findByRole("menuitem", { name: "Move to New Window" })).toBeInTheDocument();
 	},
 };
+
+/** A tab in a group with others, in a window wide enough for groups: Split Right and Split Down give it a group of its own. */
+export const Splits: Story = {
+	args: { trigger: tab("scout", "the landing page"), pin: "pin", split: true, onAction: fn() },
+	play: rightClick,
+};
+
+/** The side panel's tab: it closes and splits, and there are no other tabs of its kind to close. */
+export const Pane: Story = {
+	args: { trigger: tab("scout", "side panel"), closeMany: false, split: true, onAction: fn() },
+	play: rightClick,
+};

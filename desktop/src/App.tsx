@@ -884,7 +884,7 @@ function landed(e: React.DragEvent, to: { group: string; before?: string; edge?:
 	const kind = tabDragKind(e);
 	if (!kind) return;
 	e.preventDefault();
-	store.endDrag();
+	store.tookTheDrop();
 	if (kind === "other") return void store.dropTab(to);
 	const item = e.dataTransfer.getData(ownType());
 	if (!item) return;
@@ -1176,6 +1176,9 @@ function DropZones({ group, rect }: { group: string; rect: dock.Rect }) {
 	);
 }
 
+/** The one empty group a window with no tab shows. */
+const NONE: dock.Group = { kind: "group", id: "g-none", items: [] };
+
 /** The least a group is wide or tall when the edge beside it is dragged. */
 const LEAST = { row: 300, column: 160 };
 /** The room between two groups: the edge that is dragged. */
@@ -1183,17 +1186,36 @@ const GAP = 6;
 /** How tall a group's bar is (h-11 along the top of the window, h-9 elsewhere), in pixels at the page's root font size. */
 const barHeight = (top: boolean) => (top ? 2.75 : 2.25) * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
 
-/** The edge between two groups: dragged, it moves the room from one to the other; double-clicked, it shares it equally. */
-function Edge({ h }: { h: dock.Handle }) {
+/**
+ * The edge between two groups: dragged, it moves the room from one to the other; double-clicked, it shares it
+ * equally; focused, the arrow keys move it. `next` names the panes of the group after it (the side panel, the view),
+ * for whoever looks for the edge before one.
+ */
+function Edge({ h, next }: { h: dock.Handle; next?: string }) {
 	const row = h.dir === "row";
+	const by = (px: number) => {
+		const split = dock.findNode(store.dock, h.split);
+		if (split?.kind !== "split") return;
+		const length = (row ? h.whole.width : h.whole.height) - GAP * (split.sizes.length - 1);
+		store.resizeSplit(h.split, dock.dragEdge(split.sizes, h.index, px, length, LEAST[h.dir]), true);
+	};
 	return (
 		<div
 			data-slot="dock-edge"
 			data-split={h.split}
+			data-next={next}
 			role="separator"
+			tabIndex={0}
 			aria-orientation={row ? "vertical" : "horizontal"}
+			onKeyDown={(e) => {
+				const step = e.shiftKey ? 100 : 20;
+				const keys: Record<string, number> = row ? { ArrowLeft: -step, ArrowRight: step } : { ArrowUp: -step, ArrowDown: step };
+				if (!(e.key in keys)) return;
+				e.preventDefault();
+				by(keys[e.key]);
+			}}
 			title={`Drag to make the groups ${row ? "wider or narrower" : "taller or shorter"}`}
-			className={cn("absolute z-10 touch-none after:absolute after:rounded-full after:bg-ring/0 after:transition-colors hover:after:bg-ring/50", row ? "cursor-col-resize after:inset-y-2 after:left-1/2 after:w-0.5 after:-translate-x-1/2" : "cursor-row-resize after:inset-x-2 after:top-1/2 after:h-0.5 after:-translate-y-1/2")}
+			className={cn("absolute z-10 touch-none outline-none after:absolute focus-visible:after:bg-ring after:rounded-full after:bg-ring/0 after:transition-colors hover:after:bg-ring/50", row ? "cursor-col-resize after:inset-y-2 after:left-1/2 after:w-0.5 after:-translate-x-1/2" : "cursor-row-resize after:inset-x-2 after:top-1/2 after:h-0.5 after:-translate-y-1/2")}
 			style={{ left: h.rect.x, top: h.rect.y, width: h.rect.width, height: h.rect.height }}
 			onPointerDown={(e) => {
 				const split = dock.findNode(store.dock, h.split);
@@ -1244,8 +1266,10 @@ function DockArea({ column }: { column: boolean }) {
 		return () => observer.disconnect();
 	}, []);
 	const dragging = s.dragging !== undefined || s.tabDragIn;
-	const groups = dock.groupsOf(s.dock);
-	const at = room ? dock.layout(s.dock, { x: column ? 0 : GAP, y: 0, width: room.width - GAP - (column ? 0 : GAP), height: room.height - GAP }, GAP) : undefined;
+	// With no tab open the window says so, whatever panes were open: they come back with the next tab.
+	const tree = s.tabs.length ? s.dock : NONE;
+	const groups = dock.groupsOf(tree);
+	const at = room ? dock.layout(tree, { x: column ? 0 : GAP, y: 0, width: room.width - GAP - (column ? 0 : GAP), height: room.height - GAP }, GAP) : undefined;
 	/** Where a group's body lies: under its bar. */
 	const bodyOf = (id: string): dock.Rect | undefined => {
 		const r = at?.groups.get(id);
@@ -1287,7 +1311,11 @@ function DockArea({ column }: { column: boolean }) {
 							</div>
 						);
 					})}
-					{at.handles.map((h) => <Edge key={`${h.split}:${h.index}`} h={h} />)}
+					{at.handles.map((h) => {
+						const after = dock.findNode(tree, h.split);
+						const panes = after?.kind === "split" ? dock.itemsOf(after.children[h.index + 1]).map(paneOf).filter(Boolean).join(" ") : "";
+						return <Edge key={`${h.split}:${h.index}`} h={h} next={panes || undefined} />;
+					})}
 					{dragging ? byId.map((g) => <DropZones key={g.id} group={g.id} rect={bodyOf(g.id)!} />) : null}
 				</>
 			) : null}
