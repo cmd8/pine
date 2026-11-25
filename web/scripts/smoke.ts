@@ -270,7 +270,8 @@ try {
 		for (const [name, result] of Object.entries(reached.tries)) assert.notEqual(result, "reached", name);
 	});
 
-	const key = await frame.locator("[data-slot=device-key]").locator(".font-mono").innerText();
+	// The key is the card's one <code>: by what it is, not by a class of its look, which the page may change.
+	const key = await frame.locator("[data-slot=device-key] code").innerText();
 	await check("the browser's key is an Ed25519 key that sshd accepts once it is in authorized_keys", async () => {
 		assert.match(key, /^ssh-ed25519 AAAA\S+ pine-web$/);
 		machine.authorize(key);
@@ -301,7 +302,14 @@ try {
 	// closed, headless Chrome hands a click over the sandboxed frame to the bridge's document instead.
 	await check("the Send button sends with a click of the mouse, not only with Enter", async () => {
 		const box = frame.locator("textarea").first();
-		await box.fill('Click it. <<MOCK {"steps":[{"text":"The button sent it."}]}>>');
+		const text = 'Click it. <<MOCK {"steps":[{"text":"The button sent it."}]}>>';
+		// The page may still be drawing the conversation it opened, which starts the box anew: what is
+		// clicked is sent only once the box holds the text.
+		await box.fill(text);
+		for (let i = 0; i < 50 && (await box.inputValue()) !== text; i++) {
+			await new Promise((r) => setTimeout(r, 100));
+			if (i % 10 === 9) await box.fill(text);
+		}
 		await frame.locator("[data-slot=composer]").getByRole("button", { name: "Send", exact: true }).click();
 		await frame.getByText("The button sent it.", { exact: true }).first().waitFor({ timeout: 60_000 });
 	});

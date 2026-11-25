@@ -4,7 +4,7 @@
   "type": "module",
   "description": "The Pine page in a web browser, connected to the owner's pine over SSH. Not part of what goes to npm.",
   "scripts": {
-    "test": "node --test --test-force-exit \"test/*.test.ts\"",
+    "test": "node --test --test-timeout=120000 --test-force-exit \"test/*.test.ts\"",
     "check": "tsc --noEmit",
     "build": "node scripts/build.ts",
     "smoke": "node scripts/smoke.ts"
@@ -15,7 +15,7 @@
     "buffer": "^5.7.1"
   },
   "devDependencies": {
-    "@types/node": "^26.6.6",
+    "@types/node": "^26.6.10",
     "@types/ws": "^8.18.2",
     "esbuild": "^0.28.2",
     "playwright-core": "^1.65.1",
