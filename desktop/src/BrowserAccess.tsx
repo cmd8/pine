@@ -7,16 +7,19 @@ import { LaptopIcon, PlusIcon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import { useInterval } from "usehooks-ts";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldSeparator } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { EmptyView } from "@/components/empty-view";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { useAccessState } from "./access-state.ts";
 import { type AccessChange, type AccessDevice, type AccessState, bridge } from "./bridge.ts";
 import { computerWord } from "./machines.ts";
 import { store } from "./model.ts";
@@ -141,16 +144,18 @@ export function BrowserAccessView({ state, now, platform, actions }: { state: Ac
 					</Field>
 					<Field data-setting="access-service" data-invalid={serviceError ? true : undefined}>
 						<FieldLabel htmlFor={`${field}-service`}>Service address</FieldLabel>
-						<div className="flex items-center gap-2">
-							<Input id={`${field}-service`} className="font-mono" placeholder="https://" value={service} aria-invalid={serviceError ? true : undefined} onChange={(e) => setService(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void saveService()} />
-							<Button variant="outline" disabled={service.trim() === state.service} onClick={() => void saveService()}>Save</Button>
-						</div>
+						<InputGroup>
+							<InputGroupInput id={`${field}-service`} className="font-mono" placeholder="https://" value={service} aria-invalid={serviceError ? true : undefined} onChange={(e) => setService(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void saveService()} />
+							<InputGroupAddon align="inline-end">
+								<InputGroupButton variant="outline" disabled={service.trim() === state.service} onClick={() => void saveService()}>Save</InputGroupButton>
+							</InputGroupAddon>
+						</InputGroup>
 						<FieldDescription>Where browsers open the web client and find this {computer}. Changing it makes the paired browsers that use the old address pair again.</FieldDescription>
 						{serviceError ? <FieldError>{serviceError}</FieldError> : null}
 					</Field>
 				</FieldGroup>
 			</Section>
-
+			<FieldSeparator />
 			<Section title="Devices" data-find="access-devices" actions={<Button variant="outline" disabled={state.status === "off"} onClick={actions.add}><PlusIcon data-icon="inline-start" />Add a device</Button>}>
 				{state.devices.length ? (
 					<ItemGroup>
@@ -175,7 +180,7 @@ export function BrowserAccessView({ state, now, platform, actions }: { state: Ac
 											</AlertDialogHeader>
 											<AlertDialogFooter>
 												<AlertDialogCancel>Cancel</AlertDialogCancel>
-												<AlertDialogCancel variant="destructive" onClick={() => actions.remove(d.id)}>Remove</AlertDialogCancel>
+												<AlertDialogPrimitive.Close render={<AlertDialogAction variant="destructive" />} onClick={() => actions.remove(d.id)}>Remove</AlertDialogPrimitive.Close>
 											</AlertDialogFooter>
 										</AlertDialogContent>
 									</AlertDialog>
@@ -184,14 +189,14 @@ export function BrowserAccessView({ state, now, platform, actions }: { state: Ac
 						))}
 					</ItemGroup>
 				) : (
-					<EmptyView icon={LaptopIcon} title="No device is paired">Add one by scanning a code with the device's camera, or with a link you open in the device's browser.</EmptyView>
+					<Empty><EmptyHeader><EmptyMedia variant="icon"><LaptopIcon /></EmptyMedia><EmptyTitle>No device is paired</EmptyTitle><EmptyDescription>Add one by scanning a code with the device's camera, or with a link you open in the device's browser.</EmptyDescription></EmptyHeader></Empty>
 				)}
 			</Section>
-
+			<FieldSeparator />
 			{/* A set of its own: inside the group of This Mac, its fields were drawn with no height once the try's line appeared. */}
-			<Section title="Relay server (TURN)" about="Used when no direct connection can be made, for example from some mobile networks. Leave it empty if you have none." data-setting="access-relay" data-invalid={relayError ? true : undefined}>
+			<Section title="Relay server (TURN)" about="Used when no direct connection can be made, for example from some mobile networks. Leave it empty if you have none." data-setting="access-relay">
 				<FieldGroup>
-					<Field>
+					<Field data-invalid={relayError ? true : undefined}>
 						<FieldLabel htmlFor={`${field}-relay`}>Address</FieldLabel>
 						<Input id={`${field}-relay`} data-slot="relay-address" className="font-mono" placeholder="turn:relay.example.com:3478" autoComplete="off" spellCheck={false} value={relay.address} aria-invalid={relayError ? true : undefined} onChange={(e) => setRelay({ ...relay, address: e.target.value })} />
 					</Field>
@@ -203,10 +208,11 @@ export function BrowserAccessView({ state, now, platform, actions }: { state: Ac
 						<FieldLabel htmlFor={`${field}-relay-password`}>Password</FieldLabel>
 						<Input id={`${field}-relay-password`} data-slot="relay-password" type="password" autoComplete="new-password" placeholder={passwordHint} value={relay.password} onChange={(e) => setRelay({ ...relay, password: e.target.value })} onKeyDown={(e) => e.key === "Enter" && relayChanged && void saveRelay()} />
 					</Field>
-					<div>
+					{/* Save, and beside it how the relay was tried: a failed try is said as an error, like a refused save. */}
+					<Field orientation="horizontal">
 						<Button variant="outline" disabled={!relayChanged} onClick={() => void saveRelay()}>Save</Button>
-					</div>
-					{relayError ? <FieldError>{relayError}</FieldError> : check ? <FieldDescription data-slot="relay-check" data-result={check.result} className="data-[result=failed]:text-destructive">{check.message}</FieldDescription> : null}
+						{relayError ? <FieldError>{relayError}</FieldError> : check?.result === "failed" ? <FieldError data-slot="relay-check" data-result={check.result}>{check.message}</FieldError> : check ? <FieldDescription data-slot="relay-check" data-result={check.result}>{check.message}</FieldDescription> : null}
+					</Field>
 				</FieldGroup>
 			</Section>
 
@@ -224,7 +230,7 @@ export function BrowserAccessView({ state, now, platform, actions }: { state: Ac
 						</Field>
 						<AlertDialogFooter>
 							<AlertDialogCancel>Cancel</AlertDialogCancel>
-							<AlertDialogCancel variant="default" onClick={() => change({ enabled: true, openAtLogin: login })}>Turn on</AlertDialogCancel>
+							<AlertDialogPrimitive.Close render={<AlertDialogAction />} onClick={() => change({ enabled: true, openAtLogin: login })}>Turn on</AlertDialogPrimitive.Close>
 						</AlertDialogFooter>
 					</div>
 				</AlertDialogContent>
@@ -266,26 +272,17 @@ export function BrowserAccessFailed({ error }: { error: string }) {
 	);
 }
 
-/** Whether an answer of the bridge is a state of browser access (Storybook's stand-in answers every call with a function). */
-const isState = (s: unknown): s is AccessState => typeof s === "object" && s !== null && Array.isArray((s as AccessState).devices);
-
 /** The section in the app: the state from the bridge, told again on every change; the calls made through it. */
 export function BrowserAccess() {
-	const [state, setState] = useState<AccessState>();
 	const [loadError, setLoadError] = useState<string>();
+	const [state, answered] = useAccessState({ failed: (e) => setLoadError(errText(e)) });
 	const [now, setNow] = useState(Date.now);
 	useInterval(() => setNow(Date.now()), state?.devices.length ? 1000 : null);
-
-	useEffect(() => {
-		const stop = bridge.onAccess?.(setState);
-		void Promise.resolve(bridge.access?.()).then((s) => isState(s) && setState(s), (e: unknown) => setLoadError(errText(e)));
-		return () => void (typeof stop === "function" && stop());
-	}, []);
 
 	if (!state) return loadError ? <BrowserAccessFailed error={loadError} /> : <BrowserAccessSkeleton />;
 	const actions: AccessActions = {
 		async set(change) {
-			setState(await bridge.setAccess!(change));
+			await answered(bridge.setAccess!(change));
 		},
 		add: () => void store.addDevice(),
 		remove: (id) => void store.attempt(() => bridge.removeDevice!(id)),

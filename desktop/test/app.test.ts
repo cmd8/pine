@@ -195,6 +195,11 @@ test("the agent's browser is shown in an aside of its own as a picture, and what
 		assert.equal(ops().filter((o) => o.do === "text").map((o) => o.text).join(""), "okapi");
 		assert.ok(ops().filter((o) => o.do === "text").length < 5, "letters are not sent one by one");
 		assert.deepEqual(ops().filter((o) => o.do === "key").map((o) => o.key), ["Enter", "ControlOrMeta+KeyA"]);
+		// Reached by the keyboard from the address, the picture shows that keys go to it.
+		await page.focus("[data-slot=browser] input[aria-label=Address]");
+		await page.keyboard.press("Tab");
+		assert.equal(await page.evaluate(() => document.activeElement?.tagName), "CANVAS");
+		assert.notEqual(await page.$eval("[data-slot=browser] canvas", (c: Element) => getComputedStyle(c).boxShadow), "none", "the picture shows no focus");
 		// The wheel adds up, a tab is chosen by a click, back is a button.
 		await page.mouse.wheel(0, 120);
 		await page.mouse.wheel(0, 120);
@@ -312,6 +317,15 @@ test("a message is answered, with the turn's work folded into a line", async () 
 	assert.equal(await page.getAttribute("[data-slot=markdown] [data-href]", "data-href"), "https://example.com/docs");
 	assert.match(await page.textContent("[data-slot=markdown] [data-href] + [data-target]"), /example\.com\/docs/);
 	assert.equal(await page.$$eval("[data-slot=markdown] a[href]", (els: Element[]) => els.length), 0);
+	// It is a link from the keyboard too: it takes the focus, and Enter opens it in the browser.
+	await page.focus("[data-slot=markdown] [data-href]");
+	assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-href")), "https://example.com/docs");
+	assert.equal(await page.getAttribute("[data-slot=markdown] [data-href]", "role"), "link");
+	await page.keyboard.press("Enter");
+	await app.evaluate(async () => {
+		for (let i = 0; i < 100 && !((globalThis as any).opened ?? []).includes("https://example.com/docs"); i++) await new Promise((r) => setTimeout(r, 20));
+	});
+	assert.ok((await app.evaluate(() => ((globalThis as any).opened ?? []) as string[])).includes("https://example.com/docs"));
 	// A folded part is there and closed.
 	assert.equal(await page.getAttribute("[data-slot=markdown] [data-details] [data-slot=collapsible-trigger]", "aria-expanded"), "false");
 	// Code is colored on the page, with its language and a copy button, and nothing to download.
@@ -365,6 +379,9 @@ test("a model is chosen from its picker with the keyboard alone, and focus goes 
 	await page.keyboard.press("Enter");
 	await sees("[data-slot=dialog-content] [role=listbox] [role=option]");
 	await named(/mock\/m/);
+	// Its title shows above its models, and its field is there to be seen, however short the list.
+	await sees("[data-slot=dialog-content] [cmdk-group-heading] >> text=Model for main");
+	assert.ok(((await page.locator("[data-slot=dialog-content] [data-slot=command-input]").boundingBox())?.width ?? 0) > 100, "the field is seen");
 	// It is announced by its title.
 	assert.match(await announced("[data-slot=dialog-content]"), /^Model for main/);
 	// Its models are options in a list, the one in use marked active, and Tab stays inside.
@@ -531,6 +548,15 @@ test("text selected in an answer is quoted: a badge above the input, a markdown 
 		window.getSelection()!.removeAllRanges();
 		window.getSelection()!.addRange(range);
 	});
+	// The bar is a popover over the words it is about: above them, across them, and it leaves the focus where it was.
+	await sees("[data-slot=popover-content] [data-slot=selection-toolbar]");
+	const focused = await page.evaluate(() => document.activeElement?.tagName);
+	await page.waitForFunction(() => {
+		const bar = document.querySelector("[data-slot=popover-content]:has([data-slot=selection-toolbar])")?.getBoundingClientRect();
+		const words = window.getSelection()!.getRangeAt(0).getClientRects()[0];
+		return Boolean(bar && words && bar.bottom <= words.top && bar.bottom > words.top - 24 && bar.left < words.right && bar.right > words.left);
+	});
+	assert.equal(await page.evaluate(() => document.activeElement?.tagName), focused);
 	await page.locator("[data-slot=selection-toolbar]").getByRole("button", { name: "Quote" }).click();
 	await sees("[data-slot=composer] [data-slot=quote-chip] >> text=old copy of the lockfile");
 	assert.equal(await page.$("[data-slot=selection-toolbar]"), null);
@@ -595,7 +621,7 @@ test("a long quote given to work that runs is known as the owner's own message: 
 	assert.doesNotMatch(await page.textContent("[data-slot=message-scroller-content]"), /elsewhere/);
 });
 
-test("a click into the composer draws no ring and no brighter border: it looks as it did before", async () => {
+test("a click into the composer draws the stock focus ring and border, as every shadcn field does", async () => {
 	const look = () =>
 		page.$eval("[data-slot=composer] [data-slot=input-group]", (el: Element) => {
 			const s = getComputedStyle(el);
@@ -611,7 +637,10 @@ test("a click into the composer draws no ring and no brighter border: it looks a
 	await page.click("[data-slot=composer] textarea");
 	await settled();
 	assert.equal(await page.$eval("[data-slot=composer] textarea", (el: Element) => el.matches(":focus-visible")), true);
-	assert.deepEqual(await look(), before);
+	const focused = await look();
+	assert.equal(before.ring, "", `the composer has a ring before it has focus: ${before.ring}`);
+	assert.notEqual(focused.ring, "", "the focused composer draws no ring");
+	assert.notEqual(focused.border, before.border, "the focused composer's border keeps its color");
 });
 
 test("the context meter turns to a warning past two thirds, and to danger past 85%", async () => {
@@ -727,6 +756,17 @@ test("a shell block of an answer runs in the conversation's terminal with its bu
 	await shot("02c-terminal");
 	await menu("code");
 	await page.waitForSelector("[data-slot=code-panel]", { state: "detached" });
+});
+
+test("while the model thinks, its thinking is open and shows its end; once done, it folds", async () => {
+	const reasoning = Array.from({ length: 60 }, (_, i) => `thinking line ${i + 1}`).join("\n");
+	await page.fill("[data-slot=composer] textarea", mockMsg([{ reasoning, reasoningHoldMs: 1500, text: "THOUGHT-DONE" }], "think "));
+	await page.keyboard.press("Enter");
+	const box = "[data-part=thought] [aria-label=Thinking]";
+	await sees(`${box} >> text=thinking line 60`);
+	await page.waitForFunction((s: string) => { const el = document.querySelector(s); return Boolean(el && el.scrollHeight > el.clientHeight + 100 && el.scrollHeight - el.scrollTop - el.clientHeight < 2); }, box);
+	await sees("[data-slot=markdown] >> text=THOUGHT-DONE");
+	await page.waitForSelector(box, { state: "detached" });
 });
 
 test("a folded part that was opened stays open while the answer goes on", async () => {
@@ -851,8 +891,8 @@ test("an approval is asked in a dialog and answered from it, and so is a questio
 	// The owner listed bash under "approve": it asks in every mode.
 	await page.fill("[data-slot=composer] textarea", mockMsg([{ tools: [{ name: "bash", args: { command: "echo hello" } }] }, { tools: [{ name: "question", args: { question: "Which database?", choices: ["the old one", "the new one"] } }] }, { text: "done" }], "run it "));
 	await page.keyboard.press("Enter");
-	await sees("[data-slot=dialog-content][data-tone=warn]");
-	assert.match(await page.textContent("[data-slot=dialog-content][data-tone=warn]"), /Approval needed[\s\S]*echo hello/);
+	await sees("role=dialog[name=/^Approval needed/]");
+	assert.match(await page.textContent("role=dialog[name=/^Approval needed/]"), /Approval needed[\s\S]*echo hello/);
 	await shot("03-approval");
 	// What is at work is a grey dot that pulses, announced as working: here the line of the turn's work and the line
 	// under the conversation (its tab and its row say ! instead). No spinner turns anywhere, and every dot is in step.
@@ -876,23 +916,43 @@ test("an approval is asked in a dialog and answered from it, and so is a questio
 			.map((el) => el.getAttribute("data-slot") ?? el.className.toString().slice(0, 40)),
 	);
 	assert.deepEqual(smooth, [], "no animation runs smoothly forever");
-	await page.locator("[data-slot=dialog-content][data-tone=warn]").getByRole("button", { name: /^Allow/ }).click();
+	await page.locator("role=dialog[name=/^Approval needed/]").getByRole("button", { name: /^Allow/ }).click();
 	await sees('[data-item="approval"][data-state="allowed"]');
 	// Then the agent asks something: the answers it offers, the recommended one first.
-	await sees("[data-slot=dialog-content][data-tone=accent]");
-	assert.match(await page.textContent("[data-slot=dialog-content][data-tone=accent]"), /Which database\?[\s\S]*the old one[\s\S]*the new one/);
+	await sees("role=dialog[name=/ asks$/]");
+	assert.match(await page.textContent("role=dialog[name=/ asks$/]"), /Which database\?[\s\S]*the old one[\s\S]*the new one/);
 	await shot("03-question");
+	// The line for the owner's own words is named for a screen reader, not only by its placeholder.
+	assert.equal(await page.locator("role=dialog[name=/ asks$/]").getByRole("textbox", { name: "Or answer in your own words" }).count(), 1);
 	await page.keyboard.press("2");
 	await sees('[data-item="approval"][data-state="allowed"] >> text=Answered');
 	await page.waitForSelector("[data-slot=dialog-content]", { state: "detached" });
 	await sees("[data-slot=markdown] >> text=done");
 });
 
+test("a value only the owner has, left empty, is marked as missing in the approval and nothing is allowed", { skip: process.platform === "win32" && "a local MCP server needs a sandbox, and Windows has none of pine's" }, async () => {
+	await page.fill("[data-slot=composer] textarea", mockMsg([{ tools: [{ name: "add_mcp_server", args: { name: "keyed", command: "npx -y example-mcp", secrets: ["EXAMPLE_KEY"] } }] }, { text: "not added then" }], "add a server with a key "));
+	await page.keyboard.press("Enter");
+	const asked = "role=dialog[name=/^Approval needed, and something only you have/]";
+	await sees(asked);
+	const field = page.locator(asked).locator("[data-slot=field]", { has: page.locator("#ap-EXAMPLE_KEY") });
+	assert.equal(await field.getAttribute("data-invalid"), null, "not marked before the owner tried to allow it");
+	await page.locator(asked).getByRole("button", { name: "Save and allow" }).click();
+	await sees(`${asked} >> [data-slot=field][data-invalid] #ap-EXAMPLE_KEY[aria-invalid=true]`);
+	assert.equal(await page.evaluate(() => document.activeElement?.id), "ap-EXAMPLE_KEY");
+	// A value typed there takes the mark away again.
+	await page.locator("#ap-EXAMPLE_KEY").fill("a-key");
+	assert.equal(await field.getAttribute("data-invalid"), null);
+	await page.locator(asked).getByRole("button", { name: "Deny" }).click();
+	await page.waitForSelector("[data-slot=dialog-content]", { state: "detached" });
+	await sees("[data-slot=markdown] >> text=not added then");
+});
+
 test("what is asked is answered from the conversation too: an approval by its buttons, a question by one of its answers", async () => {
 	await page.fill("[data-slot=composer] textarea", mockMsg([{ tools: [{ name: "bash", args: { command: "echo again" } }] }, { tools: [{ name: "question", args: { question: "Which color?", choices: ["green", "blue"] } }] }, { text: "answered from the line" }], "ask in line "));
 	await page.keyboard.press("Enter");
 	// The dialog is put off ("Later"); the request stays in the conversation, with what it is and why.
-	await sees("[data-slot=dialog-content][data-tone=warn]");
+	await sees("role=dialog[name=/^Approval needed/]");
 	await page.keyboard.press("Escape");
 	await page.waitForSelector("[data-slot=dialog-content]", { state: "detached" });
 	const asked = '[data-item="approval"][data-state="open"] [data-slot="item"]';
@@ -902,7 +962,7 @@ test("what is asked is answered from the conversation too: an approval by its bu
 	await page.click(`${asked} button:has-text("Allow once")`);
 	await sees('[data-item="approval"][data-state="allowed"] >> text=Allowed');
 	// The question offers its answers as suggestions; one click answers.
-	await sees("[data-slot=dialog-content][data-tone=accent]");
+	await sees("role=dialog[name=/ asks$/]");
 	await page.keyboard.press("Escape");
 	await page.waitForSelector("[data-slot=dialog-content]", { state: "detached" });
 	await sees(`${asked} >> text=Which color?`);
@@ -920,7 +980,7 @@ test("a folder is opened for a conversation: changes, and a file edited and save
 	// As the system does it when a folder is dropped on the app's icon.
 	await app.evaluate(({ BrowserWindow }: any, dir: string) => BrowserWindow.getAllWindows()[0].webContents.send("pine:menu", `folder:${dir}`), folder);
 	// With several agents the app asks whose folder it is; the one in front is offered first.
-	await confirm("[data-slot=dialog-title] >> text=Which agent works in");
+	await confirm("[cmdk-group-heading] >> text=Which agent works in");
 	await sees("[data-slot=tab][data-active] [data-slot=tab-name] >> text=pine-desktop-folder");
 	await page.click(CODE_TOGGLE);
 	// The panel opens on the files; its Agent view says who the agent is and what it runs on.
@@ -1220,7 +1280,7 @@ test("settings: a setting is changed, an agent made, a schedule added, a provide
 	assert.match(fs.readFileSync(path.join(home, "auth.json"), "utf8"), /opencode/);
 	// A sign-in changes no agent's model, so the dialog offers the new ones for all agents.
 	await page.locator("[data-slot=dialog-content]").getByRole("button", { name: "Choose the model your agents run on" }).click();
-	await sees("[data-slot=dialog-title] >> text=Model for all agents without a model of their own");
+	await sees("[cmdk-group-heading] >> text=Model for all agents without a model of their own");
 	const offered = await page.$$eval("[data-slot=command-item] > :first-child", (els: Element[]) => els.map((e) => e.textContent ?? ""));
 	assert.ok(offered.length > 0 && offered.every((m) => m.startsWith("opencode/")), JSON.stringify(offered.slice(0, 5)));
 	await page.click("[data-slot=command-item] >> nth=0");
@@ -1241,7 +1301,7 @@ test("settings: a setting is changed, an agent made, a schedule added, a provide
 	await sees("[data-slot=settings-page] h1 >> text=Models");
 	// "Change" offers every model that can be used now.
 	await page.locator("[data-setting=fallback-model]").getByRole("button", { name: "Change" }).click();
-	await sees("[data-slot=dialog-title] >> text=Model for all agents without a model of their own");
+	await sees("[cmdk-group-heading] >> text=Model for all agents without a model of their own");
 	await page.getByRole("option", { name: "mock/m" }).click();
 	await sees("[data-slot=toast] >> text=Your agents now run on mock/m");
 	await page.waitForSelector("[data-slot=settings-page] [data-slot=model-notice]", { state: "detached" });
@@ -1302,7 +1362,10 @@ test("settings: a setting is changed, an agent made, a schedule added, a provide
 	await page.waitForSelector("[data-slot=select-content][data-open]", { state: "detached" });
 	const watched = path.join(folder, "scans");
 	fs.mkdirSync(watched, { recursive: true });
-	await page.locator("[data-slot=dialog-content] [data-slot=field]", { has: page.locator("[data-slot=field-label]", { hasText: /^dir/ }) }).locator("input").fill(watched);
+	const dir = page.locator("[data-slot=dialog-content] [data-slot=field]", { has: page.locator("[data-slot=field-label]", { hasText: /^dir/ }) }).locator("input");
+	// An option the type needs is said to be needed, to a screen reader too, not by its star alone.
+	assert.equal(await dir.getAttribute("aria-required"), "true");
+	await dir.fill(watched);
 	await shot("09-settings-new-source");
 	await page.locator("[data-slot=dialog-content]").getByRole("button", { name: "Continue" }).click();
 	await sees("[data-slot=dialog-content] >> text=will:");
@@ -1401,12 +1464,10 @@ const alphaOf = (color: string) => Number(/rgba\([^)]*,\s*([\d.]+)\)/.exec(color
 /** The theme the window is drawn in, by its name (theme.ts sets it on the root element). */
 const themeIs = (id: string) => page.waitForFunction((t: string) => document.documentElement.dataset.theme === t, id, { timeout: 10_000 });
 /** The tab in front: drawn in the page color of the theme. */
-const tabColor = () => page.evaluate(() => getComputedStyle(document.querySelector("[data-slot=tab][data-active]")!).backgroundColor);
-
 test("the window is drawn in pmndre, the theme pine names when pine.json names none, with pine's own colors", { skip: Boolean(process.env.PINE_DESKTOP_THEME) }, async () => {
 	await themeIs("pmndre");
 	assert.equal(await page.evaluate(() => document.documentElement.classList.contains("dark")), true);
-	assert.equal(await tabColor(), rgb("#1b1e28"));
+	assert.equal(await resolved("var(--background)"), rgb("#1b1e28"));
 	assert.equal(await resolved("var(--primary)"), rgb("#5de4c7"), "the accent is pmndre's mint");
 	assert.equal(await resolved("var(--foreground)"), rgb("#e4f0fb"));
 	assert.equal(await resolved("var(--border)"), rgb("#2b2e3c"));
@@ -1441,7 +1502,7 @@ test("a theme picked in Settings draws the window and is pine's setting; a VS Co
 		await pick("GitHub Light Default");
 		await themeIs("github-light");
 		assert.equal(await page.evaluate(() => document.documentElement.classList.contains("dark")), false);
-		assert.equal(await tabColor(), rgb("#ffffff"));
+		assert.equal(await resolved("var(--background)"), rgb("#ffffff"));
 		assert.equal(JSON.parse(fs.readFileSync(path.join(home, "pine.json"), "utf8")).ui.theme, "github-light");
 		// The app keeps it, to open in it next time.
 		const prefs = () => JSON.parse(fs.readFileSync(path.join(home, "desktop-data", "prefs.json"), "utf8"));
@@ -1449,14 +1510,14 @@ test("a theme picked in Settings draws the window and is pine's setting; a VS Co
 
 		await pick("Mine");
 		await themeIs("mine");
-		assert.equal(await tabColor(), rgb("#102030"));
+		assert.equal(await resolved("var(--background)"), rgb("#102030"));
 		assert.equal(await resolved("var(--primary)"), rgb("#ff8800"));
 		assert.equal(await resolved("var(--code-keyword)"), rgb("#ff00aa"));
 
 		// Another hand (the main agent's set_setting, another UI) changes it through pine: the window follows.
 		await api("POST", "/settings", { key: "ui.theme", value: "dracula" });
 		await themeIs("dracula");
-		assert.equal(await tabColor(), rgb("#282a36"));
+		assert.equal(await resolved("var(--background)"), rgb("#282a36"));
 		// A theme pine cannot draw is not taken.
 		const refused = await api("POST", "/settings", { key: "ui.theme", value: "broken" });
 		assert.equal(refused.ok, false);

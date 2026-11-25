@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
@@ -34,11 +35,12 @@ import { bridge } from "./bridge.ts";
 import { Steps } from "./Conversation.tsx";
 import { type CodeView, mediaKind, ROOM, store, type Tab, useModel, useSignal } from "./model.ts";
 import { clock, errText, oneLine, plural, short, size, tilde, took } from "./text.ts";
+import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { LISTBOX, onPick, rowClass, TREE_ITEM } from "./lists.tsx";
 import { Listbox, ListboxItem } from "@ui-sdk/react/listbox";
 import { Tree, TreeGroup, TreeItem, TreeItemLabel } from "@ui-sdk/react/tree";
-import { EmptyView } from "@/components/empty-view";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { useLoad } from "./use-load.ts";
 import { TerminalView } from "./Terminal.tsx";
 import { Pulse } from "@/components/pulse";
@@ -47,7 +49,8 @@ import { HoverTooltip } from "@/components/hover-tooltip";
 import { TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemSeparator, ItemTitle } from "@/components/ui/item";
+import { cn } from "@/lib/utils";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 
 /** What a file's place is shown in, by the name the system gives its file manager. */
@@ -90,14 +93,14 @@ const colors = HighlightStyle.define([
 const look = EditorView.theme({
 	"&": { height: "100%", minWidth: "0", flex: "1", backgroundColor: "var(--background)", color: "var(--code-text)" },
 	"&.cm-focused": { outline: "none" },
-	".cm-scroller": { fontFamily: "var(--mono)", fontSize: "var(--text-xs)", lineHeight: "var(--leading-relaxed)" },
+	".cm-scroller": { fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)", lineHeight: "var(--leading-relaxed)" },
 	".cm-gutters": { borderRight: "1px solid var(--line-soft)", backgroundColor: "var(--background)", color: "var(--code-gutter)" },
 	".cm-activeLine": { backgroundColor: "var(--code-active-line)" },
 	".cm-activeLineGutter": { backgroundColor: "var(--code-active-line)", color: "var(--code-gutter-active)" },
 	".cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": { background: "var(--select)" },
 	".cm-cursor": { borderLeftColor: "var(--code-cursor)" },
-	".cm-panels": { borderColor: "var(--border)", backgroundColor: "var(--raised)", color: "var(--foreground)" },
-	".cm-textfield, .cm-button": { borderRadius: "calc(var(--radius) * 0.8)", borderColor: "var(--border)", backgroundColor: "var(--card)", backgroundImage: "none", fontFamily: "var(--font)", fontSize: "var(--text-xs)", color: "var(--foreground)" },
+	".cm-panels": { borderColor: "var(--border)", backgroundColor: "var(--secondary)", color: "var(--foreground)" },
+	".cm-textfield, .cm-button": { borderRadius: "calc(var(--radius) * 0.8)", borderColor: "var(--border)", backgroundColor: "var(--card)", backgroundImage: "none", fontFamily: "var(--font-sans)", fontSize: "var(--text-xs)", color: "var(--foreground)" },
 	".cm-searchMatch": { backgroundColor: "var(--code-match)", outline: "1px solid var(--code-match-line)" },
 });
 
@@ -201,12 +204,12 @@ function PathCrumbs({ path, children }: { path: string; children?: React.ReactNo
 	const last = parts.length - 1;
 	return (
 		<Breadcrumb className="min-w-0 flex-1" title={path}>
-			<BreadcrumbList className="flex-nowrap font-mono">
+			<BreadcrumbList className="flex-nowrap">
 				{parts.map((part, i) => (
 					<Fragment key={i}>
 						{i ? <BreadcrumbSeparator /> : null}
 						<BreadcrumbItem className={i === last ? "min-w-0" : undefined}>
-							{i === last ? <BreadcrumbPage className="truncate">{part}{children}</BreadcrumbPage> : part}
+							{i === last ? <BreadcrumbPage className="truncate"><span className="font-mono">{part}</span>{children}</BreadcrumbPage> : <span className="font-mono">{part}</span>}
 						</BreadcrumbItem>
 					</Fragment>
 				))}
@@ -218,7 +221,7 @@ function PathCrumbs({ path, children }: { path: string; children?: React.ReactNo
 function ChangeRowSkeleton() {
 	return (
 		<div data-slot="change-row-skeleton" className={rowClass()} aria-hidden>
-			<Skeleton className="h-3.5 w-3.5 flex-none" />
+			<Skeleton className="size-3.5 flex-none" />
 			<Skeleton className="h-3.5 w-24" />
 			<Skeleton className="h-3.5 min-w-0 flex-1" />
 			<Skeleton className="h-3.5 w-8" />
@@ -249,8 +252,8 @@ export function DirRow(props: { name: string; dir: boolean; size: number; depth:
 	const { name, dir, size: bytes, open, active } = props;
 	return (
 		<TreeItemLabel className={rowClass(active)} style={indent}>
-			{dir ? (open ? <ChevronDownIcon className="size-3 text-faint" /> : <ChevronRightIcon className="size-3 text-faint" />) : <span className="w-3 flex-none" />}
-			{dir ? <FolderIcon className="size-3.5 text-faint" /> : <FileIcon className="size-3.5 text-faint" />}
+			{dir ? (open ? <ChevronDownIcon className="size-3 shrink-0 text-faint" /> : <ChevronRightIcon className="size-3 shrink-0 text-faint" />) : <span className="w-3 flex-none" />}
+			{dir ? <FolderIcon className="size-3.5 shrink-0 text-faint" /> : <FileIcon className="size-3.5 shrink-0 text-faint" />}
 			<span className="min-w-0 flex-1 truncate">{name}</span>
 			{!dir ? <span className="text-faint">{size(bytes)}</span> : null}
 		</TreeItemLabel>
@@ -266,7 +269,7 @@ export function ChangeRow(props: { c: Change; skeleton?: false } | { c?: undefin
 	const at = c.path.lastIndexOf("/");
 	return (
 		<ListboxItem value={c.path} label={c.path.slice(at + 1)} className={rowClass()} title={c.path}>
-			<span className={`w-3.5 flex-none text-center font-mono font-semibold ${STATUS[c.status] ?? ""}`}>{c.status === "?" ? "U" : c.status}</span>
+			<span className={cn("w-3.5 flex-none text-center font-mono font-semibold", STATUS[c.status])}>{c.status === "?" ? "U" : c.status}</span>
 			<span className="truncate">{c.path.slice(at + 1)}</span>
 			<span className="min-w-0 flex-1 truncate text-faint">{at > 0 ? c.path.slice(0, at) : ""}</span>
 			{c.added ? <span className="font-mono text-add">+{c.added}</span> : null}
@@ -289,9 +292,9 @@ function Changes({ tab, turn, openFile }: { tab: Tab; turn: boolean; openFile: (
 		const prefix = top && root && root !== top && root.startsWith(`${top}/`) ? `${root.slice(top.length + 1)}/` : "";
 		return prefix && p.startsWith(prefix) ? p.slice(prefix.length) : p;
 	};
-	if (list.error) return <EmptyView icon={turn ? Undo2Icon : GitBranchIcon} title={turn ? "The last message cannot be read" : "No changes to show"}>{list.error}</EmptyView>;
+	if (list.error) return <Empty><EmptyHeader><EmptyMedia variant="icon">{turn ? <Undo2Icon /> : <GitBranchIcon />}</EmptyMedia><EmptyTitle>{turn ? "The last message cannot be read" : "No changes to show"}</EmptyTitle><EmptyDescription>{list.error}</EmptyDescription></EmptyHeader></Empty>;
 	if (!data) return <div className="flex flex-col">{Array.from({ length: 5 }, (_, i) => <ChangeRow key={i} skeleton />)}</div>;
-	if (!turn && !data.repo) return <EmptyView icon={GitBranchIcon} title="Not a git repository">The folder this conversation works in has no git history, so there are no changes to show. The files are in the Files view.</EmptyView>;
+	if (!turn && !data.repo) return <Empty><EmptyHeader><EmptyMedia variant="icon"><GitBranchIcon /></EmptyMedia><EmptyTitle>Not a git repository</EmptyTitle><EmptyDescription>The folder this conversation works in has no git history, so there are no changes to show. The files are in the Files view.</EmptyDescription></EmptyHeader></Empty>;
 	if (file)
 		return (
 			<>
@@ -300,18 +303,18 @@ function Changes({ tab, turn, openFile }: { tab: Tab; turn: boolean; openFile: (
 					<PathCrumbs path={file} />
 					<Button variant="ghost" size="xs" onClick={() => openFile(inFolder(file))}><PencilIcon data-icon="inline-start" />Edit</Button>
 				</div>
-				<ScrollArea className="flex min-h-0 flex-1 flex-col *:data-[slot=scroll-area-viewport]:scroll-fade"><div className="flex min-h-full flex-col">{diff.data ? <><Diff text={diff.data.diff || "No difference."} />{diff.data.truncated ? <p className="px-3 py-2.5 text-xs text-muted-foreground select-text">… the rest of this diff is too long to show.</p> : null}</> : diff.error ? <EmptyView icon={GitBranchIcon} title="This diff cannot be shown">{diff.error}</EmptyView> : <LinesSkeleton />}</div><ScrollBar orientation="horizontal" /></ScrollArea>
+				<ScrollArea className="flex min-h-0 flex-1 flex-col *:data-[slot=scroll-area-viewport]:scroll-fade"><div className="flex min-h-full flex-col">{diff.data ? <><Diff text={diff.data.diff || "No difference."} />{diff.data.truncated ? <p className="px-3 py-2.5 text-xs text-muted-foreground select-text">… the rest of this diff is too long to show.</p> : null}</> : diff.error ? <Empty><EmptyHeader><EmptyMedia variant="icon"><GitBranchIcon /></EmptyMedia><EmptyTitle>This diff cannot be shown</EmptyTitle><EmptyDescription>{diff.error}</EmptyDescription></EmptyHeader></Empty> : <LinesSkeleton />}</div><ScrollBar orientation="horizontal" /></ScrollArea>
 			</>
 		);
 	return (
 		<>
 			<div className={SUB}>
-				{turn ? <><Undo2Icon className="size-3.5" /><span className="min-w-0 flex-1 truncate">{data.prompt ? `Since “${short(oneLine(data.prompt), 60)}”` : "Since your last message"}</span>{data.files.length ? <Button variant="outline" size="xs" onClick={() => void store.undo(tab, false)}>Take back</Button> : null}</> : <><GitBranchIcon className="size-3.5" /><span className="min-w-0 flex-1 truncate">{data.branch || "no branch"}{data.worktree ? ` · ${data.worktree.ahead} ahead of ${data.worktree.base}${data.worktree.behind ? `, ${data.worktree.behind} behind` : ""}` : ""} · {data.files.length ? plural(data.files.length, "changed file") : "clean"}</span>{data.worktree ? <Button variant="outline" size="xs" onClick={() => void store.worktreeMenu(tab)}>{data.worktree.ahead && !data.worktree.dirty ? "Merge…" : "Worktree…"}</Button> : null}</>}
+				{turn ? <><Undo2Icon className="size-3.5 shrink-0" /><span className="min-w-0 flex-1 truncate">{data.prompt ? `Since “${short(oneLine(data.prompt), 60)}”` : "Since your last message"}</span>{data.files.length ? <Button variant="outline" size="xs" onClick={() => void store.undo(tab, false)}>Take back</Button> : null}</> : <><GitBranchIcon className="size-3.5 shrink-0" /><span className="min-w-0 flex-1 truncate">{data.branch || "no branch"}{data.worktree ? ` · ${data.worktree.ahead} ahead of ${data.worktree.base}${data.worktree.behind ? `, ${data.worktree.behind} behind` : ""}` : ""} · {data.files.length ? plural(data.files.length, "changed file") : "clean"}</span>{data.worktree ? <Button variant="outline" size="xs" onClick={() => void store.worktreeMenu(tab)}>{data.worktree.ahead && !data.worktree.dirty ? "Merge…" : "Worktree…"}</Button> : null}</>}
 				<HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" onClick={list.reload} aria-label="Read again"><RotateCwIcon /></Button>} /><TooltipContent>Read again</TooltipContent></HoverTooltip>
 			</div>
 			<ScrollArea className="flex min-h-0 flex-1 flex-col *:data-[slot=scroll-area-viewport]:scroll-fade"><div className="flex min-h-full flex-col">
 				{data.note ? <p className="px-3 py-2.5 text-xs text-muted-foreground select-text">{data.note}</p> : null}
-				{data.files.length ? <Listbox aria-label={turn ? "Files the last message changed" : "Changed files"} className="outline-none" {...LISTBOX} onValueChange={onPick(setFile)}>{data.files.map((c) => <ChangeRow key={c.path} c={c} />)}</Listbox> : <EmptyView icon={CheckIcon} title={turn ? "The last message changed no files" : "Nothing changed since the last commit"} />}
+				{data.files.length ? <Listbox aria-label={turn ? "Files the last message changed" : "Changed files"} className="outline-none" {...LISTBOX} onValueChange={onPick(setFile)}>{data.files.map((c) => <ChangeRow key={c.path} c={c} />)}</Listbox> : <Empty><EmptyHeader><EmptyMedia variant="icon"><CheckIcon /></EmptyMedia><EmptyTitle>{turn ? "The last message changed no files" : "Nothing changed since the last commit"}</EmptyTitle></EmptyHeader></Empty>}
 				{data.more ? <p className="px-3 py-2.5 text-xs text-muted-foreground select-text">… and more.</p> : null}
 			</div></ScrollArea>
 		</>
@@ -343,8 +346,8 @@ function FileTree({ tab, pick, tick }: { tab: Tab; pick: (file: string) => void;
 	const failed = state.failed.get("");
 	return (
 		<>
-			{failed ? <EmptyView icon={FolderIcon} title="This folder cannot be read">{failed}</EmptyView> : null}
-			{entries && !entries.length ? <EmptyView icon={FolderIcon} title="This folder is empty" /> : null}
+			{failed ? <Empty><EmptyHeader><EmptyMedia variant="icon"><FolderIcon /></EmptyMedia><EmptyTitle>This folder cannot be read</EmptyTitle><EmptyDescription>{failed}</EmptyDescription></EmptyHeader></Empty> : null}
+			{entries && !entries.length ? <Empty><EmptyHeader><EmptyMedia variant="icon"><FolderIcon /></EmptyMedia><EmptyTitle>This folder is empty</EmptyTitle></EmptyHeader></Empty> : null}
 			<Tree aria-label="Files" className="outline-none" expanded={[...state.open]} onExpandedChange={(open) => ((state.open = new Set(open)), redraw((n) => n + 1))} expandOnPress onAction={(full) => !isDir(full) && pick(full)}>
 				<Dir tab={tab} dir="" depth={0} tick={tick} onLoad={() => redraw((n) => n + 1)} />
 			</Tree>
@@ -434,7 +437,7 @@ function FileView({ tab, file, close }: { tab: Tab; file: string; close: () => v
 						</AlertDialogHeader>
 						<AlertDialogFooter>
 							<AlertDialogCancel>Cancel</AlertDialogCancel>
-							<AlertDialogAction variant="destructive" onClick={() => (setLeaving(false), leave())}>Leave</AlertDialogAction>
+							<AlertDialogPrimitive.Close render={<AlertDialogAction variant="destructive" />} onClick={leave}>Leave</AlertDialogPrimitive.Close>
 						</AlertDialogFooter>
 					</AlertDialogContent>
 				</AlertDialog>
@@ -461,11 +464,11 @@ function FileView({ tab, file, close }: { tab: Tab; file: string; close: () => v
 				{kind ? (
 					<div className="p-3.5">{kind === "image" ? <img className={PICTURE} src={media.workspace(tab.agent, file, tab.session)} alt={file} /> : kind === "video" ? <video className="block max-h-90 max-w-full rounded-lg bg-black sm:max-w-lg" src={media.workspace(tab.agent, file, tab.session)} controls /> : <audio className="block w-full max-w-md" src={media.workspace(tab.agent, file, tab.session)} controls />}</div>
 				) : disk.error ? (
-					<EmptyView icon={FileIcon} title="This file cannot be shown">{disk.error}</EmptyView>
+					<Empty><EmptyHeader><EmptyMedia variant="icon"><FileIcon /></EmptyMedia><EmptyTitle>This file cannot be shown</EmptyTitle><EmptyDescription>{disk.error}</EmptyDescription></EmptyHeader></Empty>
 				) : !disk.data ? (
 					<LinesSkeleton rows={12} />
 				) : (
-					<EmptyView icon={FileIcon} title="A binary file">{size(disk.data.size)}. It is not shown as text.</EmptyView>
+					<Empty><EmptyHeader><EmptyMedia variant="icon"><FileIcon /></EmptyMedia><EmptyTitle>A binary file</EmptyTitle><EmptyDescription>{size(disk.data.size)}. It is not shown as text.</EmptyDescription></EmptyHeader></Empty>
 				)}
 			</div></ScrollArea>
 			)}
@@ -493,7 +496,7 @@ function Files({ tab, file, setFile }: { tab: Tab; file?: string; setFile: (file
 			</div>
 			<ScrollArea className="flex min-h-0 flex-1 flex-col *:data-[slot=scroll-area-viewport]:scroll-fade"><div className="flex min-h-full flex-col">
 				{query.trim() ? (
-					found.data?.length ? <Listbox aria-label="Files that fit" className="outline-none" {...LISTBOX} onValueChange={onPick(setFile)}>{found.data.map((f) => <ListboxItem key={f} value={f} label={f} className={rowClass()}><FileIcon className="size-3.5 text-faint" /><span className="truncate">{f}</span></ListboxItem>)}</Listbox> : found.loading ? <Pulse label="Loading" className="m-auto" /> : <EmptyView icon={SearchIcon} title="No file fits" />
+					found.data?.length ? <Listbox aria-label="Files that fit" className="outline-none" {...LISTBOX} onValueChange={onPick(setFile)}>{found.data.map((f) => <ListboxItem key={f} value={f} label={f} className={rowClass()}><FileIcon className="size-3.5 shrink-0 text-faint" /><span className="truncate">{f}</span></ListboxItem>)}</Listbox> : found.loading ? <Pulse label="Loading" className="m-auto" /> : <Empty><EmptyHeader><EmptyMedia variant="icon"><SearchIcon /></EmptyMedia><EmptyTitle>No file fits</EmptyTitle></EmptyHeader></Empty>
 				) : (
 					<FileTree tab={tab} pick={setFile} tick={tick} />
 				)}
@@ -514,8 +517,8 @@ function Output({ tab }: { tab: Tab }) {
 		return out;
 	}, [tab.key, tab.codeTick]);
 	const [open, setOpen] = useState<string>();
-	if (!calls.data) return calls.error ? <EmptyView icon={SquareTerminalIcon} title="The tool calls cannot be read">{calls.error}</EmptyView> : <div className="flex flex-col">{Array.from({ length: 5 }, (_, i) => <ChangeRow key={i} skeleton />)}</div>;
-	if (!calls.data.length) return <EmptyView icon={SquareTerminalIcon} title="No tool calls yet">What the agent's commands and tools print appears here.</EmptyView>;
+	if (!calls.data) return calls.error ? <Empty><EmptyHeader><EmptyMedia variant="icon"><SquareTerminalIcon /></EmptyMedia><EmptyTitle>The tool calls cannot be read</EmptyTitle><EmptyDescription>{calls.error}</EmptyDescription></EmptyHeader></Empty> : <div className="flex flex-col">{Array.from({ length: 5 }, (_, i) => <ChangeRow key={i} skeleton />)}</div>;
+	if (!calls.data.length) return <Empty><EmptyHeader><EmptyMedia variant="icon"><SquareTerminalIcon /></EmptyMedia><EmptyTitle>No tool calls yet</EmptyTitle><EmptyDescription>What the agent's commands and tools print appears here.</EmptyDescription></EmptyHeader></Empty>;
 	const shown = calls.data.find((c) => `${c.task}:${c.n}` === open);
 	if (shown)
 		return (
@@ -550,17 +553,20 @@ function Output({ tab }: { tab: Tab }) {
 /** What the conversation's commands left running, and the way to stop each. */
 function Running({ tab }: { tab: Tab }) {
 	if (!tab.programsRead) return <LinesSkeleton rows={3} />;
-	if (!tab.programs.length) return <EmptyView icon={PlayIcon} title="Nothing is running">A dev server or a watcher the agent starts keeps running after the agent is done. It is listed here, and stopped from here.</EmptyView>;
+	if (!tab.programs.length) return <Empty><EmptyHeader><EmptyMedia variant="icon"><PlayIcon /></EmptyMedia><EmptyTitle>Nothing is running</EmptyTitle><EmptyDescription>A dev server or a watcher the agent starts keeps running after the agent is done. It is listed here, and stopped from here.</EmptyDescription></EmptyHeader></Empty>;
 	return (
 		<ScrollArea className="flex min-h-0 flex-1 flex-col *:data-[slot=scroll-area-viewport]:scroll-fade"><div className="flex min-h-full flex-col">
-			{tab.programs.map((p) => (
-				<div className="flex flex-col gap-1 border-b border-line-soft p-2" key={p.id}>
+			<ItemGroup className="p-2">
+			{tab.programs.map((p, i) => (
+				<Fragment key={p.id}>
+				{i ? <ItemSeparator /> : null}
+				<div role="listitem" className="flex flex-col gap-1">
 					<Item size="sm">
 						<ItemMedia>
 							<span className="size-2 rounded-full bg-primary" />
 						</ItemMedia>
 						<ItemContent>
-							<ItemTitle className="font-mono">{p.command}</ItemTitle>
+							<ItemTitle><code className="font-mono">{p.command}</code></ItemTitle>
 							<ItemDescription>
 								running for {clock(p.seconds)} · {plural(p.processes, "process", "processes")}
 								{p.background ? " · in the background" : null}
@@ -573,6 +579,7 @@ function Running({ tab }: { tab: Tab }) {
 									<TooltipContent>Opens in the browser beside this conversation</TooltipContent>
 								</HoverTooltip>
 							))}
+							{/* Stop, asked first. */}
 							<AlertDialog>
 								<AlertDialogTrigger render={<Button variant="ghost" size="xs" />}>Stop</AlertDialogTrigger>
 								<AlertDialogContent>
@@ -581,7 +588,7 @@ function Running({ tab }: { tab: Tab }) {
 									</AlertDialogHeader>
 									<AlertDialogFooter>
 										<AlertDialogCancel>Cancel</AlertDialogCancel>
-										<AlertDialogCancel variant="destructive" onClick={() => void store.attempt(() => api.stopProgram(tab.agent, tab.session, p.id)).then(() => store.flash("Stopping…"))}>Stop</AlertDialogCancel>
+										<AlertDialogPrimitive.Close render={<AlertDialogAction variant="destructive" />} onClick={() => void store.attempt(() => api.stopProgram(tab.agent, tab.session, p.id)).then(() => store.flash("Stopping…"))}>Stop</AlertDialogPrimitive.Close>
 									</AlertDialogFooter>
 								</AlertDialogContent>
 							</AlertDialog>
@@ -589,7 +596,9 @@ function Running({ tab }: { tab: Tab }) {
 					</Item>
 					{p.output ? <Printed text={p.output} sm /> : null}
 				</div>
+				</Fragment>
 			))}
+			</ItemGroup>
 		</div></ScrollArea>
 	);
 }
@@ -667,12 +676,10 @@ export function CodePanel({ tab }: { tab: Tab }) {
 				<>
 					{/* Which changes: all that git knows of in the folder, or what the owner's last message changed. */}
 					<div className={SUB}>
-						<Tabs value={view} onValueChange={(v) => setView(v as CodeView)}>
-							<TabsList activateOnFocus aria-label="Which changes">
-								<TabsTrigger value="changes">All changes</TabsTrigger>
-								<TabsTrigger value="turn">Last turn</TabsTrigger>
-							</TabsList>
-						</Tabs>
+						<ToggleGroup aria-label="Which changes" variant="outline" size="sm" value={[view]} onValueChange={(v) => v[0] && setView(v[0] as CodeView)}>
+							<ToggleGroupItem value="changes">All changes</ToggleGroupItem>
+							<ToggleGroupItem value="turn">Last turn</ToggleGroupItem>
+						</ToggleGroup>
 					</div>
 					<Changes tab={tab} turn={view === "turn"} openFile={(f) => (setFile(f), setView("files"))} />
 				</>
@@ -683,7 +690,7 @@ export function CodePanel({ tab }: { tab: Tab }) {
 			) : view === "board" ? (
 				<BoardTab tab={tab} />
 			) : view === "terminal" ? (
-				store.remote ? <EmptyView icon={SquareTerminalIcon} title="No terminal here">The terminal is a shell on this computer, and this conversation works on {store.remote}. Open a terminal there with ssh.</EmptyView> : <TerminalView tab={tab} />
+				store.remote ? <Empty><EmptyHeader><EmptyMedia variant="icon"><SquareTerminalIcon /></EmptyMedia><EmptyTitle>No terminal here</EmptyTitle><EmptyDescription>The terminal is a shell on this computer, and this conversation works on {store.remote}. Open a terminal there with ssh.</EmptyDescription></EmptyHeader></Empty> : <TerminalView tab={tab} />
 			) : (
 				<Running tab={tab} />
 			)}

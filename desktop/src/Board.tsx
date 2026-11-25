@@ -3,17 +3,19 @@
 // has which task and what was found, adds a task, takes one back, answers one that waits for them.
 // Everything is read and changed through the control API. What is on a board was written by agents
 // (and can repeat outside content): it is drawn as plain text, never as markup.
-import { CircleCheckIcon, CircleDotIcon, CircleHelpIcon, CircleIcon, CircleXIcon, ClipboardListIcon, EllipsisIcon, HourglassIcon, PlusIcon, SendIcon, StickyNoteIcon } from "lucide-react";
+import { CircleCheckIcon, CircleHelpIcon, CircleIcon, CircleXIcon, ClipboardListIcon, EllipsisIcon, HourglassIcon, PlusIcon, SendIcon, StickyNoteIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { EmptyView } from "@/components/empty-view";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Pulse } from "@/components/pulse";
 import { api, type BoardBrief, type BoardItem, type BoardView } from "./api.ts";
 import { store, type Tab, useModel } from "./model.ts";
@@ -33,7 +35,7 @@ export function taskLine(t: BoardItem): string {
 }
 
 function TaskIcon({ task }: { task: BoardItem }) {
-	if (task.state === "taken") return <CircleDotIcon className="animate-pulse text-primary" />;
+	if (task.state === "taken") return <Pulse label="In progress" className="bg-primary" />;
 	if (task.state === "done") return <CircleCheckIcon className="text-primary" />;
 	if (task.state === "failed") return <CircleXIcon className="text-destructive" />;
 	if (task.state === "blocked") return <CircleHelpIcon className="text-warn" />;
@@ -89,8 +91,8 @@ function Fields({ data }: { data?: Record<string, unknown> }) {
 	return (
 		<span className="flex flex-wrap gap-1">
 			{fields.map(([k, v]) => (
-				<Badge variant="outline" key={k} className="max-w-full font-mono">
-					<span className="truncate">{fieldText(k, v)}</span>
+				<Badge variant="outline" key={k} className="max-w-full">
+					<span className="truncate font-mono">{fieldText(k, v)}</span>
 				</Badge>
 			))}
 		</span>
@@ -116,28 +118,33 @@ export function BoardList({ view, actions }: { view: BoardView; actions: BoardAc
 						{view.tasks.map((t) => {
 							const shown = open.has(t.id) || t.state === "blocked";
 							const about = notesOf(t.id);
+							const result = t.result ? <p className="text-xs whitespace-pre-wrap text-muted-foreground select-text">{t.result}</p> : null;
 							return (
 								<Item size="sm" key={t.id} data-task={t.id} data-state={t.state}>
 									<ItemMedia variant="icon">
 										<TaskIcon task={t} />
 									</ItemMedia>
-									<ItemContent>
-										<ItemTitle className="w-full cursor-default select-text" onClick={() => toggle(t.id)}>
+									{/* The task's text opens the rest of it, by a click or the keyboard. A task that waits for the owner stays open. */}
+									<Collapsible open={shown} onOpenChange={() => t.state !== "blocked" && toggle(t.id)} render={<ItemContent />}>
+										<CollapsibleTrigger nativeButton={false} render={<ItemTitle className="w-full cursor-default rounded-sm text-left outline-none select-text focus-visible:ring-3 focus-visible:ring-ring/50" />}>
 											<span className={shown ? "whitespace-pre-wrap" : "line-clamp-2"}>
 												<span className="text-faint">#{t.id}</span> {t.text}
 											</span>
-										</ItemTitle>
+										</CollapsibleTrigger>
 										<ItemDescription>
 											{taskLine(t)}
 											{t.by === "owner" ? " · yours" : null}
 											{about.length ? ` · ${plural(about.length, "note")}` : null}
 										</ItemDescription>
 										{t.outside ? <Badge variant="outline">from outside content</Badge> : null}
-										{shown ? <Fields data={t.data} /> : null}
-										{t.result && (shown || t.state === "failed") ? <p className="text-xs whitespace-pre-wrap text-muted-foreground select-text">{t.result}</p> : null}
-										{shown ? about.map((n) => <Note note={n} key={n.id} />) : null}
+										<CollapsibleContent className="flex flex-col gap-1">
+											<Fields data={t.data} />
+											{result}
+											{about.map((n) => <Note note={n} key={n.id} />)}
+										</CollapsibleContent>
+										{!shown && t.state === "failed" ? result : null}
 										{t.state === "blocked" ? <Entry label={`Answer task ${t.id}`} placeholder="Your answer" icon={SendIcon} send={(text) => actions.act(t.id, "answer", text)} /> : null}
-									</ItemContent>
+									</Collapsible>
 									<ItemActions>
 										<DropdownMenu>
 											<DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" aria-label={`What to do with task ${t.id}`} />}>
@@ -166,7 +173,7 @@ export function BoardList({ view, actions }: { view: BoardView; actions: BoardAc
 				{loose.length ? (
 					<div className="flex flex-col gap-2 px-2" data-slot="board-notes">
 						<span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-							<StickyNoteIcon className="size-3.5" />
+							<StickyNoteIcon className="size-3.5 shrink-0" />
 							{plural(loose.length, "note")}
 						</span>
 						{loose.map((n) => (
@@ -174,7 +181,7 @@ export function BoardList({ view, actions }: { view: BoardView; actions: BoardAc
 						))}
 					</div>
 				) : null}
-				{!view.tasks.length && !loose.length ? <EmptyView icon={ClipboardListIcon} title="Nothing on this board yet">Add a task below, or ask the agent to split a job among sub-agents.</EmptyView> : null}
+				{!view.tasks.length && !loose.length ? <Empty><EmptyHeader><EmptyMedia variant="icon"><ClipboardListIcon /></EmptyMedia><EmptyTitle>Nothing on this board yet</EmptyTitle><EmptyDescription>Add a task below, or ask the agent to split a job among sub-agents.</EmptyDescription></EmptyHeader></Empty> : null}
 			</div>
 		</ScrollArea>
 	);
@@ -227,9 +234,17 @@ export function BoardTab({ tab }: { tab: Tab }) {
 	if (!board)
 		return (
 			<>
-				<EmptyView icon={ClipboardListIcon} title="No board yet">
-					A board holds the tasks of a job that several work on, who has each, and what they found. The agent starts one when it splits a job among sub-agents, or you add the first task here.
-				</EmptyView>
+				<Empty>
+					<EmptyHeader>
+						<EmptyMedia variant="icon">
+							<ClipboardListIcon />
+						</EmptyMedia>
+						<EmptyTitle>No board yet</EmptyTitle>
+						<EmptyDescription>
+							A board holds the tasks of a job that several work on, who has each, and what they found. The agent starts one when it splits a job among sub-agents, or you add the first task here.
+						</EmptyDescription>
+					</EmptyHeader>
+				</Empty>
 				{add}
 			</>
 		);
@@ -265,14 +280,14 @@ export function BoardTab({ tab }: { tab: Tab }) {
 						</AlertDialogHeader>
 						<AlertDialogFooter>
 							<AlertDialogCancel>Cancel</AlertDialogCancel>
-							<AlertDialogCancel variant="destructive" onClick={() => void store.attempt(() => api.boardRemove(board.id)).then(done)}>
+							<AlertDialogPrimitive.Close render={<AlertDialogAction variant="destructive" />} onClick={() => void store.attempt(() => api.boardRemove(board.id)).then(done)}>
 								Remove
-							</AlertDialogCancel>
+							</AlertDialogPrimitive.Close>
 						</AlertDialogFooter>
 					</AlertDialogContent>
 				</AlertDialog>
 			</div>
-			{view.data ? <BoardList view={view.data} actions={actions} /> : view.error ? <EmptyView icon={ClipboardListIcon} title="The board cannot be read">{view.error}</EmptyView> : <Pulse label="Loading" className="m-auto" />}
+			{view.data ? <BoardList view={view.data} actions={actions} /> : view.error ? <Empty><EmptyHeader><EmptyMedia variant="icon"><ClipboardListIcon /></EmptyMedia><EmptyTitle>The board cannot be read</EmptyTitle><EmptyDescription>{view.error}</EmptyDescription></EmptyHeader></Empty> : <Pulse label="Loading" className="m-auto" />}
 			{add}
 		</>
 	);

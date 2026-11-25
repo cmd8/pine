@@ -3,9 +3,10 @@
 // The parts are shadcn's chat components, composed the way its AI Elements pages show: the thread
 // is Message Scroller, a turn is Message (and Bubble for the owner's), the work of a turn is Trace
 // (Task, Tool, Reasoning, Subagent and Plan), a request is an Item (Confirmation), a note is a Marker.
-import { ArrowUpIcon, ArrowUpRightIcon, BookmarkIcon, BrainIcon, CheckIcon, ChevronDownIcon, CircleCheckIcon, CircleDotIcon, CircleIcon, ClockIcon, CpuIcon, FolderIcon, GitBranchIcon, InfoIcon, ListChecksIcon, type LucideIcon, MessageCircleQuestionIcon, PaperclipIcon, PlayIcon, QuoteIcon, ReplyIcon, SearchIcon, SettingsIcon, ShieldIcon, SquareIcon, StarIcon, TargetIcon, TriangleAlertIcon, Undo2Icon, UsersIcon, XIcon, ZapIcon } from "lucide-react";
-import { Fragment, memo, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ArrowUpRightIcon, BookmarkIcon, BrainIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CircleCheckIcon, CircleDotIcon, CircleIcon, ClockIcon, CpuIcon, FolderIcon, GitBranchIcon, InfoIcon, ListChecksIcon, type LucideIcon, MessageCircleQuestionIcon, PaperclipIcon, PlayIcon, QuoteIcon, ReplyIcon, SearchIcon, SettingsIcon, ShieldIcon, SquareIcon, StarIcon, TargetIcon, TriangleAlertIcon, Undo2Icon, UsersIcon, XIcon, ZapIcon } from "lucide-react";
+import { Fragment, memo, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { Sound } from "@/components/sound";
+import { contextMenu } from "@/components/page-menu";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Attachment, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "@/components/ui/attachment";
 import { AgentAvatar } from "@/components/agent-avatar";
@@ -26,7 +27,6 @@ import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
 import { Message, MessageContent, MessageFooter, MessageHeader } from "@/components/ui/message";
 import { MessageScroller, MessageScrollerButton, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport, useMessageScroller } from "@/components/ui/message-scroller";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Toggle } from "@/components/ui/toggle";
 import { HoverTooltip } from "@/components/hover-tooltip";
 import { QuoteChip } from "@/components/quote-chip";
@@ -40,6 +40,7 @@ import { bridge } from "./bridge.ts";
 import { Composer } from "./Composer.tsx";
 import { WelcomeLetter } from "./WelcomeLetter.tsx";
 import { Markdown, MEDIA } from "./markdown.tsx";
+import { runs } from "./work-runs.ts";
 import { type Bookmark, type Item, type Part, type QuoteSource, quoteId, type SentQuote, type Steer, store, type Tab, type Tone, useModel, useSignal } from "./model.ts";
 import { childKind, clock, count, MODES, oneLine, plural, short, shortcut, speedText, tilde, took } from "./text.ts";
 import { Pulse } from "@/components/pulse";
@@ -86,32 +87,36 @@ function Thought({ text, title, description, live = false }: { text: string; tit
 			{description ? <TraceDescription>{description}</TraceDescription> : null}
 		</TraceLine>
 	);
-	// While it streams, the box stays at the end of the text, unless the owner scrolled up to read.
-	const body = useRef<HTMLDivElement>(null);
-	const atEnd = useRef(true);
-	useLayoutEffect(() => {
-		const viewport = body.current?.closest<HTMLElement>("[data-slot=scroll-area-viewport]");
-		if (live && viewport && atEnd.current) viewport.scrollTop = viewport.scrollHeight;
-	}, [text, live]);
 	if (!text) return <div data-part="thought">{line}</div>;
 	return (
 		<TraceCollapsible open={open ?? live} onOpenChange={setOpen} data-part="thought">
 			<TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
 			<TraceCollapsibleContent>
-				{/* The whole text, always: a box that only grows up to its height, so the thread above never moves. */}
-				<ScrollArea
-					className="flex max-h-80 min-h-0 flex-col *:data-[slot=scroll-area-viewport]:scroll-fade"
-					onScrollCapture={(e) => {
-						const v = e.target as HTMLElement;
-						atEnd.current = v.scrollHeight - v.scrollTop - v.clientHeight < 8;
-					}}
-				>
-					<div ref={body} className="whitespace-pre-wrap select-text">
-						{text}
-					</div>
-				</ScrollArea>
+				<ThoughtText text={text} live={live} />
 			</TraceCollapsibleContent>
 		</TraceCollapsible>
+	);
+}
+
+/**
+ * The whole text of a thought, always: a box that only grows up to its height, so the thread above never
+ * moves. While it streams, the box follows the end of the text, unless the owner scrolled up to read: a
+ * Message Scroller of its own, nested in the thread's. It opens where the thought was when it was opened:
+ * at the end while the model thinks, at the beginning once it is done.
+ */
+function ThoughtText({ text, live }: { text: string; live: boolean }) {
+	const [from] = useState<"start" | "end">(live ? "end" : "start");
+	return (
+		<MessageScrollerProvider autoScroll={live} defaultScrollPosition={from}>
+			<MessageScroller>
+				<MessageScrollerViewport aria-label="Thinking" className="max-h-80">
+					<MessageScrollerContent className="gap-0">
+						<MessageScrollerItem className="whitespace-pre-wrap select-text">{text}</MessageScrollerItem>
+					</MessageScrollerContent>
+				</MessageScrollerViewport>
+				<MessageScrollerButton size="icon-xs" />
+			</MessageScroller>
+		</MessageScrollerProvider>
 	);
 }
 
@@ -168,7 +173,7 @@ function Call({ tool, subject, status, ms, depth = 0, output, error, images }: {
  */
 function Child({ part }: { part: Extract<Part, { p: "child" }> }) {
 	return (
-		<button type="button" data-part="child" style={part.depth > 1 ? { paddingLeft: `calc(var(--spacing) * ${(part.depth - 1) * 3.5})` } : undefined} onClick={() => void store.openTask(part.task)}>
+		<button type="button" data-part="child" className="rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50" style={part.depth > 1 ? { paddingLeft: `calc(var(--spacing) * ${(part.depth - 1) * 3.5})` } : undefined} onClick={() => void store.openTask(part.task)}>
 			<TraceLine status={traceStatus(part.status)}>
 				<TraceIcon>
 					<StatusIcon status={part.status} />
@@ -237,21 +242,24 @@ function Work({ item }: { item: Extract<Item, { t: "work" }> }) {
 		<TraceCollapsible open={shown.length > 0} onOpenChange={() => ((item.open = !open), setOpen(!open))} data-item="work" data-open={open || undefined}>
 			<TraceCollapsibleTrigger>
 				<TraceLine status={item.done ? undefined : "running"}>
-					{item.done ? null : (
-						<TraceIcon>
-							<Pulse />
-						</TraceIcon>
-					)}
+					<TraceIcon>{item.done ? <ListChecksIcon /> : <Pulse />}</TraceIcon>
 					<TraceTitle className={STEPPED} title={head}>{head}</TraceTitle>
 					{description ? <TraceDescription>{description}</TraceDescription> : null}
 				</TraceLine>
 			</TraceCollapsibleTrigger>
-			<TraceCollapsibleContent>
-				<Trace>
-					{shown.map((p, i) => (
-						<PartLine key={open ? i : parts.length - shown.length + i} part={p} live={!item.done} />
-					))}
-				</Trace>
+			<TraceCollapsibleContent className="flex flex-col gap-2">
+				{/* One Trace per run of steps: what the agent said on the way ends a run (Trace's rule). */}
+				{runs(parts, parts.length - shown.length).map((run) =>
+					run.words ? (
+						<PartLine key={run.key} part={run.words} live={!item.done} />
+					) : (
+						<Trace key={run.key}>
+							{run.steps.map(({ part, at }) => (
+								<PartLine key={at} part={part} live={!item.done} />
+							))}
+						</Trace>
+					),
+				)}
 			</TraceCollapsibleContent>
 		</TraceCollapsible>
 	);
@@ -274,7 +282,7 @@ export function OwnerTurn({ text, from, files, menu, skeleton, footer, quotes, o
 			<MessageContent>
 				{from ? <MessageHeader>{from}</MessageHeader> : null}
 				<Bubble align="end" variant="muted">
-					<BubbleContent className="text-base leading-snug whitespace-pre-wrap select-text">
+					<BubbleContent className="whitespace-pre-wrap select-text">
 						{quotes?.length && quotes.some((q) => q.reply?.trim()) ? (
 							<div className={cn("flex flex-col gap-3", body.trim() && "mb-3")}>
 								{quotes.map((q, i) => (
@@ -331,7 +339,7 @@ function SteerLine({ tab, steer }: { tab: Tab; steer: Steer }) {
 		<span className="flex items-center gap-1">
 			not read yet ·
 			<HoverTooltip>
-				<TooltipTrigger render={<Button variant="link" size="xs" className="h-auto px-0 text-xs font-medium text-muted-foreground" onClick={() => void store.sendNow(tab, steer)} />}>send now</TooltipTrigger>
+				<TooltipTrigger render={<Button variant="link" size="xs" onClick={() => void store.sendNow(tab, steer)} />}>send now</TooltipTrigger>
 				<TooltipContent>Stops what the agent is doing right now, gives it this message, and lets it carry on</TooltipContent>
 			</HoverTooltip>
 		</span>
@@ -342,7 +350,7 @@ function Entry({ entry, agent }: { entry: TranscriptEntry; agent: string }) {
 	if (entry.kind === "user") return <OwnerTurn text={entry.text ?? ""} from="task" />;
 	if (entry.kind === "text")
 		return (
-			<Message className="text-base leading-snug">
+			<Message>
 				<MessageContent>
 					<Markdown text={entry.text ?? ""} where={{ agent }} />
 				</MessageContent>
@@ -472,7 +480,7 @@ export function Steps({ items }: { items: Array<{ text: string; status: string }
 
 /** The menu of a message of the owner's: what can be done from it. */
 async function branchMenu(tab: Tab, task: number): Promise<void> {
-	const picked = await bridge.contextMenu([{ id: "branch", label: "Branch from here" }, ...(tab.folder ? [{ id: "worktree", label: "Branch from here into a worktree" }] : [])]);
+	const picked = await contextMenu([{ id: "branch", label: "Branch from here" }, ...(tab.folder ? [{ id: "worktree", label: "Branch from here into a worktree" }] : [])]);
 	if (picked === "branch" || picked === "worktree") await store.branch(tab.agent, tab.session, task, picked === "worktree");
 }
 
@@ -486,7 +494,7 @@ export const Row = memo(function Row({ item, tab }: { item: Item; v: number; tab
 		}
 		case "answer":
 			return (
-				<Message data-item="answer" data-quote-task={item.task} data-quote-part="answer" className="text-base leading-snug">
+				<Message data-item="answer" data-quote-task={item.task} data-quote-part="answer">
 					<MessageContent>
 						<Markdown text={item.text} live={item.live} where={{ agent: item.agent, session: tab.kind === "chat" ? tab.session : undefined, id: `${tab.id}:${item.id}`, arrived: item.arrived }} />
 					</MessageContent>
@@ -763,7 +771,7 @@ function FindBar({ root, close, initial }: { root: () => HTMLElement | null; clo
 			<InputGroupAddon align="inline-end">
 				{query ? <InputGroupText>{count ? `${at + 1} of ${count}` : "nothing"}</InputGroupText> : null}
 				<HoverTooltip>
-					<TooltipTrigger render={<InputGroupButton size="icon-xs" onClick={() => step(-1)} aria-label="Earlier" />}><ArrowUpIcon /></TooltipTrigger>
+					<TooltipTrigger render={<InputGroupButton size="icon-xs" onClick={() => step(-1)} aria-label="Earlier" />}><ChevronUpIcon /></TooltipTrigger>
 					<TooltipContent>Earlier<Kbd>{shortcut("↩")}</Kbd></TooltipContent>
 				</HoverTooltip>
 				<HoverTooltip>
@@ -791,7 +799,7 @@ function StatusLine({ tab }: { tab: Tab }) {
 	const elsewhere = store.tabs.find((t) => t !== tab && t.approvals.size > 0);
 	const goal = tab.goal?.status === "active" ? tab.goal : undefined;
 	const swarm = tab.swarm?.status === "active" ? tab.swarm : undefined;
-	// The line keeps its height when it says nothing, so that the input does not move.
+	// Nothing to say, no line: the input sits at the bottom, so the line grows the block upward and the input never moves.
 	const line = (icon: ReactNode, text: string, action?: ReactNode, warn?: boolean) => (
 		<Marker className="min-h-7.5 py-1.5">
 			{/* A grid centers the dot of Pulse, which would otherwise sit on the text's baseline in the icon's box. */}
@@ -806,7 +814,7 @@ function StatusLine({ tab }: { tab: Tab }) {
 		if (goal) return line(<TargetIcon />, `goal · round ${goal.round} of ${goal.until} · checking whether it is met`, <Button variant="outline" size="xs" onClick={() => void store.setGoal(tab, "pause")}>Pause</Button>);
 		if (elsewhere) return line(<TriangleAlertIcon />, `${elsewhere.agent} · ${elsewhere.session} waits for you.`, <Button variant="outline" size="xs" onClick={() => store.activate(elsewhere)}>Go there</Button>, true);
 		if (tab.programs.length) return line(<PlayIcon />, `${plural(tab.programs.length, "program")} still running`, <Button variant="ghost" size="xs" onClick={() => void store.command("code-running")}>Show</Button>);
-		return line(null, "");
+		return null;
 	}
 	const secs = Math.max(0, Math.round((Date.now() - tab.startedAt) / 1000));
 	const steps = tab.steps?.items ?? [];
@@ -836,7 +844,7 @@ function ContextUsage({ tab, percent }: { tab: Tab; percent: number }) {
 	const color = tone === "bad" ? "text-destructive" : tone === "warn" ? "text-warn" : "text-muted-foreground";
 	return (
 		<HoverCard>
-			<HoverCardTrigger delay={10} closeDelay={100} data-tone={tone} render={<Button variant="ghost" size="xs" className={`tabular-nums ${color}`} />}>
+			<HoverCardTrigger delay={10} closeDelay={100} data-tone={tone} render={<Button variant="ghost" size="xs" className={cn("tabular-nums", color)} />}>
 				{total ? `${count(total)} · ` : ""}
 				{Math.round(percent)}%
 			</HoverCardTrigger>
@@ -927,7 +935,7 @@ function ConvHead({ tab }: { tab: Tab }) {
 					) : null}
 				</BreadcrumbList>
 			</Breadcrumb>
-			{chat && store.pins.has(tab.key) ? <StarIcon size={12} className="text-faint" /> : null}
+			{chat && store.pins.has(tab.key) ? <StarIcon className="size-3 text-faint" /> : null}
 			<span className="min-w-0 flex-1" />
 			{chat ? <BookmarkList bookmarks={tab.bookmarks} onOpen={(b) => store.showBookmark(tab.key, b)} onRemove={(b) => void store.removeBookmark(tab, b.id)} /> : null}
 			{tab.context !== undefined ? <ContextUsage tab={tab} percent={tab.context} /> : null}
@@ -985,6 +993,20 @@ function quoteTarget(root: HTMLElement | null | undefined, source: QuoteSource):
 	return root?.querySelector<HTMLElement>(typeof source === "string" ? `[data-quote-source="${source}"]` : `[data-quote-task="${source.task}"][data-quote-part="${source.part}"]`);
 }
 
+/**
+ * The row gone to, lit for a moment once the scroll has brought it in: a fade of the primary color, played by
+ * the browser on the element (the tests find it among its animations), with nothing added to the page.
+ */
+function flash(el: HTMLElement) {
+	el.animate(
+		[
+			{ borderRadius: "0.75rem", backgroundColor: "color-mix(in oklab, var(--primary) 12%, transparent)", boxShadow: "inset 0 0 0 2px color-mix(in oklab, var(--primary) 45%, transparent)" },
+			{ borderRadius: "0.75rem", backgroundColor: "transparent", boxShadow: "inset 0 0 0 2px transparent" },
+		],
+		{ duration: 1500, delay: 250, easing: "ease-out", fill: "backwards" },
+	);
+}
+
 function QuoteJump({ tab, root }: { tab: Tab; root: RefObject<HTMLElement | null> }) {
 	const { scrollToMessage, scrollToStart } = useMessageScroller();
 	const go = () => {
@@ -996,13 +1018,7 @@ function QuoteJump({ tab, root }: { tab: Tab; root: RefObject<HTMLElement | null
 		const row = typeof want.source === "string" ? undefined : el.closest<HTMLElement>("[data-message-id]");
 		if (row?.dataset.messageId) scrollToMessage(row.dataset.messageId, { align: "center", behavior: "smooth" });
 		else scrollToStart({ behavior: "smooth" });
-		(row ?? el).animate(
-			[
-				{ borderRadius: "0.75rem", backgroundColor: "color-mix(in oklab, var(--primary) 12%, transparent)", boxShadow: "inset 0 0 0 2px color-mix(in oklab, var(--primary) 45%, transparent)" },
-				{ borderRadius: "0.75rem", backgroundColor: "transparent", boxShadow: "inset 0 0 0 2px transparent" },
-			],
-			{ duration: 1500, delay: 250, easing: "ease-out", fill: "backwards" },
-		);
+		flash(row ?? el);
 	};
 	useSignal("show-quote", go);
 	useEffect(() => {
@@ -1074,13 +1090,7 @@ function BookmarkJump({ tab, root }: { tab: Tab; root: RefObject<HTMLElement | n
 		const row = typeof bookmark.source === "string" ? undefined : el.closest<HTMLElement>("[data-message-id]");
 		if (row?.dataset.messageId) scrollToMessage(row.dataset.messageId, { align: "center", behavior: "smooth" });
 		else scrollToStart({ behavior: "smooth" });
-		(row ?? el).animate(
-			[
-				{ borderRadius: "0.75rem", backgroundColor: "color-mix(in oklab, var(--primary) 12%, transparent)", boxShadow: "inset 0 0 0 2px color-mix(in oklab, var(--primary) 45%, transparent)" },
-				{ borderRadius: "0.75rem", backgroundColor: "transparent", boxShadow: "inset 0 0 0 2px transparent" },
-			],
-			{ duration: 1500, delay: 250, easing: "ease-out", fill: "backwards" },
-		);
+		flash(row ?? el);
 	};
 	useSignal("show-bookmark", go);
 	useEffect(() => {
@@ -1092,6 +1102,14 @@ function BookmarkJump({ tab, root }: { tab: Tab; root: RefObject<HTMLElement | n
 	}, []);
 	return null;
 }
+
+/**
+ * The column of the transcript, and the size of what is said in it, set once here: messages and the owner's
+ * bubbles read at the body's size (text-base, snug), larger than the stock parts' text-sm, which the lines of
+ * work, the notes and the requests keep. The stock Message and Bubble Content set their own size, so it is
+ * said to them by their slot.
+ */
+const TRANSCRIPT = "mx-auto max-w-3xl px-7 pt-7 pb-6 [&_[data-slot=bubble-content]]:text-base [&_[data-slot=bubble-content]]:leading-snug [&_[data-slot=message]]:text-base [&_[data-slot=message]]:leading-snug";
 
 export function Conversation({ tab }: { tab: Tab }) {
 	useModel(tab);
@@ -1112,7 +1130,6 @@ export function Conversation({ tab }: { tab: Tab }) {
 	// The words are marked once what was said is on the page.
 	const loaded = tab.loaded;
 	const scroller = useRef<HTMLDivElement>(null);
-	const frame = useRef<HTMLDivElement>(null);
 	const [selected, unselect] = useTextSelection(scroller);
 	const source = selected ? selectionSource(scroller.current) : undefined;
 	const quote = (reply: boolean) => {
@@ -1147,10 +1164,10 @@ export function Conversation({ tab }: { tab: Tab }) {
 	const chat = tab.kind === "chat";
 	const checkpoint = chat && !tab.busy ? lastOwnerMessage(tab.items) : -1;
 	return (
-		<div ref={frame} className="relative flex min-w-85 flex-1 flex-col overflow-hidden rounded-xl border bg-background">
+		<div className="relative flex min-w-85 flex-1 flex-col overflow-hidden rounded-xl border bg-background text-sm">
 			<ConvHead tab={tab} />
 			{selected && chat && source ? (
-				<SelectionToolbar rect={selected.rect} bounds={frame}>
+				<SelectionToolbar rect={selected.rect}>
 					<SelectionToolbarButton icon={QuoteIcon} label="Quote" onClick={() => quote(false)} />
 					<SelectionToolbarButton icon={ReplyIcon} label="Reply" hint="Quote the selected text and reply to it" onClick={() => quote(true)} />
 					<SelectionToolbarButton icon={BookmarkIcon} label="Bookmark" hint={streaming ? "Bookmark it once the answer is done" : undefined} disabled={streaming} onClick={bookmark} />
@@ -1168,7 +1185,7 @@ export function Conversation({ tab }: { tab: Tab }) {
 					<MessageScroller className="flex-1">
 						<MessageScrollerViewport ref={scroller}>
 							{/* The column of the conversation, under the head and above the input. */}
-							<MessageScrollerContent className="mx-auto max-w-3xl px-7 pt-7 pb-2" aria-busy={tab.busy}>
+							<MessageScrollerContent className={TRANSCRIPT} aria-busy={tab.busy}>
 								{/* The main agent's main conversation begins with pine's welcome, above everything said in it: under the agent while nothing was said yet. */}
 								{chat && tab.session === "main" && store.agent(tab.agent)?.main ? (
 									<>
@@ -1208,7 +1225,7 @@ export function Conversation({ tab }: { tab: Tab }) {
 					</MessageScroller>
 				</MessageScrollerProvider>
 			)}
-			<div className="shrink-0 px-7 pb-4">
+			<div className="shrink-0 px-4 pb-4">
 				<div className="relative mx-auto max-w-3xl">
 					<StatusLine tab={tab} />
 					{chat ? (

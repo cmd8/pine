@@ -43,7 +43,7 @@ test("the side bar is the agents: one made elsewhere appears, a group folds away
 		return { name: stands(el.querySelector("[data-slot=agent-label] > :first-child")!), what: stands(el.querySelector("[data-slot=agent-label] > :last-child > span")!), row: el.getBoundingClientRect().height };
 	});
 	assert.ok(one.what.left > one.name.right && Math.abs(one.what.baseline - one.name.baseline) <= 0.75, `an agent's name and what it is for are not on one line: ${JSON.stringify(one)}`);
-	assert.equal(one.row, 30, "an agent's line is as high as a conversation's");
+	assert.equal(one.row, 32, "an agent's line is as high as a conversation's (h-8)");
 	// The side bar is as wide as it is dragged.
 	const before = await page.$eval("#sidebar-panel [data-slot=sidebar]", (el: Element) => el.getBoundingClientRect().width);
 	const edge = await page.$eval(SIDE_EDGE, (el: Element) => el.getBoundingClientRect());
@@ -133,7 +133,8 @@ test("the side bar is the agents: one made elsewhere appears, a group folds away
 	await menu("events");
 	await sees("[data-slot=tab][data-active] [data-slot=tab-name] >> text=Events");
 	await menu("new");
-	await sees("[data-slot=dialog-title] >> text=New conversation with");
+	await sees("[cmdk-group-heading] >> text=New conversation with");
+	assert.ok(((await page.locator("[data-slot=dialog-content] [data-slot=command-input]").boundingBox())?.width ?? 0) > 100, "a short list has its field in sight too");
 	assert.deepEqual(await page.$$eval("[data-slot=command-item] > :first-child", (els: Element[]) => els.map((e) => e.textContent)), ["main", "scout", "test"]);
 	await page.keyboard.press("Escape");
 	await page.click("[data-slot=tab][data-active] button[aria-label='Close this tab']");
@@ -177,9 +178,13 @@ test("a conversation is opened from the side bar with the keyboard alone, and a 
 	await page.keyboard.press("Space");
 	await page.waitForFunction(() => document.activeElement?.getAttribute("aria-expanded") === "true");
 	assert.ok((await group.locator("[role=option]").count()) > 0);
-	// Its conversations are one stop after the agent's plus: Tab goes in, the arrows move, Enter opens.
-	await page.keyboard.press("Tab");
-	assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "New conversation with scout");
+	// The buttons on the agent's line are stops of their own, shown while the keyboard is on the line; its conversations come after the plus:
+	// Tab goes in, the arrows move, Enter opens.
+	for (const label of ["Settings of scout", "Open a folder for a conversation with scout", "New conversation with scout"]) {
+		await page.keyboard.press("Tab");
+		assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), label);
+		assert.equal(await page.evaluate(() => getComputedStyle(document.activeElement!).opacity), "1", `${label} is shown while it has the keyboard`);
+	}
 	await page.keyboard.press("Tab");
 	const at = () => page.evaluate(() => ({ role: document.activeElement?.getAttribute("role"), text: document.activeElement?.textContent ?? "" }));
 	assert.equal((await at()).role, "option");
@@ -188,6 +193,36 @@ test("a conversation is opened from the side bar with the keyboard alone, and a 
 	await page.keyboard.press("Enter");
 	await sees("[data-slot=tab][data-active] [data-slot=tab-name] >> text=where is the okapi invoice");
 	await page.click("[data-slot=tab][data-active] button[aria-label='Close this tab']");
+});
+
+test("a conversation is removed by its row's own button, which the keyboard reaches too, after a yes in a dialog that then closes", async () => {
+	const group = page.locator("[data-slot=collapsible]:has([data-slot=agent-label])", { has: page.locator("[data-slot=agent-label] > :first-child", { hasText: /^scout$/ }) });
+	await group.locator("button[aria-label='New conversation with scout']").click();
+	await sees("[data-slot=tab][data-active] [data-slot=tab-name] >> text=new conversation");
+	await page.fill("[data-slot=composer] textarea", "a conversation to remove");
+	await page.keyboard.press("Enter");
+	await sees("[data-slot=tab][data-active] [data-slot=tab-name] >> text=a conversation to remove", 15_000);
+	const option = group.locator("[role=option]", { hasText: "a conversation to remove" });
+	await option.focus();
+	await page.keyboard.press("Tab");
+	assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Remove this conversation for good");
+	await page.keyboard.press("Enter");
+	const dialog = page.locator("[role=alertdialog]");
+	await dialog.getByRole("button", { name: "Remove" }).click();
+	await dialog.waitFor({ state: "detached" });
+	await option.waitFor({ state: "detached" });
+});
+
+test("the tabs are reached with the keyboard: the arrows go from one to the next, and Enter brings it to the front", async () => {
+	await menu("events");
+	await sees("[data-slot=tab][data-active] [data-slot=tab-name] >> text=Events");
+	await page.focus("[data-slot=tab][data-active]");
+	assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("role")), "tab");
+	await page.keyboard.press("ArrowLeft");
+	await page.keyboard.press("Enter");
+	// (A conversation brought to the front takes the keyboard into its input.)
+	await page.waitForFunction(() => { const on = document.querySelector("[data-slot=tab][data-active] [data-slot=tab-name]"); return on && on.textContent !== "Events"; });
+	await page.click("[data-slot=tab]:has([data-slot=tab-name]:text-is('Events')) button[aria-label='Close this tab']");
 });
 
 test("a right click on an agent renames it in place, colors it, and offers to remove it, and never the main agent", async () => {
@@ -240,7 +275,7 @@ test("a right click on an agent renames it in place, colors it, and offers to re
 	assert.deepEqual(await shown("spare-hands", "remove"), ["Open", "Open in New Window", "Move to Group…", "Start over…", "New conversation with spare-hands", "Open a folder with spare-hands…", "New Group…", "Rename…", "Color…", "Agent settings…", "Remove spare-hands…"]);
 	// It asks first, and how: nothing is removed by the menu alone.
 	// It is an alert dialog: it does not go away with a stray click beside it.
-	await sees("[role=alertdialog] [data-slot=alert-dialog-title] >> text=Remove the agent spare-hands?");
+	await sees("[role=alertdialog] [cmdk-group-heading] >> text=Remove the agent spare-hands?");
 	await page.mouse.click(5, 5);
 	await sees("[role=alertdialog]");
 	assert.ok(fs.existsSync(path.join(home, "agents", "spare-hands", "agent.json")));
@@ -281,6 +316,22 @@ test("conversations are kept in groups: one made from the agent's menu is filled
 		throw new Error(`no menu for ${pick}`);
 	};
 	const agentLine = page.locator("[data-slot=sidebar-menu-item]:has([data-slot=agent-label])", { has: page.locator("[data-slot=agent-label] > :first-child", { hasText: /^scout$/ }) });
+	// A drag as the side bar is told of it: the events of the row and of the place it is dropped on, one
+	// after the other. Playwright's dragTo moves the mouse, and a list that redraws as the daemon tells it
+	// something (it does, live) can take the row away mid-drag, which drops nothing: a test of Chromium's
+	// pointer, not of the side bar.
+	const drag = async (source: any, target: any) => {
+		const data = await page.evaluateHandle(() => new DataTransfer());
+		// The element itself, as a browser keeps it: dragend goes to it after the drop, wherever the list put the row.
+		const held = await source.locator("xpath=ancestor-or-self::li[1]").elementHandle();
+		await held.dispatchEvent("dragstart", { dataTransfer: data });
+		await target.dispatchEvent("dragenter", { dataTransfer: data });
+		await target.dispatchEvent("dragover", { dataTransfer: data });
+		await target.dispatchEvent("drop", { dataTransfer: data });
+		await held.dispatchEvent("dragend", { dataTransfer: data });
+		await held.dispose();
+		await data.dispose();
+	};
 
 	// A group is made from the agent's menu, empty, with a name the owner types.
 	assert.ok((await choose(agentLine, "group")).includes("Sort by Last Used ✓"), "the list is sorted by when a conversation was last used, as it was");
@@ -293,7 +344,7 @@ test("conversations are kept in groups: one made from the agent's menu is filled
 
 	// A conversation dragged onto the group goes into it, with its branch; a branch is not dragged by itself.
 	assert.equal(await row("okapi-try").locator("xpath=ancestor::li[1]").getAttribute("draggable"), "false");
-	await row("okapi-api").dragTo(group("Okapi").locator("[data-slot=group-label]"));
+	await drag(row("okapi-api"), group("Okapi").locator("[data-slot=group-label]"));
 	await group("Okapi").locator("[role=option]", { hasText: /okapi-try$/ }).waitFor();
 	assert.deepEqual([await groupOf("okapi-api"), await groupOf("okapi-try")], ["Okapi", "Okapi"]);
 	// In the group, a conversation's name stands one step further in than outside it.
@@ -313,7 +364,7 @@ test("conversations are kept in groups: one made from the agent's menu is filled
 	assert.equal(await groupOf("okapi-web"), "Okapi");
 
 	// Dragged onto the agent's line, a conversation leaves its group; a move made by another hand (here the control API) is followed.
-	await group("Okapi").locator("[role=option]", { hasText: /okapi-web$/ }).dragTo(agentLine);
+	await drag(group("Okapi").locator("[role=option]", { hasText: /okapi-web$/ }), agentLine);
 	await page.waitForFunction(() => ![...document.querySelectorAll("[data-slot=conversation-group] [role=option]")].some((e) => /okapi-web$/.test(e.textContent ?? "")));
 	assert.equal(await groupOf("okapi-web"), undefined);
 	assert.ok((await api("POST", "/agents/scout/group", { session: "llama", group: "Okapi" })).ok);
@@ -335,7 +386,7 @@ test("conversations are kept in groups: one made from the agent's menu is filled
 
 	// Removing the group asks first, and takes its conversations with it.
 	await choose(group("Okapi 2026").locator("[data-slot=group-label]"), "remove");
-	await sees("[role=alertdialog] [data-slot=alert-dialog-title] >> text=Remove the group Okapi 2026 and the 3 conversations in it for good?");
+	await sees("[role=alertdialog] [cmdk-group-heading] >> text=Remove the group Okapi 2026 and the 3 conversations in it for good?");
 	await page.click("[data-slot=command-item]:has-text('Remove them for good')");
 	await sees("[data-slot=toast] >> text=Removed the group Okapi 2026 with 3 conversations.");
 	await group("Okapi 2026").waitFor({ state: "detached" });
@@ -407,6 +458,35 @@ test("an event is published from the event log with a form: a topic, and a paylo
 	const token = fs.readFileSync(path.join(home, "data", "http-token"), "utf8").trim();
 	const events = (await (await fetch(`http://127.0.0.1:${port}/events?topic=house/mode`, { headers: { authorization: `Bearer ${token}` } })).json()) as Array<{ payload: unknown; trust: string }>;
 	assert.deepEqual(events.map((e) => [e.payload, e.trust]), [[{ value: "away" }, "owner"]]);
+});
+
+test("the event log follows its end while new events come, holds still once scrolled up, and its button goes back to the latest", async () => {
+	const port = /http listening on 127\.0\.0\.1:(\d+)/.exec(fs.readFileSync(path.join(home, "data", "pine.log"), "utf8"))![1];
+	const token = fs.readFileSync(path.join(home, "data", "http-token"), "utf8").trim();
+	const publish = async (from: number, n: number) => {
+		for (let i = from; i < from + n; i++) await fetch(`http://127.0.0.1:${port}/events`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ topic: `test/follow-${i}`, payload: i }) });
+	};
+	const log = "[aria-label=Events]";
+	const button = `[data-slot=message-scroller]:has(${log}) [data-slot=message-scroller-button]`;
+	const fromEnd = () => page.$eval(log, (el: Element) => el.scrollHeight - el.scrollTop - el.clientHeight);
+	await publish(0, 60);
+	await sees(`${log} [data-slot=collapsible-trigger] >> text=test/follow-59`);
+	await page.waitForFunction((s: string) => { const el = document.querySelector(s)!; return el.scrollHeight - el.scrollTop - el.clientHeight < 2; }, log);
+	// Each line is an item of the scroller: it measures them all.
+	assert.equal(await page.$$eval(`${log} [data-slot=message-scroller-content] > [data-slot=collapsible]`, (els: Element[]) => els.length), 0);
+	// Scrolled up by the reader: new events come and the view holds still, with the way back to the latest.
+	await page.hover(log);
+	await page.mouse.wheel(0, -400);
+	await page.waitForFunction((s: string) => document.querySelector(s)?.getAttribute("data-active") === "true", button);
+	const held = await page.$eval(log, (el: Element) => el.scrollTop);
+	await publish(60, 10);
+	await sees(`${log} [data-slot=collapsible-trigger] >> text=test/follow-69`);
+	await new Promise((r) => setTimeout(r, 200));
+	assert.equal(await page.$eval(log, (el: Element) => el.scrollTop), held);
+	assert.ok((await fromEnd()) > 100);
+	await page.click(button);
+	await page.waitForFunction((s: string) => { const el = document.querySelector(s)!; return el.scrollHeight - el.scrollTop - el.clientHeight < 2; }, log);
+	await page.waitForFunction((s: string) => document.querySelector(s)?.getAttribute("data-active") === "false", button);
 });
 
 test("a sub-agent's work opens in a tab of its own", async () => {
@@ -493,10 +573,10 @@ test("a conversation moves into a worktree of its folder: the chip names the bra
 	// The folder has a change that is not committed (the setup made it).
 	const uncommitted = fs.readFileSync(path.join(folder, "src", "index.ts"), "utf8");
 	await app.evaluate(({ BrowserWindow }: any, dir: string) => BrowserWindow.getAllWindows()[0].webContents.send("pine:menu", `folder:${dir}`), folder);
-	await confirm(":is([data-slot=dialog-title], [data-slot=alert-dialog-title]) >> text=Which agent works in");
+	await confirm("[cmdk-group-heading] >> text=Which agent works in");
 	await sees("[data-slot=tab][data-active] [data-slot=tab-name] >> text=pine-desktop-folder");
 	await menu("worktree");
-	await confirm(":is([data-slot=dialog-title], [data-slot=alert-dialog-title]) >> text=Work in a worktree?");
+	await confirm("[cmdk-group-heading] >> text=Work in a worktree?");
 	await sees("[data-slot=conversation-head] [data-worktree] >> text=pine/");
 	const branch = (await page.textContent("[data-slot=conversation-head] [data-worktree]"))!.trim();
 	const tree = path.join(folder, ".pine", "worktrees", branch.slice(5));
@@ -516,16 +596,23 @@ test("a conversation moves into a worktree of its folder: the chip names the bra
 	await page.locator("[data-slot=code-panel]").getByRole("tab", { name: "Files" }).click();
 	await page.locator("[data-slot=code-panel]").getByRole("tab", { name: "Changes" }).click();
 	await sees("[data-slot=code-panel] >> text=1 ahead of");
+	// Which changes is a switch of two: what the last message changed, and back to all of them.
+	const which = page.locator("[data-slot=code-panel] [aria-label='Which changes']");
+	await which.getByRole("button", { name: "Last turn" }).click();
+	await sees("[data-slot=code-panel] >> text=Since");
+	assert.equal(await which.getByRole("button", { name: "Last turn" }).getAttribute("aria-pressed"), "true");
+	await which.getByRole("button", { name: "All changes" }).click();
+	await sees("[data-slot=code-panel] >> text=1 ahead of");
 	await shot("16-worktree");
 	await page.locator("[data-slot=code-panel]").getByRole("button", { name: "Merge…" }).click();
-	await confirm(":is([data-slot=dialog-title], [data-slot=alert-dialog-title]) >> text=1 commit ahead of");
+	await confirm("[cmdk-group-heading] >> text=1 commit ahead of");
 	await sees("[data-slot=toast] >> text=merged into");
 	assert.equal(fs.readFileSync(path.join(folder, "WORKTREE.md"), "utf8"), "made apart\n");
 	assert.equal(fs.readFileSync(path.join(folder, "src", "index.ts"), "utf8"), uncommitted, "what was not committed in the folder stayed");
 
 	// Discarded once merged: the folder's chip is back.
 	await menu("worktree");
-	await confirm(":is([data-slot=dialog-title], [data-slot=alert-dialog-title]) >> text=ahead of");
+	await confirm("[cmdk-group-heading] >> text=ahead of");
 	await sees("[data-slot=conversation-head] [data-folder] >> text=pine-desktop-folder");
 	assert.ok(!fs.existsSync(tree));
 
@@ -654,7 +741,7 @@ test("a right click on a tab closes the others, those to its right or all of the
 	await tabs.nth(had).click();
 	await page.fill("[data-slot=composer] textarea", mockMsg([{ tools: [{ name: "bash", args: { command: "echo tabs" } }] }, { text: "done with tabs" }], "ask and close "));
 	await page.keyboard.press("Enter");
-	await sees("[data-slot=dialog-content][data-tone=warn]");
+	await sees("role=dialog[name=/^Approval needed/]");
 	await page.keyboard.press("Escape");
 	await page.waitForSelector("[data-slot=dialog-content]", { state: "detached" });
 	await tabs.nth(had).locator("[data-slot=badge]", { hasText: "!" }).waitFor();
@@ -662,7 +749,7 @@ test("a right click on a tab closes the others, those to its right or all of the
 	await choose(had + 1, "Close Others");
 	await count(2);
 	await sees("[data-slot=toast] >> text=1 tab stayed open: it waits for your answer.");
-	assert.equal(await tabs.nth(1).getAttribute("data-active"), "true");
+	assert.notEqual(await tabs.nth(1).getAttribute("data-active"), null);
 	assert.equal(await page.locator("[data-slot=tab] [data-slot=tab-name]", { hasText: /^main$/ }).count(), 0);
 	// Close, the menu's first item, closes that tab alone.
 	await (await opened(1)).getByRole("menuitem").first().click();
@@ -717,26 +804,13 @@ test("the panel's Agent view scrolls up and down only, however narrow the panel 
 	const seen = await fits();
 	await shot("agent-view-narrow");
 	assert.ok(seen.scroll <= seen.client, `the Agent view is wider than the panel: ${JSON.stringify(seen)}`);
-	// Its scroll bar, like every scroll area's, is hidden at rest and shows under the pointer and while it scrolls.
-	// The fade is turned off for the reading: a window in the background runs its transitions slowly.
+	// Its scroll bar is the stock one: drawn at rest, away from the pointer, while there is more to scroll.
 	const area = "[data-slot=code-panel] [data-slot=scroll-area]:has-text(\"What it remembers\")";
 	const bar = `${area} > [data-slot=scroll-area-scrollbar][data-orientation=vertical]`;
-	const handle = await page.$(bar);
-	assert.ok(handle, "the Agent view has no scroll bar");
-	const settled = (state: string) => page.waitForFunction(([el, state]) => {
-		el.style.transition = "none";
-		const on = el.hasAttribute("data-hovering") || el.hasAttribute("data-scrolling");
-		return (state === "rest" ? !on : on) && getComputedStyle(el).opacity === (state === "rest" ? "0" : "1");
-	}, [handle, state] as const, { timeout: 3000 }).then(() => true, () => false);
 	await page.mouse.move(5, 5);
-	assert.ok(await settled("rest"), "a scroll bar shows at rest");
-	const box = await page.$eval(area, (el: Element) => el.getBoundingClientRect());
-	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-	assert.ok(await settled("on"), "a scroll bar stays hidden under the pointer");
-	await page.mouse.move(5, 5);
-	assert.ok(await settled("rest"), "a scroll bar stays shown once the pointer has left");
-	await page.$eval(`${area} > [data-slot=scroll-area-viewport]`, (el: Element) => el.scrollBy(0, 40));
-	assert.ok(await settled("on"), "a scroll bar stays hidden while it scrolls");
+	const shown = await page.$eval(bar, (el: Element) => ({ opacity: getComputedStyle(el).opacity, width: el.getBoundingClientRect().width })).catch(() => undefined);
+	assert.ok(shown, "the Agent view has no scroll bar");
+	assert.ok(shown.opacity === "1" && shown.width > 0, `the scroll bar is hidden at rest: ${JSON.stringify(shown)}`);
 	// Back to the width it had, for the tests after this one.
 	const back = await page.$eval(CODE_EDGE, (el: Element) => el.getBoundingClientRect());
 	await page.mouse.move(back.x + back.width / 2, 300);
@@ -772,6 +846,8 @@ test("a phone-wide window lays the side bar and the panel over the conversation,
 		await menu("code-agent");
 		await sees("[data-slot=sheet-content] [data-slot=code-panel]");
 		assert.equal(await page.locator("[data-slot=resizable-handle]:has(+ #code-panel)").count(), 0);
+		// The sheet lies over the title bar's drag region: it takes its own clicks, or a click in it would move the window.
+		assert.equal(await page.$eval("[data-slot=sheet-content]", (e: Element) => getComputedStyle(e).getPropertyValue("-webkit-app-region")), "no-drag");
 		await page.keyboard.press("Escape");
 		await page.waitForSelector("[data-slot=code-panel]", { state: "detached" });
 		// The browser's aside is a sheet the same way, and of the two only the one opened last lies over the conversation;
@@ -861,7 +937,7 @@ test("what was typed in a file and not saved stays when the panel becomes a shee
 	try {
 		// The folder's conversation from before is in a worktree by now: a new one in the folder itself.
 		await menu(`folder:${folder}`);
-		await confirm(":is([data-slot=dialog-title], [data-slot=alert-dialog-title]) >> text=Which agent works in");
+		await confirm("[cmdk-group-heading] >> text=Which agent works in");
 		await sees("[data-slot=tab][data-active] [data-slot=tab-name] >> text=pine-desktop-folder");
 		await menu("code-files");
 		await sees("[data-slot=code-panel]");
@@ -975,9 +1051,12 @@ test("another machine's pine is used from the foot of the side bar, and this Mac
 	// What is not a host for ssh is refused at once, and nothing is kept.
 	await page.fill(input, "-oProxyCommand=x");
 	await add.click();
-	await sees("[data-slot=settings-page] [data-slot=alert] >> text=is not a host for ssh");
+	// The refusal is the field's own: said under it, the field marked invalid, as long as the host refused is in it.
+	await sees("[data-slot=settings-page] [data-slot=field][data-invalid] [data-slot=field-error] >> text=is not a host for ssh");
+	assert.equal(await page.getAttribute(input, "aria-invalid"), "true");
 	assert.deepEqual((await page.evaluate(() => (window as any).pine.state())).prefs.hosts, []);
 	await page.fill(input, "you@elsewhere");
+	assert.equal(await page.getAttribute(input, "aria-invalid"), null);
 	await add.click();
 	await sees("[data-environment='you@elsewhere'] >> text=you@elsewhere");
 	assert.deepEqual((await page.evaluate(() => (window as any).pine.state())).prefs.hosts, ["you@elsewhere"]);

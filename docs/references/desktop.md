@@ -204,9 +204,11 @@ browser in the side panel, an answer of a real model) is seen on `desktop-previe
 
 The preview's server stands where the app's main process stands: it holds the daemon's token
 and makes every call for the page, with the same checks, and it answers only the page on the
-same computer. What only the app can do does nothing in a browser: menus, system
+same computer. What only the app can do does nothing in a browser: the app's menus, system
 notifications, the dock badge, dictation, update checks, `pine` for a terminal, restarting
-pine, setting pine up. To open a folder for a conversation you type its path.
+pine, setting pine up. A right click's menu (a conversation's, a group's, an agent's, one of
+your messages') is drawn by the page itself at the pointer, with the same entries, as it is in
+the web client. To open a folder for a conversation you type its path.
 
 ## The daemon: started or reused
 
@@ -279,13 +281,13 @@ its own, which editors ignore:
 
 | `pine` key | What it colors |
 |---|---|
-| `bg`, `surface`, `raised`, `sunk`, `composer`, `side` | The page, cards and the input, buttons, what lies below (the side bar off a Mac), the side bar on a Mac (translucent) |
+| `bg`, `surface`, `raised`, `sunk`, `side` | The page, cards and popovers, buttons, what lies below (the side bar off a Mac), the side bar on a Mac (translucent) |
 | `text`, `text-muted`, `faint` | Text, quieter text, the quietest (hints, times, icons) |
-| `line`, `line-soft`, `hover`, `press`, `select` | Borders, soft dividers, a row under the pointer, a row in front, selected text |
-| `brand`, `brand-soft`, `on-accent` | The accent (what is on or at work), its tint, text on it |
-| `warn`, `bad`, `info`, `plan`, `add`, `del` (and `warn-soft`, `bad-soft`, `add-bg`, `del-bg`) | Warnings, errors, renamed files, keywords, added and removed lines |
+| `line`, `line-soft`, `hover`, `press`, `select` | Borders, soft dividers, a row under the pointer, the side bar's row in front, selected text |
+| `brand`, `on-accent` | The accent (what is on or at work), text on it |
+| `warn`, `bad`, `info`, `plan`, `add`, `del` (and `warn-soft`) | Warnings, errors, renamed files, keywords, added and removed lines |
 | `code-<kind>` | Code: `text`, `comment`, `keyword`, `control`, `definition`, `modifier`, `string`, `regexp`, `literal`, `null`, `name`, `attribute`, `function`, `call`, `type`, `namespace`, `tag`, `operator`, `punctuation`, `heading`, `link`, `inserted`, `deleted`, `gutter`, `cursor`, `match`; `code-meta-style` and `code-attribute-style` are `italic` or `normal` |
-| `term-0` … `term-15`, `term-bg`, `term-fg` | The terminal's sixteen colors, its page and its text |
+| `term-0` … `term-15`, `term-bg`, `term-fg`, `term-cursor`, `term-select` | The terminal's sixteen colors, its page, its text, its cursor and its selection |
 
 An agent can have a color of its own (on its page under Agents, or ask the main agent: "make scout
 blue"). Its avatar is drawn in it in every theme, in the side bar, on its tabs and on its
@@ -490,8 +492,9 @@ whom it is for.
 |---|---|
 | A click on the agent | With one conversation: opens it in a tab. The line shows what that conversation's row would: that the agent is at work (a grey dot that pulses), waits for you (`!`) or has something new (a dot), else when it was last used. With more: folds its conversations away, or shows them again. The app remembers which groups are folded. A folded agent still shows that it is at work, waits for you or has something new |
 | `+` | A new conversation with that agent |
-| The folder (when the pointer is on the line) | Opens a folder of yours for a new conversation with that agent |
-| The gear (when the pointer is on the line) | That agent's page in the settings |
+| The folder (see below for when it shows) | Opens a folder of yours for a new conversation with that agent |
+| The gear (see below for when it shows) | That agent's page in the settings |
+| When the row buttons show | The buttons on a line of the side bar show while the pointer is on the line, while the keyboard is on it, and always in a narrow window: an agent's gear and folder, a group's `+` (a new conversation in that group), a conversation's remove button. Each is a Tab stop after its line. An agent's `+` always shows |
 | A right click | A new conversation, a folder, a new group, how its conversations are sorted (with more than one), **Rename** (its name in the side bar turns into a field: Enter or leaving it renames the agent, Escape keeps the name), **Color** (its colors open over its avatar, and a pick is kept at once) and the settings as a menu, and **Remove** for every agent but the main one, which administers pine and stays. Remove asks first, and how: with everything the agent has, or with its folder kept. On the line of an agent with one conversation, what a right click on that conversation offers comes first: Open, Branch, Move to Group…, Start over |
 | `+` beside "Agents" | A new agent: a dialog over whatever is in front (a name, its instructions, a model), without opening Settings. Once it is made, its conversation opens in a tab. The card at the top of an agent's empty conversation (its name, what it is for, its model and mode) has **Agent settings**, which opens its page in Settings |
 
@@ -511,9 +514,9 @@ agent's:
 
 | Part | What it is |
 |---|---|
-| Side bar | Search at the top, then your agents (see above). Drag its right edge to make it wider or narrower, or focus the edge with Tab and use the arrow keys (a double click on the edge sets it back), `⌘B` hides it and shows it again (in a window narrower than 768 pixels it opens it over the page instead: see the table below), and it is after a restart as you left it; where nothing is to click, it moves the window. Under an agent with more than one conversation come its groups of conversations, each with its conversations, then the conversations in no group. In each, an agent's own conversation (`main conversation`) comes first, then pinned ones, then by when they were last used, or by name: the agent's right click chooses (Sort by Last Used, Sort by Name), and the groups are sorted the same way. A click on a conversation opens it in a tab, and so does Enter: Tab reaches an agent's line (Enter or Space folds it, or opens its conversation when it has only one), then a group's line (the same), then the conversations, where the arrow keys move; a right click offers Pin, Rename, Move to Group…, Remove (or Start over for an agent's own). Groups: see the next row At the bottom: the event log, the settings, and whether pine answers |
+| Side bar | Search at the top, then your agents (see above). Drag its right edge to make it wider or narrower, or focus the edge with Tab and use the arrow keys (a double click on the edge sets it back), `⌘B` hides it and shows it again (in a window narrower than 768 pixels it opens it over the page instead: see the table below), and it is after a restart as you left it; where nothing is to click, it moves the window. Under an agent with more than one conversation come its groups of conversations, each with its conversations, then the conversations in no group. In each, an agent's own conversation (`main conversation`) comes first, then pinned ones, then by when they were last used, or by name: the agent's right click chooses (Sort by Last Used, Sort by Name), and the groups are sorted the same way. A click on a conversation opens it in a tab, and so does Enter: Tab reaches an agent's line (Enter or Space folds it, or opens its conversation when it has only one), then a group's line (the same), then the conversations, where the arrow keys move; a line's buttons come with Tab right after it (see "When the row buttons show" above); a right click offers Pin, Rename, Move to Group…, Remove (or Start over for an agent's own). Groups: see the next row At the bottom: the event log, the settings, and whether pine answers |
 | Groups of conversations | A group keeps an agent's conversations in order, one level deep, and keeps them however long they are not used ([agents.md](agents.md#groups-of-conversations)). Make one with New Group… in the agent's right click. Drag a conversation onto a group's line or into its list to put it there, onto the agent's line or among the conversations in no group to take it out; it takes its branches along, and a branch is not dragged by itself. Without a mouse: Move to Group… in a conversation's right click, or `Move conversation to group` in the palette (`/group` in the input), for the conversation in front. A group's right click: New Conversation in it, Rename…, Remove Group…, which removes the group and every conversation in it for good after you confirm (an agent's own conversation stays, in no group). A folded group still shows when something in it waits for you, works or is new |
-| Tabs | One conversation each, with its agent's initial, as in the terminal UI: a grey dot that pulses while the agent works, a dot when something arrived while you were elsewhere, `!` when it waits for your approval, `★` for a conversation that is kept for good. Drag a tab to move it within its window. A right click on a tab offers Close (`⌘W`), Close Others, Close to the Right, Close All, Move to New Window, and Pin or Unpin for its conversation; the close actions are in the palette too (Close other tabs, Close tabs to the right, Close all tabs). Closing a tab only closes the view: the conversation stays in the side bar, what was typed in its input and not sent is there again when you open it, and tab-scoped subscriptions of a non-main conversation end only when no other open window on that pine still has it open. Any tab can be closed, the agent's own conversation's and the last one too; with none open, the window says so and offers a new conversation or the main agent's (and pressing `⌘W` again closes that window). What waits for your answer is never left without a place: Close Others, Close to the Right and Close All leave a tab that waits open and say so, a tab closed by itself hands what it waits for to another tab (of the same agent if one is open, else the one in front), where its `!` and its buttons are, and the last tab that waits stays until it is answered. An approval that arrives with no tab open opens the agent's main conversation. The daemon keeps the union of tabs open across all windows on that pine; when a first window opens on an environment with none, it opens the main agent's conversation |
+| Tabs | One conversation each, with its agent's initial, as in the terminal UI. With the keyboard the row of tabs is one Tab stop: the arrow keys move from tab to tab, Enter or Space brings one to the front, and `⌘W` closes the tab in front (its `×` is not a Tab stop). A tab shows a grey dot that pulses while the agent works, a dot when something arrived while you were elsewhere, `!` when it waits for your approval, `★` for a conversation that is kept for good. Drag a tab to move it within its window, onto another window's tabs (or an empty window) to move it there, or out of every window to give it a window of its own (see "Multiple windows"). A right click on a tab offers Close (`⌘W`), Close Others, Close to the Right, Close All, Move to New Window, and Pin or Unpin for its conversation; the close actions are in the palette too (Close other tabs, Close tabs to the right, Close all tabs). Closing a tab only closes the view: the conversation stays in the side bar, what was typed in its input and not sent is there again when you open it, and tab-scoped subscriptions of a non-main conversation end only when no other open window on that pine still has it open. Any tab can be closed, the agent's own conversation's and the last one too; with none open, the window says so and offers a new conversation or the main agent's (and pressing `⌘W` again closes that window). What waits for your answer is never left without a place: Close Others, Close to the Right and Close All leave a tab that waits open and say so, a tab closed by itself hands what it waits for to another tab (of the same agent if one is open, else the one in front), where its `!` and its buttons are, and the last tab that waits stays until it is answered. An approval that arrives with no tab open opens the agent's main conversation. The daemon keeps the union of tabs open across all windows on that pine; when a first window opens on an environment with none, it opens the main agent's conversation |
 | Conversation | A conversation in which nothing was said yet shows who its agent is: what it is for, its model and mode, whom it hands work to, and how many skills, event sources, schedules and MCP servers it has. Then your messages, the agent's answers drawn as markdown, and the work of each turn (tool calls, thoughts, sub-tasks, what it said on the way) folded into one line that a click opens (it stays open while the turn runs, with its last lines). A `↳ … ↗` line opens a sub-agent's or delegated task's work in a tab of its own. A request of the agent's waits in the conversation with its buttons until it is answered, then becomes a line. Above your last message a line offers to take it back (**Take back**, `/undo`). Scrolled up, the conversation holds still while the answer goes on, and a button at its foot brings you back to the end. Text you select in it can be quoted in your next message (see "Quoting part of a conversation" below) or bookmarked (see "Bookmarks") |
 | Input | `↩` sends; while the agent works the message is given to that work, and `⌥↩` makes it wait its turn. `⇧↩` is a new line, `↑` brings back earlier inputs, `esc` stops the agent. `/` offers the commands of the terminal UI, `@` the files of the conversation's folder. Under a message given to work, the app says whether the work has read it ("not read yet", "read 14:03"), and until then offers **send now**, which stops the step under way (a long command ends) so that the work reads it at once ([agents.md](agents.md#a-message-while-the-agent-works)) |
 | The line at the top of a conversation | Whose it is and which (`main / notes`), the folder it works in, how full its context is (tokens read and the share of the window; hover for the cache share and speed) |
@@ -561,6 +564,8 @@ follows the focused window).
 | Open a new window | `⌘N`, `File > New Window`, the Dock menu's `New Window` (macOS), or `New Window` in the palette (`⌘K`). When another window already views that environment, the new window starts on the `No tab is open` screen; when no other window views it yet, it loads that daemon's saved tabs. New windows cascade slightly offset from the focused window |
 | Open another environment in a new window | `Open in new window` on a machine's line in Settings > Environments, or `⌘`-click (or the new-window button) in the side bar's machine menu or the title bar's environment pill |
 | Move a tab or open a conversation in a new window | Right-click a tab and pick **Move to New Window** (moves the tab with its unsent draft, attachments, quotes, and any local terminal without closing its subscriptions), or right-click a conversation in the side bar and pick **Open in New Window** |
+| Drag a tab out of its window | Let a conversation's tab go outside every Pine window and it opens in a new window there, as **Move to New Window** does. When it was the window's only tab, the window moves there instead. On a Mac the tab's picture first slides back to where it came from: the system does that whenever nothing takes a drop. Pressing Esc while dragging outside the window counts as letting go there |
+| Drag a tab to another window | Let a conversation's tab go on another window's tabs, before or after the tab it is over, or anywhere on a window with no tab open. It moves there with its unsent draft, its open questions and its local terminal, and a window left without a tab closes. Only between windows on the same pine: a window on another machine's pine does not take it, since that conversation is not there |
 | Close a tab or window | `⌘W` (`File > Close Tab`) closes the active tab; pressing `⌘W` when no tab is open closes that window. `⇧⌘W` (`File > Close Window`) closes the focused window directly |
 | Tell windows apart | Each window's OS title reflects its active tab and environment (including the remote machine name when on another host). Whenever a window views a remote machine or its side bar is collapsed, a clickable environment pill appears in the title bar |
 | Quitting vs closing windows | Quitting the app (`⌘Q`) saves every open window (its environment, bounds, open tabs, active tab and panel layout) and restores them all on relaunch. Closing a window individually removes it from the open set; closing all windows and reopening (or clicking the Dock icon on macOS) opens a single window on the last-used environment, bounds and layout |
@@ -783,7 +788,7 @@ hears only how a block you ran with ▶ went (below).
 |---|---|
 | One per window and conversation | Starts when the view is first shown, and keeps running while its window stays on this computer: another view or tab leaves it as it is, with its scrollback, and resizing or switching environments in another window never disturbs it |
 | ↻ | Ends the shell and starts a new one. After `exit` it says so, with **Start it again** |
-| When it ends | With the conversation's tab in that window, when that window closes or switches to a remote machine, and when Pine quits. **Move to New Window** carries the running shell along with the tab |
+| When it ends | With the conversation's tab in that window, when that window closes or switches to a remote machine, and when Pine quits. **Move to New Window**, and dragging the tab out or onto another window, carries the running shell along with the tab |
 
 **Run (▶, a play button).** A shell command block in an answer (```` ```bash ````, `sh`, `zsh`, `shell`, `fish`,
 `ksh`) has ▶ beside its copy button: it shows the terminal and types the block there as a
@@ -1159,8 +1164,10 @@ desktop/
     components/    only what stock components cannot express when composed in place (printed.tsx:
                    what a tool or a program printed, a Code Block that follows its end; sound.tsx:
                    a sound's line, its player and its bars, measured with src/tui/levels.ts), and pine's
-                   own small parts (logo.tsx: the logo; empty-view.tsx: a view with nothing in it;
-                   agent-avatar.tsx: an agent's initial on the stock avatar, in its own color; pine's mark for the main agent);
+                   own small parts (logo.tsx: the logo;
+                   agent-avatar.tsx: an agent's initial on the stock avatar, in its own color; pine's mark for the main agent;
+                   page-menu.tsx: a right click's menu, the system's through the bridge where it has one,
+                   else stock Dropdown Menu at the pointer);
                    no part there only renames or bundles a stock one
     use-load.ts    loading what a view shows
     lists.tsx      the look of a row of the tree of files and of the lists to open a row from,
@@ -1213,7 +1220,11 @@ desktop/
   client gives; without it the page shows no Disconnect. Others are given by one bridge only:
   `renameHost` and `openApp` by the web client; `pair`, `stopPairing`, `onPairLink`, `nearby` and
   `pairNearby` by the mobile app (pairing); browser access, the app's own update and its browser
-  by the desktop app alone. Absent, the page is the desktop's as before. A change of the page is checked in all three: `npm run check`
+  by the desktop app alone. `contextMenu` (a right click's menu drawn by the system) is given by
+  the desktop app and the mobile app (which shows none yet); the preview and the web client leave it
+  out, and the page draws the menu itself (`contextMenu` in `src/components/page-menu.tsx`: the same
+  entries, ids, separators and choices, at the pointer; the id picked, or nothing when dismissed).
+  Absent, the page is the desktop's as before. A change of the page is checked in all three: `npm run check`
   in `desktop/`, in `mobile/` and in `web/`.
 - What the daemon can do is added to the control API (`src/http.ts`, `src/owner.ts`) with a
   test there, then to `api.ts`. The app never does a daemon's work itself.
@@ -1263,27 +1274,36 @@ text color. Settings keeps to this; other parts of the page are brought to it as
   express in place, and wraps the stock one; add one or a style override only for what stock
   cannot do.
 - Sizes and spacing are Tailwind's default scale and shadcn's defaults, never arbitrary values.
-  The page's density is one `font-size` on `:root` in `index.css` (15px): every rem size (text,
-  spacing, components) follows it, so no component sets a font size of its own. On that root the
-  scale's `text-sm` and `text-xs` are set to 14px and 12px (`@theme` in `index.css`), the app's own
-  text and its small labels; a conversation (answers, your messages, the message box) is
-  `text-base` with `leading-snug`, 15px on lines of 20.6px. Corners come from shadcn's
-  `--radius`. The sizes that are not on the scale are the room for the window's buttons at the ends
+  The root is the browser's stock 16px and the text scale is Tailwind's own: the app's text is
+  `text-sm`, set on the root of each of its parts (the window, the side bar, a conversation,
+  Settings, the panels), small labels `text-xs`, and a conversation's answers, your messages and
+  the message box `text-base` with `leading-snug`. Corners come from shadcn's `--radius`, shadows
+  are Tailwind's own. The font is the system's, written into `--font-sans` and `--font-mono`, which
+  the code editor and the terminal read from script. The sizes that are not on the scale are the room for the window's buttons at the ends
   of a bar along the top, tokens in `index.css`: `pl-window-buttons` at the start for a Mac's, and
   `pr-window-controls` at the end for the window controls Windows and Linux draw over the page. The
   window says where they are (`titleBarOverlay` in `electron/main.ts`, read as `env(titlebar-area-x)`
   and `env(titlebar-area-width)`), so each is none where there are no such buttons: in full screen,
   in an ordinary browser (the preview, Storybook), and on the other systems.
 - Every color is one of pine's roles, a variable in `index.css` (`--bg`, `--surface`, `--raised`,
-  `--sunk`, `--side`, `--line`, `--line-soft`, `--text`, `--text-muted`, `--faint`, `--brand`,
-  `--warn`, `--bad`, `--info`, `--plan`, `--add`, `--del` and their soft variants, `--select`,
-  `--scrim`). shadcn's tokens point at them (`--background` is `--bg`, `--primary` `--brand`,
-  `--accent` `--hover`, `--ring` `--faint`: what the keyboard was taken to is grey, never the accent;
-  a click draws no ring, and a text field looks the same with the caret in it as without), and the
-  ones shadcn has no name for are utilities of their own (`text-faint`, `border-line-soft`,
-  `bg-press`, `bg-hover`, `text-warn`, `text-add`...). A new color points at a role, never at a
-  literal color. The values in `index.css` are pmndre's: what the window shows before a theme is set,
-  and in a page that has none.
+  `--sunk`, `--side`, `--hover`, `--press`, `--line`, `--line-soft`, `--text`, `--text-muted`,
+  `--faint`, `--brand`, `--warn`, `--warn-soft`, `--bad`, `--info`, `--plan`, `--add`, `--del`,
+  `--select`). shadcn's tokens point at them (`--background` is `--bg`, `--primary` `--brand`,
+  `--secondary` `--raised`, `--muted` `--sunk`, `--accent` `--hover`, `--sidebar-accent` `--press`,
+  `--ring` `--faint`: what the keyboard was taken to is grey, never the accent), and a component
+  uses shadcn's token (`bg-muted`, `bg-accent`), never the role. The few that shadcn has no name for
+  are utilities of their own: `text-warn`, `bg-warn-soft`, `text-info`, `text-faint`,
+  `border-line-soft`, `text-add`, `text-del`. A new color points at a role, never at a literal
+  color. The values in `index.css` are pmndre's: what the window shows before a theme is set, and in
+  a page that has none.
+- `index.css` is the stock Tailwind and shadcn stylesheet, that theme bridge, and only what cannot
+  be said in a `className`: the room for the window's buttons, the window's chrome on `body` (it
+  never scrolls as a whole; on a Mac it is transparent for the system's material), `::selection`,
+  the highlights of find, and `-webkit-app-region: no-drag` on what Base UI puts in a portal. No
+  rule there changes how a stock component looks: scroll areas, text fields, shadows and
+  scrollbars are stock. What moves the window on a Mac is written where it applies,
+  `[-webkit-app-region:drag]` and `[-webkit-app-region:no-drag]`; a dialog's body says its own
+  height (`max-h-[50vh]`).
 - A theme sets them all. The daemon resolves the theme file (src/theme-colors.ts) into the roles, the
   code colors (`--code-*`) and the terminal's (`--term-*`), and hands the app only those, as
   `#rrggbb[aa]` (`GET /themes`). The page checks them again (`cleanLook` in `theme.ts`: a role's name,
@@ -1301,8 +1321,8 @@ text color. Settings keeps to this; other parts of the page are brought to it as
   before pine answers, Electron's native theme (the window's frame, the Mac's materials, the system's
   own controls) is its kind, and off a Mac the window's background before the page draws is its page
   color. There is no light, dark or system setting: a theme is dark or light. Storybook draws the
-  stories in pine's own themes (`.storybook/themes.ts`, resolved as pine resolves them), pmndre and
-  GitHub Light for Chromatic's dark and light modes, and any of them from the toolbar.
+  stories in pine's own themes (`.storybook/themes.ts`, resolved as pine resolves them), pmndre at
+  first, and any of them from the toolbar.
 - An agent may have a color of its own (`color` in its `agent.json`, picked on its avatar at the top
   of its page in Settings > Agents or with Color in the side bar's menu: None, nine presets apart
   from each other and from the mint, or Other with any color, saved as it is picked). The popover
@@ -1348,7 +1368,7 @@ from "loading".
 - The app test that forbids an animation running smoothly forever while agents work lets
   `[data-slot=skeleton]` through, and only it: a skeleton lasts only while content first loads.
 
-### Stories and Chromatic
+### Stories
 
 Buttons, switches, inputs, fields, toggle groups (the segmented controls), selects, the edges that resize
 the side bar, the code panel and the browser (Resizable), the side bar itself (Sidebar, fixed in place with
@@ -1368,7 +1388,7 @@ The side bar's colors are the `--sidebar*` tokens in `index.css`, set from pine'
 muted, the one in front pressed, and its background is left to the window behind it (the system's
 material on a Mac). A story sits beside the file of what it shows: `src/<File>.stories.tsx`
 for a file of `src/`, `src/components/<name>.stories.tsx` for a composition there (titled
-`Components/<Name>`: `Components/Logo`, `Components/EmptyView`). One story per part and state,
+`Components/<Name>`: `Components/Logo`, `Components/Printed`). One story per part and state,
 named after it (`PickDialogRemoving`); a dialog or a whole view is in its own
 (`src/PickDialog.stories.tsx`, `src/Composer.stories.tsx`).
 None needs Electron or a daemon. A view that calls `api.ts` or the bridge is drawn on
@@ -1379,11 +1399,7 @@ stand-ins: the bridge in `.storybook/preview.tsx` is one whose every call does n
 | `npm run storybook` | Storybook at http://localhost:6006. The Theme menu in its toolbar picks one of pine's themes (pmndre at first). |
 | `npm run build-storybook` | The stories built into `storybook-static/`. |
 
-Every pull request and every push to `next` publishes the stories to Chromatic
-(`.github/workflows/chromatic.yml`), which shows what changed in a picture for review. A
-build of `next` is accepted as it is (`autoAcceptChanges`) and becomes the baseline a pull
-request is compared with, so a pull request shows only its own changes. It needs the repository secret `CHROMATIC_PROJECT_TOKEN`; without it the job says so and passes.
-Chromatic takes each story in light and dark, each at a phone's width (360, the window's
-smallest) and at the window's first width (1280), through its modes (`.storybook/modes.ts`,
-which set the `theme` global and a viewport), so no dark or phone twin of a story is written:
-four snapshots a story. The same two widths are the Viewport menu in Storybook's toolbar.
+Storybook is a place to look at the app's parts, not a test, and nothing publishes it: no check of a
+pull request comes from it. Its toolbar draws a story in any of pine's themes and at the app's two
+widths (`.storybook/modes.ts`): a phone's (360, the window's smallest) and the window's first (1280),
+so no dark or phone twin of a story is written.
