@@ -11,7 +11,7 @@ import { store } from "./model.ts";
 
 window.pine.deviceKey = async () => ({ key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGq3lYcVb0mXkJ2yq8rV6tZsP4dW1nE9fKcH7uR2aB3m pine-android", copy: async () => {}, share: async () => {} });
 
-function Before({ state, hosts, loadError, names, canAddHost = true, canPair = false, serviceHost, pairFailed = false, phone = false, nearby, openApp = false }: { state: ServiceState; hosts: string[]; loadError?: string; names?: Record<string, string>; canAddHost?: boolean; canPair?: boolean; serviceHost?: string; pairFailed?: boolean; phone?: boolean; nearby?: NearbyFound; openApp?: boolean }) {
+function Before({ state, hosts, loadError, names, canAddHost = true, canPair = false, serviceHost, pairFailed = false, phone = false, nearby, openApp = false, read = true }: { state: ServiceState; hosts: string[]; loadError?: string; names?: Record<string, string>; canAddHost?: boolean; canPair?: boolean; serviceHost?: string; pairFailed?: boolean; phone?: boolean; nearby?: NearbyFound; openApp?: boolean; read?: boolean }) {
 	// `nearby`: what a phone whose app looks on the network finds (the bridge tells it at once); none: a bridge that does not look.
 	// (False, not undefined: the stand-in bridge answers a name it does not have with a function.)
 	Object.assign(window.pine, {
@@ -19,6 +19,8 @@ function Before({ state, hosts, loadError, names, canAddHost = true, canPair = f
 		pairNearby: nearby ? fn(async () => {}) : false,
 	});
 	store.canOpenApp = openApp;
+	// `read`: whether the bridge has answered `state()`; until it has, the first screen is a skeleton.
+	store.stateRead = read;
 	// `phone`: the mobile app's bridge, which pairs from a link in the owner's hand (`pair`) where it says `canPair`.
 	store.platform = phone ? "android" : "darwin";
 	store.pairsFromHand = phone;
@@ -42,8 +44,8 @@ const meta = {
 	parameters: { layout: "fullscreen" },
 	// What a story sets on the store is put back after it: the next story starts from the store as it was.
 	beforeEach: () => {
-		const { local, service, prefs, loadError, canAddHost, canPair, serviceHost, machinesChosen, pairFailed, platform, pairsFromHand, canOpenApp } = store;
-		return () => void Object.assign(store, { local, service, prefs, loadError, canAddHost, canPair, serviceHost, machinesChosen, pairFailed, platform, pairsFromHand, canOpenApp });
+		const { stateRead, local, service, prefs, loadError, canAddHost, canPair, serviceHost, machinesChosen, pairFailed, platform, pairsFromHand, canOpenApp } = store;
+		return () => void Object.assign(store, { stateRead, local, service, prefs, loadError, canAddHost, canPair, serviceHost, machinesChosen, pairFailed, platform, pairsFromHand, canOpenApp });
 	},
 	// Nothing of a local machine, and the machines listed: they are the only way to a pine.
 	play: async ({ canvasElement }) => {
@@ -307,15 +309,12 @@ export const BrowserOnAComputer: Story = {
 	},
 };
 
-/**
- * The official service, nothing added yet: how to pair, and a discreet link to SSH. The link shows the SSH
- * view (the back control at its top, the field, the key, and the relay named), and the back control returns.
- */
+/** The official service, nothing added yet: how to pair, and a discreet link to SSH. Drawn still: nothing is clicked. */
 export const PairOrSsh: Story = {
 	args: { hosts: [], canPair: true, serviceHost: SERVICE, state: { status: "error", kind: "ssh", message: "Add the machine whose pine this browser is to use, as user@host or user@host:port. Put this browser's key into ~/.ssh/authorized_keys there first." } },
 	play: async (context) => {
 		await meta.play(context);
-		const { canvasElement, userEvent } = context;
+		const { canvasElement } = context;
 		const canvas = within(canvasElement);
 		// The pairing view: never the SSH view beside it.
 		await expect(canvas.getByText("Pair this browser with your computer")).toBeInTheDocument();
@@ -325,6 +324,17 @@ export const PairOrSsh: Story = {
 		await expect(canvasElement.querySelector("input")).toBeNull();
 		await expect(canvasElement.querySelector('[data-slot="device-key"]')).toBeNull();
 		await expect(canvasElement.querySelector('[data-slot="back-to-pairing"]')).toBeNull();
+		await expect(canvas.getByRole("button", { name: "Or connect to a server over SSH" })).toBeInTheDocument();
+	},
+};
+
+/** From Pair Or Ssh, the link to SSH shows the SSH view (the back control at its top, the field, the key, and the relay named), and the back control returns. */
+export const PairToSshAndBack: Story = {
+	args: PairOrSsh.args,
+	play: async (context) => {
+		await meta.play(context);
+		const { canvasElement, userEvent } = context;
+		const canvas = within(canvasElement);
 		await userEvent.click(canvas.getByRole("button", { name: "Or connect to a server over SSH" }));
 		// The SSH view: the back control, the field, the key, the relay named; no pairing.
 		await expect(canvas.getByText("Choose a machine")).toBeInTheDocument();
@@ -337,6 +347,20 @@ export const PairOrSsh: Story = {
 		await userEvent.click(canvas.getByRole("button", { name: "Back to pairing" }));
 		await expect(canvasElement.querySelector('[data-slot="pair-how-to"]')).not.toBeNull();
 		await expect(canvasElement.querySelector("input")).toBeNull();
+	},
+};
+
+/**
+ * Before the bridge has answered (`bridge.state()`): the logo, a skeleton for the title and one for the column's card,
+ * where the first screen comes a frame later. No screen it would leave: not "Starting pine", not the machines.
+ */
+export const BeforeTheBridgeAnswers: Story = {
+	args: { ...PairOrSsh.args, read: false },
+	play: async ({ canvasElement }) => {
+		await expect(canvasElement.querySelector('[data-slot="gate-skeleton"]')).not.toBeNull();
+		await expect(canvasElement.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+		await expect(canvasElement.querySelector('[data-slot="gate-machines"]')).toBeNull();
+		await expect(canvasElement).not.toHaveTextContent(/Starting pine|Pair this|Choose a machine/);
 	},
 };
 
