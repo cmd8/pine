@@ -158,3 +158,27 @@ export const MODES: Array<{ value: string; label: string; about: string }> = [
 ];
 
 export const REASONING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/**
+ * The host and port of an address on this computer or the local network, as the daemon's
+ * `localTarget` (src/net.ts) finds one: a name that says it is local, or an address in a private
+ * range. Opened in a conversation's browser, such an address is allowed to the agent for the
+ * conversation, so a link to one is not opened there by a plain click. Any address in the form of
+ * IPv6 counts as local here: one too many sends a link to the owner's own browser, never one too few.
+ */
+export function localAddress(url: string): string | undefined {
+	let u: URL;
+	try {
+		u = new URL(url);
+	} catch {
+		return undefined;
+	}
+	if (u.protocol !== "http:" && u.protocol !== "https:") return undefined;
+	const host = u.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+	const port = Number(u.port || (u.protocol === "https:" ? 443 : 80));
+	const named = host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal");
+	const v4 = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(host)?.slice(1).map(Number);
+	const private4 = v4 ? (([a, b, c]) => a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0 && (c === 0 || c === 2)) || (a === 198 && (b === 18 || b === 19)) || a >= 224)(v4) : false;
+	if (!named && !private4 && !host.includes(":")) return undefined;
+	return host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`;
+}

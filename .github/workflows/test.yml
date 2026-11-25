@@ -30,8 +30,14 @@ concurrency:
   group: test-${{ github.ref }}
   cancel-in-progress: false
 
+# The release's pull request (next into main) runs nothing: each push to next is tested by its push
+# run, on the same commit and the same systems, and its checks show on the pull request. Running both
+# asks for two macOS runners at once, and when GitHub has too few, one is never given a runner and the
+# run fails after a quarter of an hour without a test having failed. (desktop and pack need
+# desktop-changed, so they are skipped with it.)
 jobs:
   pine:
+    if: github.event_name != 'pull_request' || github.head_ref != 'next' || github.event.pull_request.head.repo.full_name != github.repository
     strategy:
       fail-fast: false
       matrix:
@@ -69,6 +75,7 @@ jobs:
           PINE_TEST_PATIENCE: "4"
 
   desktop-changed:
+    if: github.event_name != 'pull_request' || github.head_ref != 'next' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     outputs:
       changed: ${{ steps.filter.outputs.changed }}

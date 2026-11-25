@@ -15,7 +15,7 @@ import { DatabaseSync } from "node:sqlite";
 import { before, test } from "node:test";
 import { mockMsg } from "../../baseline/tests/mock.mjs";
 import { httpMcp } from "../../test/support/http-mcp.ts";
-import { activeOption, announced, api, app, BROWSER_EDGE, BROWSER_TOGGLE, browsers, closed, CODE_EDGE, CODE_TOGGLE, confirm, far, folder, github, HERE, home, json, menu, mock, named, page, putAwayToasts, releases, root, sees, shot, started, stillInside, write } from "./support/window.ts";
+import { activeOption, announced, api, app, browsers, closed, CODE_EDGE, CODE_TOGGLE, confirm, far, folder, github, HERE, home, json, menu, mock, named, page, putAwayToasts, releases, root, sees, shot, started, stillInside, write } from "./support/window.ts";
 
 test("starts a daemon of its own and shows the main agent", async () => {
 	await sees("[data-slot=empty] h1");
@@ -121,7 +121,7 @@ test("a newer app is said at the start and when asked, with a link to its page o
 	await sees("[data-slot=sidebar-footer] >> text=Pine 9.9.9 is available");
 });
 
-test("the agent's browser is shown in an aside of its own as a picture, and what is done in it goes back through the daemon", async () => {
+test("the agent's browser is a part of the side panel, shown as a picture, and what is done in it goes back through the daemon", async () => {
 	// A stand-in for the door of the browser of main's own conversation: it says where it is in pine's data,
 	// as the real one does, hands out one picture and notes what it is asked.
 	const picture = Buffer.from(await app.evaluate(({ nativeImage }: any) => nativeImage.createFromBitmap(Buffer.alloc(400 * 300 * 4, 180), { width: 400, height: 300 }).toJPEG(70).toString("base64")), "base64");
@@ -147,21 +147,18 @@ test("the agent's browser is shown in an aside of its own as a picture, and what
 	};
 	await page.click("[data-slot=tab] >> nth=0");
 	const had = Boolean(await page.$("[data-slot=code-panel]"));
-	// A window wide enough for the conversation, the side panel and the browser side by side, at the widths they start with.
+	// A window wide enough for the conversation and the side panel side by side.
 	await page.setViewportSize({ width: 1800, height: 900 });
 	try {
-		// The side panel and the browser are toggled from the top right of the title bar, and both show at once.
+		// The side panel is toggled from the top right of the window; the browser is one of its parts, beside the terminal.
 		if (!had) await page.click(CODE_TOGGLE);
 		await sees("#code-panel [data-slot=code-panel]");
 		assert.equal(await page.$("[data-slot=conversation-head] [data-slot=toggle]"), null, "the conversation's top line has no panel toggle");
-		assert.ok(!(await page.locator("[data-slot=code-panel] [role=tab]").allTextContents()).some((t) => /Browser/.test(t)), "the side panel has no Browser tab");
-		await page.click(BROWSER_TOGGLE);
+		assert.equal(await page.$("header [data-toggle=browser]"), null, "the browser has no toggle of its own");
+		await page.locator("[data-slot=code-panel]").getByRole("tab", { name: "Browser" }).click();
 		// The page is a picture, drawn when it is whole; its address is text in the line above it.
-		await sees("#browser-panel [data-slot=browser-aside] [data-slot=browser] canvas[data-drawn]");
+		await sees("#code-panel [data-slot=code-panel] [data-slot=browser] canvas[data-drawn]");
 		await sees(`${CODE_TOGGLE}[aria-pressed=true]`);
-		await sees(`${BROWSER_TOGGLE}[aria-pressed=true]`);
-		const right = (sel: string) => page.$eval(sel, (el: Element) => el.getBoundingClientRect());
-		assert.ok((await right("#browser-panel")).left >= (await right("#code-panel")).right, "the browser aside lies to the right of the side panel");
 		// A row that scrolls sideways (the browser's tabs, the panel's, the conversations') is no taller than its room:
 		// stock's ScrollArea would show a vertical bar with nothing to scroll.
 		await sees("[data-slot=browser] [data-slot=scroll-area-viewport]:has([data-slot=tabs-list])");
@@ -244,56 +241,41 @@ test("the agent's browser is shown in an aside of its own as a picture, and what
 		fs.rmSync(file);
 		await sees("[data-slot=browser] [data-slot=empty] >> text=No page is open");
 
-		// The aside is as wide as it is dragged, by the edge before it, and after a restart it is open and as wide as it was.
-		const asideWidth = () => page.$eval("#browser-panel", (el: Element) => Math.round(el.getBoundingClientRect().width));
-		const was = await asideWidth();
-		const edge = await page.$eval(BROWSER_EDGE, (el: Element) => el.getBoundingClientRect());
-		await page.mouse.move(edge.x + edge.width / 2, 300);
-		await page.mouse.down();
-		await page.mouse.move(edge.x + edge.width / 2 - 40, 300, { steps: 4 });
-		await page.mouse.up();
-		assert.equal(await asideWidth(), was + 40);
-		await page.reload();
-		await sees("#browser-panel [data-slot=browser-aside]");
-		assert.equal(await asideWidth(), was + 40);
-		// Its own close button, the menu's item and /browser all toggle it.
-		await page.click("[data-slot=browser-aside] button[aria-label='Close the browser']");
-		await page.waitForSelector("[data-slot=browser-aside]", { state: "detached" });
-		await sees(`${BROWSER_TOGGLE}[aria-pressed=false]`);
+		// The menu's item and /browser show the browser in the side panel, and put the panel away when it is in front.
 		await menu("browser");
-		await sees("[data-slot=browser-aside]");
+		await page.waitForSelector("[data-slot=code-panel]", { state: "detached" });
+		await sees(`${CODE_TOGGLE}[aria-pressed=false]`);
 		await menu("browser");
-		await page.waitForSelector("[data-slot=browser-aside]", { state: "detached" });
+		await sees("[data-slot=code-panel] [role=tab][aria-selected=true] >> text=Browser");
+		await menu("code-files");
 		await page.fill("[data-slot=composer] textarea", "/browser");
 		await page.press("[data-slot=composer] textarea", "Enter");
-		await sees("[data-slot=browser-aside]");
-		await page.click(BROWSER_TOGGLE);
-		await page.waitForSelector("[data-slot=browser-aside]", { state: "detached" });
-		// The side panel shows no browser of its own any more.
+		await sees("[data-slot=code-panel] [role=tab][aria-selected=true] >> text=Browser");
+		await page.fill("[data-slot=composer] textarea", "/code files");
+		await page.press("[data-slot=composer] textarea", "Enter");
 		await page.fill("[data-slot=composer] textarea", "/code browser");
 		await page.press("[data-slot=composer] textarea", "Enter");
-		await sees("[data-slot=toast] >> text=The panel shows: agent, files, changes, turn, output, running, board, terminal.");
-		// The agent puts its browser in front of the owner: the aside opens. (In a conversation of its own, so that main's stays as the tests after this one expect it.)
+		await sees("[data-slot=code-panel] [role=tab][aria-selected=true] >> text=Browser");
+		// The agent puts its browser in front of the owner: the side panel shows it. (In a conversation of its own, so that main's stays as the tests after this one expect it.)
+		await menu("code-files");
 		const tabs = await page.locator("[data-slot=tab]").count();
 		await menu("new");
 		await page.waitForFunction((n) => document.querySelectorAll("[data-slot=tab]").length > n, tabs);
 		await page.fill("[data-slot=composer] textarea", mockMsg([{ tools: [{ name: "browser_show", args: {} }], text: "Have a look." }, { text: "There it is." }], "Show me the page. "));
 		await page.keyboard.press("Enter");
-		await sees("[data-slot=browser-aside]");
+		await sees("[data-slot=code-panel] [role=tab][aria-selected=true] >> text=Browser");
 		await sees("[data-slot=markdown] >> text=There it is.");
 		await menu("close");
 		await page.waitForFunction((n) => document.querySelectorAll("[data-slot=tab]").length === n, tabs);
-		// On a tab that is not a conversation, both toggles are there and cannot be pressed.
+		// On a tab that is not a conversation, the side panel stays with the conversation last in front, and its toggle can be pressed.
 		await menu("settings");
-		await sees(`${CODE_TOGGLE}[disabled]`);
-		await sees(`${BROWSER_TOGGLE}[disabled]`);
+		await sees(`${CODE_TOGGLE}:not([disabled])`);
+		await sees("[data-slot=pane-tab][data-pane=code] [data-slot=tab-name] >> text=main");
 		await menu("settings");
-		await sees(`${BROWSER_TOGGLE}:not([disabled])`);
 	} finally {
 		// (The panels as they were, for the tests that follow.)
 		await menu("code-agent");
 		if (!had) await menu("code");
-		if (await page.$("[data-slot=browser-aside]")) await menu("browser");
 		await page.setViewportSize({ width: 1280, height: 820 });
 		fs.rmSync(file, { force: true });
 		door.close();
@@ -304,7 +286,7 @@ test("a message is answered, with the turn's work folded into a line", async () 
 	const steps = [{ tools: [{ name: "read", args: { path: "notes.md" } }], text: "Let me look at the notes first." }, { text: "The notes say **first line**.\n\n```ts\nconst a = 1;\n```\n\n<details><summary>Full file</summary>\n\nfirst line\n\n</details>\n\n[the docs](https://example.com/docs)" }];
 	await page.fill("[data-slot=composer] textarea", mockMsg(steps, "What do the notes say? "));
 	await page.keyboard.press("Enter");
-	await sees('[data-slot=markdown] [data-streamdown="strong"]');
+	await sees("[data-slot=markdown] strong");
 	assert.match(await page.textContent("[data-slot=markdown]"), /first line/);
 	// The work of the turn (what it said on the way, and the tool call) is one line, which a click opens.
 	await page.waitForFunction(() => /1 tool call · read/.test(document.querySelector("[data-item=work] > [data-slot=trace-collapsible-trigger]")?.textContent ?? ""));
@@ -329,10 +311,12 @@ test("a message is answered, with the turn's work folded into a line", async () 
 	// A folded part is there and closed.
 	assert.equal(await page.getAttribute("[data-slot=markdown] [data-details] [data-slot=collapsible-trigger]", "aria-expanded"), "false");
 	// Code is colored on the page, with its language and a copy button, and nothing to download.
-	await page.waitForFunction(() => document.querySelectorAll('[data-slot=markdown] [data-streamdown="code-block"] span[style]').length > 0);
-	assert.match(await page.textContent('[data-slot=markdown] [data-streamdown="code-block-header"]'), /ts/);
-	assert.ok(await page.$('[data-slot=markdown] [data-streamdown="code-block"] button[title="Copy Code"], [data-slot=markdown] [data-streamdown="code-block"] button[aria-label="Copy Code"]'));
-	assert.equal(await page.$$eval('[data-slot=markdown] [data-streamdown="code-block"] button[title*="ownload"], [data-slot=markdown] [data-streamdown="code-block"] button[aria-label*="ownload"]', (els: Element[]) => els.length), 0);
+	// It is the stock Code Block, colored with pine's code colors, in one frame.
+	await page.waitForFunction(() => document.querySelectorAll('[data-slot=markdown] [data-slot=code-block] [data-slot=code-block-line] span[style*="var(--code-"]').length > 0);
+	assert.match(await page.textContent("[data-slot=markdown] [data-slot=code-block-title]"), /ts/);
+	assert.ok(await page.$("[data-slot=markdown] [data-slot=code-block] [data-slot=code-block-copy-button]"));
+	assert.equal(await page.$$eval("[data-slot=markdown] [data-slot=code-block] [data-streamdown]", (els: Element[]) => els.length), 0);
+	assert.equal(await page.$$eval('[data-slot=markdown] [data-slot=code-block] button[title*="ownload"], [data-slot=markdown] [data-slot=code-block] button[aria-label*="ownload"]', (els: Element[]) => els.length), 0);
 	await shot("02-answer");
 });
 
@@ -674,6 +658,11 @@ test("what an answer points at on the web is not fetched by itself, and what it 
 		'<iframe src="https://example.com"></iframe><svg><circle r="5"></circle></svg><video src="https://example.com/v.mp4"></video><object data="x"></object>',
 		"| a | b |\n|---|---|\n| 1 | 2 |",
 		"Read [the docs](https://example.com/docs).",
+		"A claim[^1].",
+		"- an item\n\n  its second paragraph\n\n- another item",
+		"- [x] a task done\n- [ ] a task to do",
+		"# A heading\n\n> A quote with <kbd>K</kbd> and **bold**.",
+		"[^1]: Its source.",
 	].join("\n\n");
 	await page.fill("[data-slot=composer] textarea", mockMsg([{ text }], "pictures "));
 	await page.keyboard.press("Enter");
@@ -690,7 +679,8 @@ test("what an answer points at on the web is not fetched by itself, and what it 
 	assert.equal(await md.locator('button[title*="ownload"], button[aria-label*="ownload"]').count(), 0);
 	// What could act or restyle is gone, and the words stay. The one svg allowed is pine's own arrow beside a link.
 	assert.equal(await page.evaluate(() => (window as any).hacked), undefined);
-	assert.equal(await md.locator("script, style, form, input, button:not([data-remote]), iframe, svg:not([data-target] > svg), video, object, a[href]").count(), 0);
+	// The one input and svg pine draws itself are a task's read-only box and its check mark (stock Checkbox).
+	assert.equal(await md.locator("script, style, form, input:not(li[data-task] input), button:not([data-remote]), iframe, svg:not([data-target] > svg, li[data-task] svg), video, object, a[href]").count(), 0);
 	assert.equal(await md.locator('[class~="evil"], #evil, [data-x], [aria-label="evil"], [onclick]').count(), 0);
 	assert.equal(await md.getByText("styled", { exact: true }).evaluate((el: HTMLElement) => el.getAttribute("style")), null);
 	assert.doesNotMatch(await md.textContent(), /display: none/);
@@ -698,8 +688,23 @@ test("what an answer points at on the web is not fetched by itself, and what it 
 	const link = md.locator("[data-href]");
 	assert.equal(await link.getAttribute("data-href"), "https://example.com/docs");
 	assert.match(await md.locator("[data-href] + [data-target]").textContent(), /example\.com\/docs/);
-	// A table is kept in a box of its own that scrolls sideways.
-	assert.equal(await md.locator("table").evaluate((t: HTMLElement) => getComputedStyle(t.parentElement!).overflowX), "auto");
+	// A table is shadcn's, and scrolls sideways in a ScrollArea of its own, with no height of its own.
+	assert.equal(await md.locator("table[data-slot=table]").evaluate((t: HTMLElement) => getComputedStyle(t.closest("[data-slot=scroll-area-viewport]")!).overflowX), "scroll");
+	// A footnote's number and its note are words alone: no address of a place in the page, no heading for
+	// screen readers drawn for everyone.
+	assert.doesNotMatch(await md.textContent(), /user-content|Footnotes/);
+	assert.equal(await md.locator("section[data-footnotes] ol li").count(), 1);
+	assert.ok(await md.locator("section[data-footnotes]").evaluate((s: HTMLElement) => parseFloat(getComputedStyle(s).fontSize) < parseFloat(getComputedStyle(s.parentElement!).fontSize)));
+	// A list's marker is outside its text, and an item's two paragraphs stay two.
+	// A task keeps whether it is done, as a box that cannot be changed, where CLEAN takes every input away.
+	assert.deepEqual(await md.locator("li[data-task] [data-slot=checkbox]").evaluateAll((boxes: HTMLElement[]) => boxes.map((b) => b.getAttribute("aria-checked"))), ["true", "false"]);
+	// A heading stands a step above the text, not at a size of its own; a key is shadcn's Kbd; bold is <strong>.
+	assert.ok(await md.locator("h1").evaluate((h: HTMLElement) => parseFloat(getComputedStyle(h).fontSize) <= 1.25 * parseFloat(getComputedStyle(h.parentElement!).fontSize)));
+	assert.equal(await md.locator("blockquote [data-slot=kbd]").count(), 1);
+	assert.equal(await md.locator("blockquote strong").count(), 1);
+	const item = md.locator("li", { hasText: "an item" }).first();
+	assert.equal(await item.evaluate((li: HTMLElement) => getComputedStyle(li.parentElement!).listStylePosition), "outside");
+	assert.equal(await item.locator("p").evaluateAll((ps: HTMLElement[]) => ps.map((p) => getComputedStyle(p).display).join()), "block,block");
 	assert.deepEqual(await page.evaluate(() => (window as any).refused), []);
 	await shot("02b-pictures");
 });
@@ -708,14 +713,16 @@ const terminalText = () => page.$eval("[data-slot=terminal] .xterm-rows", (el: E
 const terminalShows = (text: string) => page.waitForFunction((t) => (document.querySelector("[data-slot=terminal] .xterm-rows")?.textContent ?? "").includes(t), text, { timeout: 10_000 });
 
 test("a shell block of an answer runs in the conversation's terminal with its button, and only as it is shown", async () => {
-	const text = ["Run this:", "```bash\necho pine-ran-$((6*7))\n```", "Not this one:", "```ts\nconst a = 1;\n```", "Nor this:", "```sh\necho shown\u202Ehidden-ran\n```"].join("\n\n");
+	const text = ["Run this:", "```bash\necho pine-ran-$((6*7))\n```", "Not this one:", "```ts title=\"src/a.ts\"\nconst a = 1;\n```", "Nor this:", "```sh\necho shown\u202Ehidden-ran\n```"].join("\n\n");
 	await page.fill("[data-slot=composer] textarea", mockMsg([{ text }], "commands "));
 	await page.keyboard.press("Enter");
 	const md = page.locator("[data-slot=markdown]", { hasText: "Run this" }).last();
 	await md.locator("[data-run]").first().waitFor();
 	// Only a block for a shell has the button, beside its copy button.
 	assert.equal(await md.locator("[data-run]").count(), 2);
-	assert.equal(await md.locator('[data-streamdown="code-block"]', { hasText: "const a = 1" }).locator("[data-run]").count(), 0);
+	assert.equal(await md.locator("[data-slot=code-block]", { hasText: "const a = 1" }).locator("[data-run]").count(), 0);
+	// A block whose opening line names its file has the file's name in its header, with an icon.
+	assert.equal(await md.locator("[data-slot=code-block]", { hasText: "const a = 1" }).locator("[data-slot=code-block-title]").textContent(), "src/a.ts");
 	// The click opens the terminal beside the conversation, in its agent's workspace, and runs the block there.
 	await md.locator("[data-run]").first().click();
 	await sees("[data-slot=code-panel] [data-slot=terminal]");

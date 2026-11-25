@@ -167,23 +167,15 @@ desktop/            the desktop app (Electron; a package of its own, not part of
                     electron/access/ is browser access, without Electron: the access server on ssh2, this computer's host key and
                     the paired devices, pairing, the WebRTC data channel on node-datachannel, the host that waits at the
                     meeting service, and the control the page's Settings > Browser access reads), src/ the
-                    page (React, Tailwind v4, shadcn on Base UI, shadcn's core chat components composed per shadcn's AI Elements
-                    patterns for the conversation and the input, Streamdown for answers, lucide icons,
+                    page (React, Tailwind v4, shadcn on Base UI with its chat components, Streamdown for answers, lucide icons,
                     usehooks-ts for the side panel's breakpoint; ui-sdk only for what shadcn lacks), test/ the app driven through its real window, scripts/ what builds, tests, previews and packs it.
-                    The stock components are src/components/ui and nothing else, all from shadcn's own registry in the
-                    style components.json names, the chat components included (`npx shadcn add message`, not
-                    `@ai-elements/message`). AI Elements means shadcn's pages of patterns (ui.shadcn.com/docs/ai-elements),
-                    which are code to compose, not a package. Vercel's earlier `@ai-elements` registry, which shadcn's
-                    pages replace, serves one version written on Radix for every style: it is never added. A stock component is never edited: add and
-                    update them with the shadcn CLI and components.json. Stock is used directly where it is needed:
-                    no wrapper that only renames or bundles stock components. src/components/ holds only a
-                    composition stock cannot express in place, and wraps the stock one. No hand-written stylesheet:
-                    utilities on Tailwind's default scale in the markup; src/index.css is stock plus the theme bridge and what
-                    a className cannot say (no global rule that changes a stock component).
                     docs/references/desktop.md describes it and its layout.
-                    Before you change anything under desktop/src, read desktop/.agents/skills/shadcn/SKILL.md and the
-                    files in its rules/ folder, and hold the page to them. Do it yourself: from the repository's root
-                    Claude Code loads that skill only on demand (`desktop:shadcn`) and Codex never finds it. It stays in
+                    Before you change anything under desktop/src, and when you review such a change, read
+                    desktop/.agents/skills/shadcn/SKILL.md with the files in its rules/ folder, then desktop/DESIGN.md,
+                    and hold the page to them.
+                    desktop/AGENTS.md imports both for an agent that reads a file there; Codex does not follow its
+                    imports, and from the repository's root Claude Code loads the skill only on demand
+                    (`desktop:shadcn`), so read them yourself when they are not in front of you. The skill stays in
                     desktop/ (desktop/.claude/skills links to it, skills-lock.json pins it), where its `npx shadcn info`
                     finds components.json; `npx skills update` in desktop/ brings it up to date
 mobile/             the Android and iOS app (Capacitor; a package of its own, not part of what goes to npm): the desktop
@@ -568,6 +560,10 @@ These are invariants. A change that breaks one needs a test that shows why it is
    and never give the door a road that does more than look and act in the page. An address on
    this computer that the owner types there is allowed for the conversation by it
    (`browserOpen`: the control API is the owner); pine's control port is refused there too.
+   A link in an answer goes there by a click only when it is on the web: one on this computer
+   or the local network opens in the owner's own browser, and reaches the conversation's only
+   by the item of the link's menu that names the address it lets the agent reach
+   (`store.openLink`, `localAddress` in `desktop/src/text.ts`), since its words may be outside content.
    Where that conversation's browser is not up, `browserOpen` brings its session up as a
    message of the owner's would, without a turn (`wakeBrowser`): only for a conversation there
    is, only as the owner's, and nothing else of the view starts anything. The addresses an

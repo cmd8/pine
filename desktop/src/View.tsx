@@ -34,7 +34,6 @@ import { type Holdings, happeningsOf, knownTarget, talkHappenings, viewStateOf }
 import { colorFor, ENDED, type From, fromText, type Job, World } from "./view-world.ts";
 import { shortcut } from "./text.ts";
 
-export const VIEW_KEY = "pine.view.width";
 
 const NARROW_TO_WIDE = ["manual", "plan", "safe", "auto", "bypass"];
 /** Whether mode `a` is stricter than `b`. */
@@ -321,21 +320,17 @@ export function ViewAside() {
 	const id = s.view ?? "";
 	return (
 		<SideSheet
-			id="view-panel"
 			slot="view-aside"
 			title="View"
 			sheet={sheet}
-			widthKey={VIEW_KEY}
-			savedWidth={s.widthOf("view")}
-			defaultWidth={560}
 			barClassName="pl-3 text-sm font-medium"
-			onClose={() => void store.command("view")}
+			onClose={() => store.close("view")}
 			bar={
 				<>
 					<RadarIcon className="size-3.5 shrink-0 text-muted-foreground" />
 					<ViewSelect id={id} />
 					<span className="min-w-0 flex-1" />
-					<HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" onClick={() => void store.command("view")} aria-label="Close the view"><XIcon /></Button>} /><TooltipContent>Close the view<Kbd>{shortcut("⇧⌘O")}</Kbd></TooltipContent></HoverTooltip>
+					{sheet ? <HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" onClick={() => store.close("view")} aria-label="Close the view"><XIcon /></Button>} /><TooltipContent>Close the view<Kbd>{shortcut("⇧⌘O")}</Kbd></TooltipContent></HoverTooltip> : null}
 				</>
 			}
 		>
@@ -704,7 +699,7 @@ function BoardDetail({ id, task, pick }: { id: number; task?: number; pick: (s: 
 			<>
 				{head}
 				<p data-slot="view-task-text" className="whitespace-pre-wrap break-words">{t.text}</p>
-				<dl className="grid grid-cols-[6rem_1fr] gap-x-2 gap-y-1">
+				<dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1">
 					<dt className="text-muted-foreground">Now</dt>
 					<dd className={cn(t.state === "blocked" && "text-warn", t.state === "failed" && "text-destructive")}>{taskLine(t)}</dd>
 					<dt className="text-muted-foreground">Posted by</dt>
@@ -749,7 +744,7 @@ function JobDetail({ j, now, pick }: { j: Job; now: number; pick: (s: Sel) => vo
 				<Button variant="outline" size="xs" onClick={() => openJob(j)}><ExternalLinkIcon data-icon="inline-start" />Open</Button>
 				<Button variant="ghost" size="icon-xs" aria-label="Back to what happened" onClick={() => pick(undefined)}><XIcon /></Button>
 			</div>
-			<dl className="grid grid-cols-[6rem_1fr] gap-x-2 gap-y-1">
+			<dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1">
 				<dt className="text-muted-foreground">Agent</dt>
 				<dd><button type="button" className="hover:underline" onClick={() => pick({ k: "agent", id: j.agent })}>{j.agent}</button>{j.kind === "subagent" ? ", a copy (sub-agent)" : ""}</dd>
 				<dt className="text-muted-foreground">Came from</dt>

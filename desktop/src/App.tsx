@@ -1,7 +1,7 @@
 // The window: the list of agents and conversations at the side, the tabs along the top, one
 // conversation in the middle with its panel, and whatever lies over them for a moment (a list
 // to pick from, a question, the palette).
-import { ArrowUpIcon, AudioLinesIcon, DownloadIcon, HourglassIcon, RotateCwIcon, CheckIcon, RadarIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsUpDownIcon, LaptopIcon, ServerIcon, ExternalLinkIcon, FolderClosedIcon, FolderIcon, FolderOpenIcon, GitBranchIcon, GlobeIcon, ListIcon, MenuIcon, MessageSquareIcon, PanelRightIcon, PlusIcon, SearchIcon, SettingsIcon, StarIcon, TerminalSquareIcon, Trash2Icon, TriangleAlertIcon, UnplugIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, AudioLinesIcon, DownloadIcon, HourglassIcon, RotateCwIcon, CheckIcon, RadarIcon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, ChevronsUpDownIcon, EllipsisIcon, LaptopIcon, ServerIcon, ExternalLinkIcon, FolderClosedIcon, FolderIcon, FolderOpenIcon, GitBranchIcon, ListIcon, MenuIcon, MessageSquareIcon, PanelRightIcon, PlusIcon, SearchIcon, SettingsIcon, StarIcon, TerminalSquareIcon, Trash2Icon, TriangleAlertIcon, UnplugIcon, XIcon } from "lucide-react";
 import { useMediaQuery } from "usehooks-ts";
 import { Toggle } from "@/components/ui/toggle";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,7 +11,7 @@ import { Field, FieldGroup } from "@/components/ui/field";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { type Layout, usePanelRef } from "react-resizable-panels";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "cn";
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -19,15 +19,15 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { type AgentInfo, api, type Conversation as Conv } from "./api.ts";
 import { bridge } from "./bridge.ts";
-import { CODE_KEY, CodePanel } from "./CodePanel.tsx";
+import { CodePanel } from "./CodePanel.tsx";
 import { COMMANDS } from "./commands.ts";
 import { TabMenu, type TabMenuAction } from "@/components/tab-menu";
 import { contextMenu } from "@/components/page-menu";
 import { Conversation } from "./Conversation.tsx";
 import { Events } from "./Events.tsx";
-import { type Beside, ROOM, store, type Tab, type UpdatePhase, useModel, useSignal } from "./model.ts";
-import { ASIDE_KEY, BrowserAside } from "./Browser.tsx";
-import { VIEW_KEY, ViewAside } from "./View.tsx";
+import { type Beside, PANE, paneOf, ROOM, store, type Tab, type UpdatePhase, useModel, useSignal } from "./model.ts";
+import * as dock from "./dock.ts";
+import { ViewAside } from "./View.tsx";
 import { Breakable, MachineList, NewAgent, Settings } from "./Settings.tsx";
 import { computerWord, firstScreen, isPaired, noMachineSaid } from "./machines.ts";
 import { ApprovalDialog } from "./ApprovalDialog.tsx";
@@ -599,11 +599,11 @@ function Group({ a }: { a: AgentInfo }) {
 					</div>
 				) : (
 					<>
-						{/* Where its buttons show (UNDER_ACTIONS) the line makes room for all three: `!`, since the stock button's room for one action (pr-8) comes later in the stylesheet and would win. */}
+						{/* Where its buttons show (UNDER_ACTIONS) the line makes room for both, More and the plus: `!`, since the stock button's room for one action (pr-8) comes later in the stylesheet and would win. */}
 						{only ? (
 							// The line is its one conversation: a click opens it, and it shows what that conversation's row would (it waits, works, has something new, when it was last used).
 							// Nothing folds, and the avatar stays where the avatars of the groups are.
-							<SidebarMenuButton data-slot="agent-conversation" isActive={Boolean(onlyTab && onlyTab === s.active)} className="group-hover/menu-item:pr-20! group-focus-within/menu-item:pr-20! max-md:pr-20!" onClick={() => (setOpenMobile(false), void s.openTab(a.id, only.session))}>
+							<SidebarMenuButton data-slot="agent-conversation" isActive={Boolean(onlyTab && onlyTab === s.active)} className="group-hover/menu-item:pr-14! group-focus-within/menu-item:pr-14! max-md:pr-14!" onClick={() => (setOpenMobile(false), void s.openTab(a.id, only.session))}>
 								<span aria-hidden className="size-4 flex-none" />
 								<AgentAvatar agent={a} size="sm" />
 								{label}
@@ -611,15 +611,23 @@ function Group({ a }: { a: AgentInfo }) {
 							</SidebarMenuButton>
 						) : (
 							// What folds the group is the agent's line but its buttons.
-							<CollapsibleTrigger render={<SidebarMenuButton className="group-hover/menu-item:pr-20! group-focus-within/menu-item:pr-20! max-md:pr-20!" />}>
+							<CollapsibleTrigger render={<SidebarMenuButton className="group-hover/menu-item:pr-14! group-focus-within/menu-item:pr-14! max-md:pr-14!" />}>
 								{folded ? <ChevronRightIcon className="text-faint" /> : <ChevronDownIcon className="text-faint" />}
 								<AgentAvatar agent={a} size="sm" />
 								{label}
 								{waits ? <Badge variant="destructive" className="size-4 p-0">!</Badge> : working ? <Pulse /> : unread && folded ? <Badge className="size-2 p-0" /> : null}
 							</CollapsibleTrigger>
 						)}
-						<HoverTooltip><TooltipTrigger render={<SidebarMenuAction showOnHover className="right-13" onClick={() => s.openSettings("agents", a.id)} aria-label={`Settings of ${a.id}`} />}><SettingsIcon /></TooltipTrigger><TooltipContent>{`Settings of ${a.id}`}</TooltipContent></HoverTooltip>
-						<HoverTooltip><TooltipTrigger render={<SidebarMenuAction showOnHover className="right-7" onClick={() => void pickFolder()} aria-label={`Open a folder for a conversation with ${a.id}`} />}><FolderIcon /></TooltipTrigger><TooltipContent>{`Open a folder for a conversation with ${a.id}`}</TooltipContent></HoverTooltip>
+						{/* The agent's other actions, as shadcn's sidebar puts them: a More action that opens a menu. The plus stays one click away. */}
+						<DropdownMenu>
+							<DropdownMenuTrigger render={<SidebarMenuAction showOnHover className="right-7" aria-label={`More for ${a.id}`} />}><EllipsisIcon /></DropdownMenuTrigger>
+							<DropdownMenuContent side="right" align="start" className="min-w-56">
+								<DropdownMenuGroup>
+									<DropdownMenuItem onClick={() => void pickFolder()}><FolderIcon />Open a folder with {a.id}…</DropdownMenuItem>
+									<DropdownMenuItem onClick={() => s.openSettings("agents", a.id)}><SettingsIcon />Agent settings…</DropdownMenuItem>
+								</DropdownMenuGroup>
+							</DropdownMenuContent>
+						</DropdownMenu>
 						<HoverTooltip><TooltipTrigger render={<SidebarMenuAction onClick={() => void s.newConversation(a.id)} aria-label={`New conversation with ${a.id}`} />}><PlusIcon /></TooltipTrigger><TooltipContent>{`New conversation with ${a.id}`}</TooltipContent></HoverTooltip>
 					</>
 				)}
@@ -853,97 +861,139 @@ function EnvironmentPill() {
 
 const TAB_DRAG_NONCE = Math.random().toString(36).slice(2);
 const tabDragOrigin = () => (store.windowId || TAB_DRAG_NONCE).toLowerCase();
+/** What a drag of this window's own carries: the item (a tab's id, a pane's name) under a type only this window knows. */
+const ownType = () => `application/x-pine-item-${tabDragOrigin()}`;
 /**
- * What a drag over a tab row would bring: a tab of this window ("own"), a tab of another window on this machine's pine that
- * the main process holds ("other"), or nothing this row takes. Of another window's drag only that it is a tab can be read here.
+ * What a drag over a part of the layout would bring: an item of this window ("own"), a tab of another window on this
+ * machine's pine that the main process holds ("other"), or nothing it takes. Of another window's drag only that it is a
+ * tab can be read here.
  */
 const tabDragKind = (e: React.DragEvent): "own" | "other" | undefined =>
-	e.dataTransfer.types.includes(`application/x-pine-tab-${tabDragOrigin()}`) ? "own" : store.tabDragIn && e.dataTransfer.types.includes("application/x-pine-tab") ? "other" : undefined;
+	e.dataTransfer.types.includes(ownType()) ? "own" : store.tabDragIn && e.dataTransfer.types.includes("application/x-pine-tab") ? "other" : undefined;
 /** Which half of a tab the pointer is over: a tab let go there lands before it or after it. */
 const halfOf = (e: React.DragEvent): "before" | "after" => {
 	const r = e.currentTarget.getBoundingClientRect();
 	return e.clientX < r.left + r.width / 2 ? "before" : "after";
 };
 
-function TabButton({ tab, index }: { tab: Tab; index: number }) {
-	useModel(tab);
+/**
+ * Something let go on the layout, to go into `group` (before `before`, at its end without one) or into a new group at
+ * one of its edges: an item of this window moves there, a tab of another window is asked for and opened there.
+ */
+function landed(e: React.DragEvent, to: { group: string; before?: string; edge?: dock.Edge; window?: boolean }): void {
+	const kind = tabDragKind(e);
+	if (!kind) return;
+	e.preventDefault();
+	store.tookTheDrop();
+	if (kind === "other") return void store.dropTab(to);
+	const item = e.dataTransfer.getData(ownType());
+	if (!item) return;
+	if (to.edge && to.window) store.splitWindow(item, to.edge);
+	else if (to.edge) store.splitGroup(item, to.group, to.edge);
+	else store.putInGroup(item, to.group, to.before);
+}
+
+/** What a tab of a pane says: the side panel names the conversation it follows, the view the view in force. */
+function PaneLabel({ which }: { which: Beside }) {
+	const s = useModel(store);
+	const tab = s.codeTab;
+	if (which === "view") return <>View{s.view ? ` · ${s.view}` : null}</>;
+	return <>Side panel{tab ? <> · {tab.session === "main" ? tab.agent : <>{tab.agent} · <Title agent={tab.agent} session={tab.session} /></>}</> : null}</>;
+}
+
+/**
+ * A tab in a group's row: a tab of the window (a conversation, a task, the events, the settings) or one of the two
+ * panes. Clicked, it comes to the front; dragged, it goes before or after another tab, into another group, or to an
+ * edge of one, where it gets a group of its own. A conversation's tab can also go to another window, or out of every
+ * window into one of its own.
+ */
+function DockTab({ item, row, index }: { item: string; row: string[]; index: number }) {
 	const s = store;
+	const tab = s.tabOf(item);
+	useModel(tab ?? s);
+	const pane = paneOf(item);
+	const holder = dock.groupHolding(s.dock, item);
 	// Where a dragged tab would land: before this one or after it, by the half of it the pointer is over.
 	const [drop, setDrop] = useState<"before" | "after" | false>(false);
-	const on = s.active === tab;
-	const kept = tab.kind === "chat" && (tab.session === "main" || s.pins.has(tab.key));
+	const on = tab ? s.active === tab : false;
+	const front = !s.sheets && holder?.front === item;
+	const kept = tab?.kind === "chat" && (tab.session === "main" || s.pins.has(tab.key));
 	// The tab brought to the front is scrolled into view when there are more tabs than the row shows.
 	const ref = useRef<HTMLButtonElement>(null);
 	useEffect(() => {
-		if (on) ref.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
-	}, [on]);
+		if (on || front) ref.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+	}, [on, front]);
+	if (!tab && !pane) return null;
+	const close = () => s.closeItem(item);
 	const act = (action: TabMenuAction) => {
-		if (action === "close") return s.closeTab(tab);
+		if (action === "close") return close();
+		if (action === "split-right" || action === "split-down") return holder && s.splitGroup(item, holder.id, action === "split-right" ? "right" : "bottom");
+		if (!tab) return;
 		if (action === "pin" || action === "unpin") return void s.pin(tab, action === "pin");
 		if (action === "move-to-window") return void s.moveTabToNewWindow(tab);
 		s.closeTabs(action, tab);
 	};
+	const splits = !s.sheets && (holder?.items.length ?? 0) > 1;
 	// The least width is what the tab holds besides its name (the avatar, the gaps, the close button) and a few letters of the
 	// name: narrower, what does not shrink spills over the next tab. Past that, the row scrolls.
 	// The stock tab, drawn as a div: it holds a button of its own (close), which a button cannot.
 	return (
 		<TabMenu
-			pin={tab.kind !== "chat" ? undefined : tab.session === "main" ? "main" : kept ? "unpin" : "pin"}
-			moveToWindow={tab.kind === "chat" && typeof bridge.newWindow === "function"}
-			others={s.tabs.length > 1}
-			right={index < s.tabs.length - 1}
+			pin={tab?.kind !== "chat" ? undefined : tab.session === "main" ? "main" : kept ? "unpin" : "pin"}
+			moveToWindow={tab?.kind === "chat" && typeof bridge.newWindow === "function"}
+			others={Boolean(tab) && s.siblings(tab).length > 1}
+			right={Boolean(tab) && index < row.length - 1}
+			closeMany={Boolean(tab)}
+			split={splits}
 			onAction={act}
 			trigger={
 				<TabsTrigger
 					ref={ref}
-					value={tab.id}
+					value={item}
 					nativeButton={false}
 					render={<div />}
-					data-slot="tab"
+					data-slot={pane ? "pane-tab" : "tab"}
+					data-pane={pane}
+					data-focus={on || undefined}
 					className={cn("group/tab max-w-55 min-w-28 flex-initial justify-start gap-2 px-1 [-webkit-app-region:no-drag]", drop && "before:absolute before:inset-y-1 before:w-1 before:rounded-full before:bg-primary", drop && (drop === "after" ? "before:-right-1" : "before:-left-1"))}
 					draggable
 					onDragStart={(e) => {
-						const origin = tabDragOrigin();
-						e.dataTransfer.setData("application/x-pine-tab", JSON.stringify({ window: origin, index }));
-						e.dataTransfer.setData(`application/x-pine-tab-${origin}`, String(index));
+						e.dataTransfer.setData(ownType(), item);
 						e.dataTransfer.effectAllowed = "move";
-						s.startTabDrag(tab);
+						// A conversation's tab can go to another window too: the main process is told, and other windows take it.
+						if (tab?.kind === "chat") e.dataTransfer.setData("application/x-pine-tab", JSON.stringify({ window: tabDragOrigin() }));
+						if (tab) s.startTabDrag(tab);
+						else s.startDrag(item);
 					}}
-					// Let go where nothing took it, and outside every window, the tab is torn off into a window of its own.
-					onDragEnd={(e) => void s.endTabDrag(tab, e.dataTransfer.dropEffect === "none", e.screenX, e.screenY)}
+					// Let go where nothing took it, and outside every window, a conversation's tab is torn off into a window of its own.
+					onDragEnd={(e) => (tab ? void s.endTabDrag(tab, e.dataTransfer.dropEffect === "none", e.screenX, e.screenY) : s.endDrag())}
 					onDragOver={(e) => {
 						if (!tabDragKind(e)) return;
 						e.preventDefault();
+						e.stopPropagation();
 						e.dataTransfer.dropEffect = "move";
 						setDrop(halfOf(e));
 					}}
 					onDragLeave={() => setDrop(false)}
 					onDrop={(e) => {
-						const kind = tabDragKind(e);
-						const at = halfOf(e) === "after" ? index + 1 : index;
+						const after = halfOf(e) === "after";
 						setDrop(false);
-						if (!kind) return;
-						e.preventDefault();
-						if (kind === "other") return void s.dropTab(at);
-						try {
-							const parsed = JSON.parse(e.dataTransfer.getData("application/x-pine-tab")) as { window?: unknown; index?: unknown };
-							if (parsed.window === tabDragOrigin() && typeof parsed.index === "number") s.moveTab(parsed.index, parsed.index < at ? at - 1 : at);
-						} catch {
-							// not a tab of this window
-						}
+						e.stopPropagation();
+						if (holder) landed(e, { group: holder.id, before: after ? row[index + 1] : item });
 					}}
-					onAuxClick={(e) => e.button === 1 && s.closeTab(tab)}
-					title={tab.kind === "chat" ? `${tab.agent} · ${tab.session}${tab.folder ? ` · ${tab.folder}` : ""}` : tab.kind === "task" ? `task #${tab.task}` : tab.kind}
+					onClick={() => s.front(item)}
+					onAuxClick={(e) => e.button === 1 && close()}
+					title={tab ? (tab.kind === "chat" ? `${tab.agent} · ${tab.session}${tab.folder ? ` · ${tab.folder}` : ""}` : tab.kind === "task" ? `task #${tab.task}` : tab.kind) : pane === "code" ? "The side panel: the files, changes, output, terminal and browser of the conversation last in front" : "The view of all of pine"}
 				>
 					<span className="grid size-5 flex-none place-items-center">
-						{tab.approvals.size ? <Badge variant="destructive" className="size-4 p-0">!</Badge> : tab.busy ? <Pulse /> : tab.unread ? <Badge className="size-2 p-0" /> : tab.kind === "events" ? <AudioLinesIcon /> : tab.kind === "settings" ? <SettingsIcon /> : tab.kind === "task" ? <ListIcon /> : <AgentAvatar agent={{ id: tab.agent, color: s.agent(tab.agent)?.color, main: s.agent(tab.agent)?.main }} size="sm" className="data-[size=sm]:size-5" />}
+						{!tab ? (pane === "code" ? <PanelRightIcon /> : <RadarIcon />) : tab.approvals.size ? <Badge variant="destructive" className="size-4 p-0">!</Badge> : tab.busy ? <Pulse /> : tab.unread ? <Badge className="size-2 p-0" /> : tab.kind === "events" ? <AudioLinesIcon /> : tab.kind === "settings" ? <SettingsIcon /> : tab.kind === "task" ? <ListIcon /> : <AgentAvatar agent={{ id: tab.agent, color: s.agent(tab.agent)?.color, main: s.agent(tab.agent)?.main }} size="sm" className="data-[size=sm]:size-5" />}
 					</span>
 					<span data-slot="tab-name" className="flex-1 truncate">
-						{tab.kind === "events" ? "Events" : tab.kind === "settings" ? "Settings" : tab.kind === "task" ? <>{tab.agent} #{tab.task}</> : tab.session === "main" ? tab.agent : <>{tab.agent} · <Title agent={tab.agent} session={tab.session} /></>}
+						{pane ? <PaneLabel which={pane} /> : tab!.kind === "events" ? "Events" : tab!.kind === "settings" ? "Settings" : tab!.kind === "task" ? <>{tab!.agent} #{tab!.task}</> : tab!.session === "main" ? tab!.agent : <>{tab!.agent} · <Title agent={tab!.agent} session={tab!.session} /></>}
 					</span>
-					{kept && tab.session !== "main" ? <StarIcon className="text-warn" /> : null}
-					{/* No stop of its own: the tab row is one stop, and ⌘W closes the tab in front. */}
-					<Button variant="ghost" size="icon-xs" tabIndex={-1} aria-label="Close this tab" className={cn("size-5", !on && "opacity-0 group-hover/tab:opacity-100")} onClick={(e) => (e.stopPropagation(), s.closeTab(tab))}><XIcon className="size-3" /></Button>
+					{kept && tab?.session !== "main" ? <StarIcon className="text-warn" /> : null}
+					{/* No stop of its own: a row of tabs is one stop, and ⌘W closes the tab in front. */}
+					<Button variant="ghost" size="icon-xs" tabIndex={-1} aria-label={pane ? `Close the ${pane === "code" ? "side panel" : "view"}` : "Close this tab"} className={cn("size-5", !on && !front && "opacity-0 group-hover/tab:opacity-100")} onClick={(e) => (e.stopPropagation(), close())}><XIcon className="size-3" /></Button>
 				</TabsTrigger>
 			}
 		/>
@@ -951,64 +1001,29 @@ function TabButton({ tab, index }: { tab: Tab; index: number }) {
 }
 
 /**
- * The icon of the side panel, the browser's aside or the view, at the top right of the title bar. Pressed while
- * it is open; open but behind the others (a window with too little room) it is drawn with an outline as well, and a click brings it
- * to the front. The side panel and the browser belong to a conversation: on another tab they stay in their place and
- * cannot be pressed. The view can be opened beside any tab, where there is one (`store.hasView`).
+ * The icon of the side panel or the view, at the top right of the window. Pressed while it is in front of its group;
+ * open but behind another tab of its group it is drawn with an outline as well, and a click brings it to the front. The side
+ * panel shows the conversation last in front, so it can be opened while any tab is; the view, where there is one
+ * (`store.hasView`).
  */
 function BesideToggle({ which, label, keys, icon }: { which: Beside; label: string; keys: string; icon: React.ReactNode }) {
 	const s = store;
 	const behind = s.behind(which);
 	return (
 		<HoverTooltip>
-			<TooltipTrigger render={<Toggle size="sm" data-toggle={which === "aside" ? "browser" : which} data-behind={behind || undefined} className="[-webkit-app-region:no-drag]" variant={behind ? "outline" : "default"} disabled={which !== "view" && s.active?.kind !== "chat"} pressed={s.isOpen(which)} onPressedChange={() => s.toggle(which)} aria-label={label} />}>{icon}</TooltipTrigger>
+			<TooltipTrigger render={<Toggle size="sm" data-toggle={which} data-behind={behind || undefined} className="[-webkit-app-region:no-drag]" variant={behind ? "outline" : "default"} disabled={which === "code" && !s.codeTab} pressed={s.isOpen(which)} onPressedChange={() => s.toggle(which)} aria-label={label} />}>{icon}</TooltipTrigger>
 			<TooltipContent>{label}<Kbd>{shortcut(keys)}</Kbd></TooltipContent>
 		</HoverTooltip>
 	);
 }
 
-/**
- * Follows the width of the room beside the side bar, where the conversation, the side panel and the aside lie: with less
- * than `BOTH` or `THREE`, not all the panels beside it are drawn (`store.fits`). A ref of a callback, because the room is
- * there only once the app is ready.
- */
-function measureRoom(el: HTMLDivElement | null): (() => void) | undefined {
-	if (!el) return;
-	const observer = new ResizeObserver(([entry]) => store.measure(entry.contentRect.width));
-	observer.observe(el);
-	return () => observer.disconnect();
-}
-
-export function TitleBar() {
+/** What lies at the right end of the window's top row: the environment, the panes' icons, and the menu off a Mac. */
+function WindowControls({ column }: { column: boolean }) {
 	const s = useModel(store);
-	// Drawn again when the window crosses the width where the panels become sheets: what the icons say depends on it.
-	useMediaQuery(ROOM);
-	const with_ = s.agentInFront();
-	const { isMobile, setOpenMobile, toggleSidebar } = useSidebar();
-	const column = s.sidebar && !isMobile;
-	// The menu's Toggle Sidebar goes to the stock toggle, which knows whether the side bar is a column or a sheet.
-	useSignal("sidebar", toggleSidebar);
-	// The sheet of a narrow window is put away once another tab comes to the front (from the sheet, the palette,
-	// a menu), and when the window gets wide. A click on the conversation already in front puts it away too (ConversationRow).
-	useEffect(() => setOpenMobile(false), [s.active?.id, isMobile, setOpenMobile]);
 	return (
-		<header className={cn("flex h-11 flex-none items-center gap-1 text-sm [-webkit-app-region:drag]", s.platform === "darwin" ? "pr-2" : "pr-window-controls", column ? "pl-0.5" : "pl-window-buttons")}>
-			{column ? null : <HoverTooltip><TooltipTrigger render={<SidebarTrigger size="icon" className="[-webkit-app-region:no-drag]" aria-label="Show the sidebar" />} /><TooltipContent>Show the sidebar<Kbd>{shortcut("⌘B")}</Kbd></TooltipContent></HoverTooltip>}
-			{/* The stock tabs, one stop for the keyboard: the arrows go from tab to tab, Enter brings one to the front. The row
-			    scrolls without a bar; the fade at a cut end says there is more. The padding is the room for the line stock draws
-			    under a tab (hidden in this variant, but there): without it the row is taller than its room. */}
-			<ScrollArea className="flex min-h-0 min-w-0 flex-col *:data-[slot=scroll-area-viewport]:scroll-fade-x">
-				<Tabs className="pb-0.5" value={s.active?.id ?? null} onValueChange={(id) => { const t = s.tabs.find((x) => x.id === id); if (t) s.activate(t); }}>
-					<TabsList aria-label="Tabs" className="gap-1">
-						{s.tabs.map((t, i) => <TabButton key={t.id} tab={t} index={i} />)}
-					</TabsList>
-				</Tabs>
-			</ScrollArea>
-			<HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className="[-webkit-app-region:no-drag]" onClick={() => void s.newConversation()} aria-label={with_ ? `New conversation with ${with_}` : "New conversation: you are asked with which agent"} />}><PlusIcon /></TooltipTrigger><TooltipContent>{with_ ? `New conversation with ${with_}` : "New conversation: you are asked with which agent"}<Kbd>{shortcut("⌘T")}</Kbd></TooltipContent></HoverTooltip>
-			<span className="min-w-0 flex-1" />
+		<>
 			{s.remote || !column ? <EnvironmentPill /> : null}
-			<BesideToggle which="code" label="Side panel: the agent, files, changes, output and what is running" keys="⌥⌘B" icon={<PanelRightIcon />} />
-			<BesideToggle which="aside" label="Browser: the page the agent works in" keys="⇧⌘B" icon={<GlobeIcon />} />
+			<BesideToggle which="code" label="Side panel: the files, changes, output, terminal and browser of the conversation in front" keys="⌥⌘B" icon={<PanelRightIcon />} />
 			{s.hasView ? <BesideToggle which="view" label={`View: all of pine at a glance, drawn by ${s.view}`} keys="⇧⌘O" icon={<RadarIcon />} /> : null}
 			{/* Off a Mac the window shows no menu bar (electron/main.ts): its menus open from here, beside the system's window controls. */}
 			{s.platform !== "darwin" && bridge.appMenu ? (
@@ -1020,11 +1035,318 @@ export function TitleBar() {
 					<TooltipContent>Menu</TooltipContent>
 				</HoverTooltip>
 			) : null}
+		</>
+	);
+}
+
+function NewConversationButton({ group }: { group?: string }) {
+	const s = store;
+	const with_ = s.agentInFront();
+	const say = with_ ? `New conversation with ${with_}` : "New conversation: you are asked with which agent";
+	return <HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className="[-webkit-app-region:no-drag]" onClick={() => (group && s.focusGroup(group), void s.newConversation())} aria-label={say} />}><PlusIcon /></TooltipTrigger><TooltipContent>{say}<Kbd>{shortcut("⌘T")}</Kbd></TooltipContent></HoverTooltip>;
+}
+
+/**
+ * A row of tabs: a group's in a wide window, every tab of the window in a narrow one. Where nothing is to click, a
+ * tab let go there goes to its end, and on the window's top row the bar moves the window. The stock tabs, one stop
+ * for the keyboard: the arrows go from tab to tab, Enter brings one to the front. The row scrolls without a bar; the
+ * fade at a cut end says there is more. The padding is the room for the line stock draws under a tab (hidden in this
+ * variant, but there): without it the row is taller than its room.
+ */
+function TabRow({ items, group, front }: { items: string[]; group?: string; front?: string }) {
+	const [end, setEnd] = useState(false);
+	return (
+		<>
+			<ScrollArea className="flex min-h-0 min-w-0 flex-col *:data-[slot=scroll-area-viewport]:scroll-fade-x">
+				<Tabs className="pb-0.5" value={front ?? null} onValueChange={(item) => typeof item === "string" && store.front(item)}>
+					<TabsList aria-label="Tabs" className="gap-1">
+						{items.map((item, i) => <DockTab key={item} item={item} row={items} index={i} />)}
+					</TabsList>
+				</Tabs>
+			</ScrollArea>
+			{group ? <span
+				data-slot="row-end"
+				className={cn("relative h-8 min-w-6 flex-none", end && "before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary")}
+				onDragOver={(e) => {
+					if (!tabDragKind(e)) return;
+					e.preventDefault();
+					e.dataTransfer.dropEffect = "move";
+					setEnd(true);
+				}}
+				onDragLeave={() => setEnd(false)}
+				onDrop={(e) => (setEnd(false), landed(e, { group }))}
+			/> : null}
+		</>
+	);
+}
+
+/**
+ * A group's bar: its tabs, and its button for a new conversation. A group along the top of the window is the
+ * window's title bar there too: it moves the window, the one at the left carries the side bar's button (or makes room
+ * for a Mac's window buttons), the one at the right the window's controls.
+ */
+function GroupBar({ g, sides, column }: { g: dock.Group; sides: dock.Sides; column: boolean }) {
+	const s = useModel(store);
+	const items = g.items.filter((i) => !paneOf(i) || (paneOf(i) === "view" ? s.hasView : true));
+	const lead = sides.top && sides.left && !column;
+	const tail = sides.top && sides.right;
+	return (
+		<header
+			data-slot="group-bar"
+			data-group={g.id}
+			className={cn("flex flex-none items-center gap-1 text-sm", sides.top ? "h-11 [-webkit-app-region:drag]" : "h-9", lead ? "pl-window-buttons" : "pl-0.5", tail && s.platform !== "darwin" ? "pr-window-controls" : "pr-0.5")}
+		>
+			{lead ? <HoverTooltip><TooltipTrigger render={<SidebarTrigger size="icon" className="[-webkit-app-region:no-drag]" aria-label="Show the sidebar" />} /><TooltipContent>Show the sidebar<Kbd>{shortcut("⌘B")}</Kbd></TooltipContent></HoverTooltip> : null}
+			<TabRow items={items} group={g.id} front={g.front} />
+			{items.some((i) => !paneOf(i)) || !items.length ? <NewConversationButton group={g.id} /> : null}
+			<span className="min-w-0 flex-1" />
+			{tail ? <WindowControls column={column} /> : null}
 		</header>
 	);
 }
 
-/** What the window shows when every tab is closed: the conversations are all still in the side bar. */
+/** A narrow window's one row: the side bar's button, every tab of the window, and the window's controls. */
+export function TitleBar() {
+	const s = useModel(store);
+	// Drawn again when the window crosses the width where the panes become sheets: what the icons say depends on it.
+	useMediaQuery(ROOM);
+	const { isMobile } = useSidebar();
+	const column = s.sidebar && !isMobile;
+	return (
+		<header className={cn("flex h-11 flex-none items-center gap-1 text-sm [-webkit-app-region:drag]", s.platform === "darwin" ? "pr-2" : "pr-window-controls", column ? "pl-0.5" : "pl-window-buttons")}>
+			{column ? null : <HoverTooltip><TooltipTrigger render={<SidebarTrigger size="icon" className="[-webkit-app-region:no-drag]" aria-label="Show the sidebar" />} /><TooltipContent>Show the sidebar<Kbd>{shortcut("⌘B")}</Kbd></TooltipContent></HoverTooltip>}
+			<TabRow items={s.ordered.map((t) => t.item)} front={s.active?.item} />
+			<NewConversationButton />
+			<span className="min-w-0 flex-1" />
+			<WindowControls column={column} />
+		</header>
+	);
+}
+
+/** What a tab or a pane shows, in its group's body or alone in a narrow window. */
+function Body({ item }: { item: string }) {
+	const s = useModel(store);
+	const pane = paneOf(item);
+	if (pane === "code") return s.codeTab ? <CodePanel key={`code:${s.codeTab.id}`} tab={s.codeTab} /> : <PaneFrame><Empty><EmptyHeader><EmptyMedia variant="icon"><PanelRightIcon /></EmptyMedia><EmptyTitle>No conversation is open</EmptyTitle><EmptyDescription>The side panel shows the files, changes, terminal and browser of the conversation last in front. Open one.</EmptyDescription></EmptyHeader></Empty></PaneFrame>;
+	if (pane === "view") return <ViewAside />;
+	const tab = s.tabOf(item);
+	if (!tab) return <NoTab />;
+	return tab.kind === "settings" ? <Settings /> : tab.kind === "events" ? <Events tab={tab} /> : <Conversation key={tab.id} tab={tab} />;
+}
+
+/** The frame of a pane in a group: the card every tab's content is drawn on. */
+function PaneFrame({ children }: { children: React.ReactNode }) {
+	return <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background text-sm">{children}</div>;
+}
+
+/** How near an edge of the window a dragged tab has to be for that edge, not the edge of the group under it. */
+const WINDOW_BAND = 48;
+
+/**
+ * Where a dragged tab would go when let go over a group: the group itself, a new group at one of its edges, or, in
+ * the band along an edge of the window, a new group along that whole edge. Lies over the group's body only while a
+ * tab is dragged, so that what is drawn there (a view's frame, the app's own browser page) cannot take the drag for
+ * itself. `rect` and `area` (the whole window's room) are in the same coordinates.
+ */
+function DropZones({ group, rect, sides, area }: { group: string; rect: dock.Rect; sides: dock.Sides; area: dock.Rect }) {
+	const [zone, setZone] = useState<{ zone: dock.Zone; window: boolean }>();
+	const at = (e: React.DragEvent) => {
+		const r = e.currentTarget.getBoundingClientRect();
+		const x = rect.x + e.clientX - r.left;
+		const y = rect.y + e.clientY - r.top;
+		const edge = dock.windowEdgeOf(sides, rect, area, x, y, WINDOW_BAND);
+		return edge ? { zone: edge, window: true } : { zone: dock.zoneOf(rect, x, y), window: false };
+	};
+	const whole = zone ? (zone.window ? dock.windowRect(area, zone.zone as dock.Edge) : dock.zoneRect(rect, zone.zone)) : undefined;
+	// Drawn from this body's corner: a mark along the window's edge reaches over the groups beside it.
+	const mark = whole ? { x: whole.x - rect.x, y: whole.y - rect.y, width: whole.width, height: whole.height } : undefined;
+	const tag = zone ? `${zone.window ? "window-" : ""}${zone.zone}` : undefined;
+	return (
+		<div
+			data-slot="drop-zones"
+			data-group={group}
+			data-zone={tag}
+			className="absolute z-20"
+			style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+			onDragOver={(e) => {
+				if (!tabDragKind(e)) return;
+				e.preventDefault();
+				e.dataTransfer.dropEffect = "move";
+				const z = at(e);
+				if (z.zone !== zone?.zone || z.window !== zone?.window) setZone(z);
+			}}
+			onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setZone(undefined)}
+			onDrop={(e) => {
+				const z = at(e);
+				setZone(undefined);
+				landed(e, z.zone === "center" ? { group } : { group, edge: z.zone, window: z.window });
+			}}
+		>
+			{mark ? <div className="pointer-events-none absolute rounded-xl bg-primary/15 ring-2 ring-primary/60 ring-inset transition-all duration-100" style={{ left: mark.x, top: mark.y, width: mark.width, height: mark.height }} /> : null}
+		</div>
+	);
+}
+
+/** The one empty group a window with no tab shows. */
+const NONE: dock.Group = { kind: "group", id: "g-none", items: [] };
+
+/** The least a group is wide or tall when the edge beside it is dragged. */
+const LEAST = { row: 300, column: 160 };
+/** The room between two groups: the edge that is dragged. */
+const GAP = 6;
+/** How tall a group's bar is (h-11 along the top of the window, h-9 elsewhere), in pixels at the page's root font size. */
+const barHeight = (top: boolean) => (top ? 2.75 : 2.25) * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+
+/**
+ * The edge between two groups: dragged, it moves the room from one to the other; double-clicked, it shares it
+ * equally; focused (with the stock handle's focus ring), the arrow keys move it. `next` names the panes of the group after it (the side panel, the view),
+ * for whoever looks for the edge before one.
+ */
+function Edge({ h, next }: { h: dock.Handle; next?: string }) {
+	const row = h.dir === "row";
+	const by = (px: number) => {
+		const split = dock.findNode(store.dock, h.split);
+		if (split?.kind !== "split") return;
+		const length = (row ? h.whole.width : h.whole.height) - GAP * (split.sizes.length - 1);
+		store.resizeSplit(h.split, dock.dragEdge(split.sizes, h.index, px, length, LEAST[h.dir]), true);
+	};
+	return (
+		<div
+			data-slot="dock-edge"
+			data-split={h.split}
+			data-next={next}
+			role="separator"
+			tabIndex={0}
+			aria-orientation={row ? "vertical" : "horizontal"}
+			onKeyDown={(e) => {
+				const step = e.shiftKey ? 100 : 20;
+				const keys: Record<string, number> = row ? { ArrowLeft: -step, ArrowRight: step } : { ArrowUp: -step, ArrowDown: step };
+				if (!(e.key in keys)) return;
+				e.preventDefault();
+				by(keys[e.key]);
+			}}
+			title={`Drag to make the groups ${row ? "wider or narrower" : "taller or shorter"}`}
+			className={cn("absolute z-10 touch-none rounded-full after:absolute after:rounded-full after:bg-ring/0 after:transition-colors hover:after:bg-ring/50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden", row ? "cursor-col-resize after:inset-y-2 after:left-1/2 after:w-0.5 after:-translate-x-1/2" : "cursor-row-resize after:inset-x-2 after:top-1/2 after:h-0.5 after:-translate-y-1/2")}
+			style={{ left: h.rect.x, top: h.rect.y, width: h.rect.width, height: h.rect.height }}
+			onPointerDown={(e) => {
+				const split = dock.findNode(store.dock, h.split);
+				if (split?.kind !== "split") return;
+				e.preventDefault();
+				e.currentTarget.setPointerCapture(e.pointerId);
+				const from = row ? e.clientX : e.clientY;
+				const sizes = split.sizes;
+				const length = (row ? h.whole.width : h.whole.height) - GAP * (sizes.length - 1);
+				const move = (ev: PointerEvent, done: boolean) => store.resizeSplit(h.split, dock.dragEdge(sizes, h.index, (row ? ev.clientX : ev.clientY) - from, length, LEAST[h.dir]), done);
+				const el = e.currentTarget;
+				const onMove = (ev: PointerEvent) => move(ev, false);
+				const onUp = (ev: PointerEvent) => {
+					move(ev, true);
+					el.removeEventListener("pointermove", onMove);
+					el.removeEventListener("pointerup", onUp);
+					el.removeEventListener("pointercancel", onUp);
+				};
+				el.addEventListener("pointermove", onMove);
+				el.addEventListener("pointerup", onUp);
+				el.addEventListener("pointercancel", onUp);
+			}}
+			onDoubleClick={() => {
+				const split = dock.findNode(store.dock, h.split);
+				if (split?.kind === "split") store.resizeSplit(h.split, split.sizes.map(() => 1), true);
+			}}
+		/>
+	);
+}
+
+/**
+ * The window's tabs arranged in groups, as the layout says (dock.ts): each group a bar of tabs over the content of the
+ * one in front. Everything is laid out here and drawn in one flat layer each (bars, bodies, edges), keyed by what it
+ * is and never by where it lies: a tab moved to another group, or a group split in two, moves on the screen without
+ * being drawn anew, so that a conversation keeps its place, the terminal its shell and the view its frame.
+ */
+function DockArea({ column }: { column: boolean }) {
+	const s = useModel(store);
+	const [room, setRoom] = useState<{ width: number; height: number }>();
+	// A ref of a callback that stays the same, so that the room is observed once, from when it is there.
+	const measure = useCallback((el: HTMLDivElement | null) => {
+		if (!el) return;
+		const observer = new ResizeObserver(([entry]) => {
+			const { width, height } = entry.contentRect;
+			setRoom((was) => (was && was.width === width && was.height === height ? was : { width, height }));
+		});
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, []);
+	const dragging = s.dragging !== undefined || s.tabDragIn;
+	// With no tab open the window says so, whatever panes were open: they come back with the next tab.
+	const tree = s.tabs.length ? s.dock : NONE;
+	const groups = dock.groupsOf(tree);
+	const area = room ? { x: column ? 0 : GAP, y: 0, width: room.width - GAP - (column ? 0 : GAP), height: room.height - GAP } : undefined;
+	const at = area ? dock.layout(tree, area, GAP) : undefined;
+	/** Where a group's body lies: under its bar. */
+	const bodyOf = (id: string): dock.Rect | undefined => {
+		const r = at?.groups.get(id);
+		if (!r) return undefined;
+		const bar = barHeight(at!.sides.get(id)?.top === true);
+		return { x: r.x, y: r.y + bar, width: r.width, height: Math.max(0, r.height - bar) };
+	};
+	// Each group's tab in front, drawn in its body; sorted by what it is, so that the order of the layer never changes.
+	const shown = groups.map((g) => ({ g, item: g.front && (paneOf(g.front) !== "view" || s.hasView) ? g.front : undefined })).sort((a, b) => (a.item ?? a.g.id).localeCompare(b.item ?? b.g.id));
+	const byId = [...groups].sort((a, b) => a.id.localeCompare(b.id));
+	return (
+		<div ref={measure} data-slot="dock" data-dropping={dragging || undefined} className="relative min-h-0 min-w-0 flex-1">
+			{at ? (
+				<>
+					{byId.map((g) => {
+						const r = at.groups.get(g.id)!;
+						return (
+							<div key={g.id} className="absolute flex flex-col" style={{ left: r.x, top: r.y, width: r.width }}>
+								<GroupBar g={g} sides={at.sides.get(g.id)!} column={column} />
+							</div>
+						);
+					})}
+					{shown.map(({ g, item }) => {
+						const r = bodyOf(g.id)!;
+						return (
+							<div
+								key={item ?? g.id}
+								id={item === PANE.code ? "code-panel" : item === PANE.view ? "view-panel" : undefined}
+								data-slot="group-body"
+								data-group={g.id}
+								data-focus={s.focus === g.id || undefined}
+								className="absolute flex"
+								style={{ left: r.x, top: r.y, width: r.width, height: r.height }}
+								// A click into a group brings its tab to the front of the window. Not a focus: a conversation that comes
+								// into view focuses its input by itself, which would take the window from the tab just moved.
+								onPointerDownCapture={() => s.focus !== g.id && s.focusGroup(g.id)}
+							>
+								{item ? <Body item={item} /> : <NoTab />}
+							</div>
+						);
+					})}
+					{at.handles.map((h) => {
+						const after = dock.findNode(tree, h.split);
+						const panes = after?.kind === "split" ? dock.itemsOf(after.children[h.index + 1]).map(paneOf).filter(Boolean).join(" ") : "";
+						return <Edge key={`${h.split}:${h.index}`} h={h} next={panes || undefined} />;
+					})}
+					{dragging ? byId.map((g) => <DropZones key={g.id} group={g.id} rect={bodyOf(g.id)!} sides={at.sides.get(g.id)!} area={area!} />) : null}
+				</>
+			) : null}
+		</div>
+	);
+}
+
+/** What the side bar's stock parts are told, whichever way the window is laid out. */
+function SidebarSignals() {
+	const s = useModel(store);
+	const { isMobile, setOpenMobile, toggleSidebar } = useSidebar();
+	// The menu's Toggle Sidebar goes to the stock toggle, which knows whether the side bar is a column or a sheet.
+	useSignal("sidebar", toggleSidebar);
+	// The sheet of a narrow window is put away once another tab comes to the front (from the sheet, the palette,
+	// a menu), and when the window gets wide. A click on the conversation already in front puts it away too (ConversationRow).
+	useEffect(() => setOpenMobile(false), [s.active?.id, isMobile, setOpenMobile]);
+	return null;
+}
+
 function NoTab() {
 	const s = store;
 	const main = s.agents.find((a) => a.main) ?? s.agents[0];
@@ -1046,7 +1368,7 @@ function NoTab() {
 				setDrop(false);
 				if (tabDragKind(e) !== "other") return;
 				e.preventDefault();
-				void s.dropTab(0);
+				void s.dropTab({ group: dock.groupsOf(s.dock)[0].id });
 			}}
 		>
 			<EmptyHeader>
@@ -1232,7 +1554,7 @@ function BrowserAsk() {
 const SIDE_KEY = "pine.sidebar.width";
 const SIDE_WIDTH = 248;
 
-const PANEL_WIDTH_KEYS = { "sidebar-panel": "sidebar", "code-panel": "code", "browser-panel": "aside", "view-panel": "view" } as const;
+const PANEL_WIDTH_KEYS = { "sidebar-panel": "sidebar" } as const;
 
 /** Remembers how wide a panel is, in pixels, for the next start. Only what the owner did is kept: a narrow window squeezes a panel without changing what it is set to. */
 const keepWidth = (layout: Layout, panel: keyof typeof PANEL_WIDTH_KEYS, key: string) => {
@@ -1271,9 +1593,8 @@ export function App() {
 	// own sheet. (The panel beside a conversation does the same below `lg`: CodePanel.tsx.)
 	const narrow = useIsMobile();
 	const column = s.sidebar && !narrow;
-	// Drawn again when the window crosses the width where the side panel and the aside become sheets, one at a time (`store.shown`).
+	// Drawn again when the window crosses the width where the groups give way to one tab at a time and the panes to sheets (`store.sheets`).
 	useMediaQuery(ROOM);
-	const chat = tab?.kind === "chat";
 	// The window itself: what shows between and around the panels. On a Mac the system's material lies behind it.
 	return (
 		<div className={cn("flex h-full text-sm", s.platform === "darwin" ? "bg-sidebar" : "bg-muted")}>
@@ -1295,22 +1616,20 @@ export function App() {
 							</>
 						) : null}
 						<ResizablePanel id="main" className="flex">
-							<div className="flex min-w-0 flex-1 flex-col">
-								<TitleBar />
-								<div ref={measureRoom} data-slot="room" className={cn("flex min-h-0 flex-1 pr-1.5 pb-1.5", !column && "pl-1.5")}>
-									{/* The conversation, the side panel beside it, and the browser's aside at the far right. Each panel's width is
-									    its own: dragging the edge between the two changes both, and both are kept. */}
-									<ResizablePanelGroup orientation="horizontal" onLayoutChanged={(layout, meta) => meta.isUserInteraction && (keepWidth(layout, "code-panel", CODE_KEY), keepWidth(layout, "browser-panel", ASIDE_KEY), keepWidth(layout, "view-panel", VIEW_KEY))}>
-										<ResizablePanel id="view" className="flex" minSize={320}>
-											{!tab ? <NoTab /> : tab.kind === "settings" ? <Settings /> : tab.kind === "events" ? <Events tab={tab} /> : <Conversation key={tab.id} tab={tab} />}
-										</ResizablePanel>
-										{chat && s.shown("code") ? <CodePanel key={`code:${tab!.id}`} tab={tab!} /> : null}
-										{chat && s.shown("aside") ? <BrowserAside key={`aside:${tab!.id}`} tab={tab!} /> : null}
-										{/* The view of all of pine, beside any tab. */}
-										{s.shown("view") ? <ViewAside key="view" /> : null}
-									</ResizablePanelGroup>
+							<SidebarSignals />
+							{s.sheets ? (
+								// A narrow window: one row of all the tabs, the one in front under it, and a pane as a sheet over it.
+								<div className="flex min-w-0 flex-1 flex-col">
+									<TitleBar />
+									<div data-slot="room" className={cn("flex min-h-0 flex-1 pr-1.5 pb-1.5", !column && "pl-1.5")}>
+										{tab ? <Body item={tab.item} /> : <NoTab />}
+										{s.shown("code") ? <Body item={PANE.code} /> : null}
+										{s.shown("view") ? <ViewAside /> : null}
+									</div>
 								</div>
-							</div>
+							) : (
+								<DockArea column={column} />
+							)}
 						</ResizablePanel>
 					</ResizablePanelGroup>
 				</SidebarProvider>

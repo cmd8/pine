@@ -4,7 +4,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type AgentConfig, delegatesText, effectiveMcp, EVERYDAY_TYPES, mainAgentId, type McpServerConfig, ownText, PINE_ROOT, purposeOf, RESERVED_TOPICS, SOURCE_TYPES, unsandboxed } from "./config.ts";
 import { AGENT_TOOLS, checkNewAgent, createAgent } from "./agent-admin.ts";
-import { addRoute, type AgentChange, applyAgentChange, applySetting, checkAgentChange, checkAgentId, checkRoute, checkSetting, dropRoute, namedBy, routesText, SETTINGS, settingsText, settleModel } from "./admin.ts";
+import { addRoute, type AgentChange, applyAgentChange, applySetting, checkAgentChange, checkAgentId, checkRoute, checkSetting, dropRoute, namedBy, planModelAdd, planModelChange, planModelRemove, routesText, SETTINGS, settingsText, settleModel } from "./admin.ts";
 import { type AgentManager, type Live, type Profile, THINKING_LEVELS } from "./agents.ts";
 import { finish as finishWorktree, type Worktree, worktreeName } from "./worktrees.ts";
 import { NOT_A_SUBAGENTS, SUBAGENT_CANNOT_ASK, serverTool } from "./catalogue.ts";
@@ -16,7 +16,7 @@ import { login, logout, type Prompter } from "./login.ts";
 import { setEnv } from "./env-file.ts";
 import { type ApprovalRequest, isInside, levelOf, realish } from "./security.ts";
 import { type Part, pineManual, showRead, showSearch } from "./manual.ts";
-import { addModelServer, checkServerName, listModelServers, lookAt, modelServerUsers, removeModelServer, serverUrl } from "./models.ts";
+import { addModelServer, checkServerName, listModelServers, lookAt, modelServerUsers, removeModelServer, type ServerModel, servedBy, serverUrl } from "./models.ts";
 import { allSkills, checkSkill, deleteSkill, listSkills, skillDir, skillsBeside, writeSkill } from "./skills.ts";
 import { describeOptions, FRESH } from "./sources.ts";
 import { localTime } from "./timers.ts";
@@ -515,8 +515,25 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					const mine = agent.model ?? cfg.defaults.model;
 					const all = [...(await manager.models.getAvailable())].sort((x: any, y: any) => modelRef(x).localeCompare(modelRef(y)));
 					if (!all.length) return ok("No model is set up.");
-					const lines = all.slice(0, 60).map((m: any) => `- ${modelRef(m)}${modelRef(m) === mine ? " (yours)" : ""}: ${m.input?.includes("image") ? "sees pictures" : "text only"}${m.reasoning ? ", reasons" : ""}`);
-					return ok(`${all.length} model${all.length === 1 ? "" : "s"}:\n${lines.join("\n")}${all.length > 60 ? `\n... and ${all.length - 60} more` : ""}\n\nsubagent takes one of them as "model", for sub-tasks another model does better than yours. Your own model is changed by your owner${agent.id === mainAgentId(cfg) ? " or by you with update_agent" : ` or by the main agent (${mainAgentId(cfg)})`}, not by you.`);
+					const own = new Set(listModelServers(cfg.home).map((s) => s.name));
+					const lines = all.slice(0, 60).map((m: any) => {
+						const ref = modelRef(m);
+						const runs = cfg.limits.models[ref];
+						// For a server of the owner's own, what pine sends it: what configure_model changes.
+						const sizes = own.has(m.provider) ? `, ${m.contextWindow} tokens of context, answers up to ${m.maxTokens}, server of your owner's own` : "";
+						return `- ${ref}${ref === mine ? " (yours)" : ""}: ${m.input?.includes("image") ? "sees pictures" : "text only"}${m.reasoning ? ", reasons" : ""}${sizes}${runs !== undefined ? `, ${runs} at a time` : ""}`;
+					});
+					// The main agent sets models up, so it is told what each server of the owner's serves that pine does not have yet.
+					const served = agent.id === mainAgentId(cfg) ? await servedBy(cfg.home) : [];
+					const said = (m: ServerModel) => `${m.id}${m.title || m.state ? ` (${[m.title, m.state].filter(Boolean).join(", ")})` : ""}`;
+					const servers = served.map((x) =>
+						"error" in x
+							? `- ${x.name}: not asked what it serves: ${x.error}`
+							: `- ${x.name} serves${x.missing.length ? `, not in pine: ${x.missing.slice(0, 30).map(said).join("; ")}` : " nothing pine does not have"}${x.gone.length ? `. In pine, no longer served: ${x.gone.join(", ")}` : ""}`,
+					);
+					const asked = servers.length ? `\n\nWhat the model servers of your owner's own serve (asked just now):\n${servers.join("\n")}` : "";
+					const admin = agent.id === mainAgentId(cfg) ? `\n\nAs the main agent you set models up: add_model_server and add_model add, configure_model changes context, longest answer, pictures, reasoning and how many run at a time (runs; without a number of its own a model shares pine's ${cfg.limits.maxConcurrentRuns}), remove_model and remove_model_server take out.` : "";
+					return ok(`${all.length} model${all.length === 1 ? "" : "s"}:\n${lines.join("\n")}${all.length > 60 ? `\n... and ${all.length - 60} more` : ""}\n\nsubagent takes one of them as "model", for sub-tasks another model does better than yours. Your own model is changed by your owner${agent.id === mainAgentId(cfg) ? " or by you with update_agent" : ` or by the main agent (${mainAgentId(cfg)})`}, not by you.${asked}${admin}`);
 				},
 			}),
 		);
@@ -1545,6 +1562,63 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 						removeModelServer(cfg, p.name);
 						await manager.reloadModels();
 						return ok(`Removed the model server "${p.name}".`);
+					},
+				}),
+				// One model at a time, on a server that is there already: the address was confirmed when it
+				// was added, so these change what pine sends, not where. Each is put to the owner all the same,
+				// and none is done from a conversation that has read outside content.
+				defineTool({
+					name: "add_model",
+					label: "Add model",
+					description: `Add one more model of a model server your owner added already: one the server serves and pine does not have yet (pine took the server's models when it was added; a model loaded there since is not in pine). pine asks the server for it and how much context it gets. Your owner confirms. Give it as server/model, for example studio/qwen3-coder. Not for a provider pine signs in to (anthropic, openai, ...): its models come with pine. A new server is add_model_server. Not possible in a conversation that has read outside content.`,
+					parameters: Type.Object({
+						model: Type.String({ description: "server/model: the server's name in pine and the model's name on the server, for example studio/qwen3-coder" }),
+						context: Type.Optional(Type.Number({ description: "Tokens of context one request gets. Only when pine said the server does not tell, and with the number your owner gave you; never a guess" })),
+					}),
+					execute: async (_id, p, signal) => {
+						run();
+						if (live.tainted) throw new Error(`Not done: this conversation has read outside content (${live.tainted}), and no model is added from such a conversation. Tell your owner: in a new conversation you can do it.`);
+						const plan = await planModelAdd(cfg, manager, p.model, p.context);
+						const decision = await confirm("add_model", plan.lines.join("\n"), "an agent that runs on it sends its whole conversation to that server", signal);
+						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner.`);
+						await plan.apply();
+						return ok(`Your owner confirmed it. Added ${plan.ref}. Nothing uses it yet: your owner chooses it with /model ${plan.ref}, or you give it to an agent with update_agent (model) or to all with set_setting (defaults.model).`);
+					},
+				}),
+				defineTool({
+					name: "configure_model",
+					label: "Configure model",
+					description: `Change how one model is set up, when your owner asks: how much context one request gets, the longest answer, whether it is sent pictures, whether it reasons, and how many conversations use it at the same time. Give only what changes. context, max_output, pictures and reasoning are for a model of a model server your owner added (llama.cpp, vLLM, LM Studio, ...): they must say what the server really does (a context larger than the server was started with fails; pictures to a model that cannot see fail). runs is for any model, a provider's too. Your owner sees old and new and confirms. Which model each agent runs on is update_agent (model) or set_setting (defaults.model), not this. Not possible in a conversation that has read outside content.`,
+					parameters: Type.Object({
+						model: Type.String({ description: "server/model, as the models list names it, for example studio/qwen3-coder" }),
+						context: Type.Optional(Type.Number({ description: "Tokens of context one request gets: what the server was started with (llama-server -c divided by -np), as your owner says" })),
+						max_output: Type.Optional(Type.Number({ description: "The most tokens one answer may have; below the context" })),
+						pictures: Type.Optional(Type.Boolean({ description: "true: the model is sent pictures; only for a model that can see them" })),
+						reasoning: Type.Optional(Type.Boolean({ description: "true: the model thinks before it answers and is sent a level of effort; false: it is told not to" })),
+						runs: Type.Optional(Type.Number({ description: "How many conversations and sub-agents use this model at the same time, 1 to 64 (for a server of your owner's own: its parallel slots, llama-server -np); 0 gives it back to pine's own limit" })),
+					}),
+					execute: async (_id, p, signal) => {
+						run();
+						if (live.tainted) throw new Error(`Not done: this conversation has read outside content (${live.tainted}), and no model is changed from such a conversation. Tell your owner: in a new conversation you can do it.`);
+						const plan = await planModelChange(cfg, manager, p.model, { context: p.context, maxTokens: p.max_output, images: p.pictures, reasoning: p.reasoning, runs: p.runs });
+						const decision = await confirm("configure_model", plan.lines.join("\n"), "this changes what pine sends a model, for every agent that runs on it", signal);
+						if (!decision.allow) throw new Error(`not changed (${decision.by}). Do not retry; tell your owner.`);
+						await plan.apply();
+						return ok(`Your owner confirmed it. ${plan.lines.slice(1).join("; ")}. It holds from the next turn of every conversation on ${plan.ref}.`);
+					},
+				}),
+				defineTool({
+					name: "remove_model",
+					label: "Remove model",
+					description: `Take one model of a model server your owner added out of pine, when your owner asks; the server and its other models stay. Not possible while an agent, the default, the judge of goals, the check of a swarm's answer or a route uses it, and not for a server's last model (that is remove_model_server). Not for a provider pine signs in to: its models come with pine. Your owner confirms.`,
+					parameters: Type.Object({ model: Type.String({ description: "server/model, as the models list names it" }) }),
+					execute: async (_id, p, signal) => {
+						run();
+						const plan = planModelRemove(cfg, manager, p.model);
+						const decision = await confirm("remove_model", plan.lines.join("\n"), `this takes a model out of pine's configuration${careful()}`, signal);
+						if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner.`);
+						await plan.apply();
+						return ok(`Your owner confirmed it. Removed ${plan.ref}. add_model brings it back while the server serves it.`);
 					},
 				}),
 				// Signing in, to a model provider or to a remote MCP server: pine's own flows, the ones

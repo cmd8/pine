@@ -188,7 +188,8 @@ test("sub-agents run on the model and at the reasoning level their conversation 
 
 	// What there is to choose from, the agent is told by a tool.
 	let r = await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("models")] }]), ...owner });
-	assert.match(h.toolResults()[0], /^3 models:\n- mock\/eyes: text only, reasons\n- mock\/m \(yours\): sees pictures\n- mock\/quick: text only\n/);
+	assert.match(h.toolResults()[0], /^3 models:\n- mock\/eyes: text only, reasons, 128000 tokens of context, answers up to 4096, server of your owner's own\n- mock\/m \(yours\): sees pictures, 128000 tokens of context, answers up to 4096, server of your owner's own\n- mock\/quick: text only, 128000 tokens of context, answers up to 4096, server of your owner's own\n/);
+	assert.match(h.toolResults()[0], /As the main agent you set models up: add_model_server and add_model add, configure_model changes/, "the main agent is told where a model is set up");
 
 	// The id alone is enough where one model has it. The copy has the agent's files, tools and instructions: only the model differs.
 	r = await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [call("subagent", { tasks: ["@@REF:look@@"], model: "eyes", thinking: "high" })] }, { tools: [call("subagent", { tasks: ["@@REF:plain@@"] })] }]), session: "chooses", ...owner });

@@ -24,14 +24,21 @@
 // When Streamdown is upgraded, read its defaults again (`defaultRehypePlugins`, the components
 // it draws, its controls) and run the desktop suite: its markdown test fails without each of the three.
 import { createCodePlugin } from "@streamdown/code";
-import { ArrowRightIcon, ChevronRightIcon, PlayIcon } from "lucide-react";
+import { ArrowRightIcon, ChevronRightIcon, FileCodeIcon, PlayIcon } from "lucide-react";
 import { Children, createContext, createElement, isValidElement, memo, useContext, useEffect, useState, type ReactNode } from "react";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { type Options as Schema } from "rehype-sanitize";
-import { CodeBlock, CodeBlockCopyButton, defaultComponents, Streamdown, useIsCodeFenceIncomplete, type Components, type ControlsConfig, type ExtraProps } from "streamdown";
+import type { HighlightResult } from "@streamdown/code";
+import { defaultComponents, Streamdown, useIsCodeFenceIncomplete, type Components, type ControlsConfig, type ExtraProps } from "streamdown";
+import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton, CodeBlockHeader, CodeBlockLine, CodeBlockTitle } from "@/components/ui/code-block";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogClose, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Kbd } from "@/components/ui/kbd";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Pulse } from "@/components/pulse";
 import { type Heard, Sound } from "@/components/sound";
 import { cn } from "@/lib/utils";
@@ -39,7 +46,8 @@ import { api, bytesOf, media } from "./api.ts";
 import { bridge } from "./bridge.ts";
 import { mediaKind, store } from "./model.ts";
 import { SHELLS } from "./runnable.ts";
-import { baseName, errText, short } from "./text.ts";
+import { baseName, errText, localAddress, short } from "./text.ts";
+import { contextMenu } from "@/components/page-menu";
 
 /** The tags and attributes an answer keeps. Everything else is taken away, its words kept; what is in `strip` goes with its words. */
 export const CLEAN: Schema = {
@@ -48,11 +56,15 @@ export const CLEAN: Schema = {
 		a: ["href", "title"],
 		img: ["src", "alt", "title"],
 		// The language of a code block, which the highlighter reads; no other class survives.
-		code: [["className", /^language-./]],
+		// And the rest of a block's opening line, read for its `title="…"` (a file's name), drawn as text.
+		code: [["className", /^language-./], "metastring"],
 		th: ["align", "colSpan", "rowSpan", "scope"],
 		td: ["align", "colSpan", "rowSpan"],
 		ol: ["start", "reversed"],
-		li: ["value"],
+		// GFM's mark on its footnotes, which are drawn smaller; nothing else reads it.
+		section: ["dataFootnotes"],
+		// A task's state, which taskBoxes puts there: drawn as a box that cannot be changed.
+		li: ["value", ["dataTask", "done", "todo"]],
 		details: ["open"],
 		abbr: ["title"],
 		time: ["dateTime"],
@@ -65,7 +77,54 @@ export const CLEAN: Schema = {
 	clobberPrefix: "",
 };
 
-const REHYPE = [rehypeRaw, [rehypeSanitize, CLEAN]] as const;
+interface HastNode {
+	type: string;
+	tagName?: string;
+	properties?: Record<string, unknown>;
+	children?: HastNode[];
+}
+
+/**
+ * Footnotes as GFM writes them: a section with a heading meant for screen readers alone, which CLEAN
+ * would leave as a heading for everyone, since it takes the class that hides it. The heading goes and a
+ * separator stands in its place, above the notes. It runs before CLEAN, which takes away the marks it
+ * goes by; it only removes, so an answer that imitates the section gains nothing.
+ */
+function quietFootnotes() {
+	const walk = (node: HastNode) => {
+		if (node.tagName === "section" && node.properties?.dataFootnotes !== undefined) {
+			node.children = (node.children ?? []).map((child) => (child.tagName === "h2" && child.properties?.id === "footnote-label" ? { type: "element", tagName: "hr", properties: {}, children: [] } : child));
+		}
+		node.children?.forEach(walk);
+	};
+	return walk;
+}
+
+/**
+ * A task list's item (`- [x] done`) as GFM writes it: a checkbox input in front of the item's words,
+ * which CLEAN takes away with every input. Its state goes onto the item instead (`data-task`), which
+ * the item draws as the stock Checkbox, read only. It only moves a done/to-do mark, so raw HTML that
+ * imitates it gains a drawn box and nothing more.
+ */
+function taskBoxes() {
+	const isBox = (node: HastNode) => node.tagName === "input" && node.properties?.type === "checkbox";
+	const walk = (node: HastNode) => {
+		if (node.tagName === "li") {
+			const first = node.children?.find((child) => child.type === "element");
+			const box = first && isBox(first) ? first : first?.tagName === "p" ? first.children?.find(isBox) : undefined;
+			if (box) {
+				node.properties = { ...node.properties, dataTask: box.properties?.checked ? "done" : "todo" };
+				const drop = (parent: HastNode) => (parent.children = parent.children?.filter((child) => child !== box));
+				drop(node);
+				if (first && first !== box) drop(first);
+			}
+		}
+		node.children?.forEach(walk);
+	};
+	return walk;
+}
+
+const REHYPE = [rehypeRaw, quietFootnotes, taskBoxes, [rehypeSanitize, CLEAN]] as const;
 
 const isWeb = (url: string) => /^https?:\/\//i.test(url);
 const DATA_IMAGE = /^data:image\/(png|jpeg|gif|webp);base64,/i;
@@ -90,38 +149,69 @@ const textOf = (node: Node | { type: string; value?: string; children?: unknown[
 };
 
 /**
- * What makes a link without an href one all the same: a click opens it in the owner's browser, and so
- * does Enter once it has the focus, which it takes in the order of the page, with the stock focus ring.
+ * What makes a link without an href one all the same. A click opens it in the conversation's browser (a web
+ * page) or the owner's own (an address on this computer, or with ⌘, Ctrl or ⌥ held); the right button offers
+ * both. Enter, once it has the focus, opens it as a plain click does; it takes the focus in the order of the
+ * page, with the stock focus ring. See `store.openLink`.
  */
-const opens = (url: string) => ({
-	role: "link",
-	tabIndex: 0,
-	onClick: (e: React.MouseEvent) => {
-		e.preventDefault();
-		void bridge.open(url);
-	},
-	onKeyDown: (e: React.KeyboardEvent) => {
-		if (e.key !== "Enter") return;
-		e.preventDefault();
-		void bridge.open(url);
-	},
-});
+function linkHandlers(url: string, where: Where | undefined) {
+	const agent = where?.agent ?? "";
+	const open = (outside: boolean) => (!where || outside ? void bridge.open(url) : store.openLink(agent, where.session, url));
+	return {
+		role: "link",
+		tabIndex: 0,
+		onClick: (e: React.MouseEvent) => {
+			e.preventDefault();
+			open(e.metaKey || e.ctrlKey || e.altKey);
+		},
+		onKeyDown: (e: React.KeyboardEvent) => {
+			if (e.key !== "Enter") return;
+			e.preventDefault();
+			open(e.metaKey || e.ctrlKey || e.altKey);
+		},
+		onContextMenu: (e: React.MouseEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+			void linkMenu(url, where);
+		},
+	};
+}
 const FOCUS = "rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50";
 
+async function linkMenu(url: string, where: Where | undefined): Promise<void> {
+	const local = localAddress(url);
+	const tab = where ? store.answerTab(where.agent, where.session) : undefined;
+	const picked = await contextMenu([
+		{ id: "pine", label: local ? `Open in Pine's Browser (lets the agent reach ${local})` : "Open in Pine's Browser", enabled: Boolean(tab) },
+		{ id: "outside", label: "Open in Your Browser" },
+		{ id: "sep", label: "", separator: true },
+		{ id: "copy", label: "Copy Address" },
+	]);
+	if (picked === "pine" && where) store.openLink(where.agent, where.session, url, "inPine");
+	else if (picked === "outside") void bridge.open(url);
+	else if (picked === "copy") void navigator.clipboard.writeText(url).then(() => store.flash("Copied the address."), () => store.flash("Could not copy the address.", "warn"));
+}
+
 function Link({ href, children, node }: React.ComponentProps<"a"> & ExtraProps) {
+	const where = useContext(WhereContext);
 	const url = typeof href === "string" ? href : "";
 	const shown = textOf(node).trim();
+	// A place in the answer itself, as a footnote's number is: its words alone. The way back from a note
+	// to where it was called is no words at all.
+	if (url.startsWith("#user-content-fnref-")) return null;
+	if (url.startsWith("#")) return <>{children}</>;
 	if (!isWeb(url)) return <span>{url && shown !== url ? <>{children} ({url})</> : children}</span>;
 	const plain = shown === url || shown === url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+	const on = linkHandlers(url, where);
 	return (
 		<>
-			<a data-href={url} title={url} className={cn("cursor-pointer text-primary underline decoration-primary/40 underline-offset-2", FOCUS)} {...opens(url)}>
+			<a data-href={url} title={url} className={cn("cursor-pointer text-primary underline decoration-primary/40 underline-offset-2", FOCUS)} {...on}>
 				{children}
 			</a>
 			{/* Beside the link, not inside it: it is the address in plain letters, not more of the link's words.
 			    It flows with the sentence: a line of its own would cut the link off from where it leads. */}
 			{plain ? null : (
-				<span data-target="" className={cn("ml-1 inline cursor-pointer font-mono text-xs text-faint wrap-anywhere", FOCUS)} title={url} {...opens(url)}>
+				<span data-target="" className={cn("ml-1 inline cursor-pointer font-mono text-xs text-faint wrap-anywhere", FOCUS)} title={url} {...on}>
 					<ArrowRightIcon className="mr-1 inline size-3" aria-hidden />
 					{short(url.replace(/^https?:\/\//, ""), 72)}
 				</span>
@@ -233,30 +323,200 @@ function Summary({ children }: React.ComponentProps<"summary"> & ExtraProps) {
 
 const DefaultCode = defaultComponents.code as React.ComponentType<React.ComponentProps<"code"> & ExtraProps>;
 
-/** Code: Streamdown's own, and for a block of shell commands in a conversation, the same block with a Run button.
- *  The button runs it in a terminal of this computer: where the app uses another machine's pine, there is none. */
+/** Inline code is Streamdown's own; a block is the stock Code Block (AnswerCode). */
 function Code(props: React.ComponentProps<"code"> & ExtraProps) {
-	const where = useContext(WhereContext);
+	if (!("data-block" in props)) return createElement(DefaultCode, props);
 	const language = /(?:^|\s)language-(\S+)/.exec(props.className ?? "")?.[1]?.toLowerCase() ?? "";
-	if (!("data-block" in props) || !where?.session || !SHELLS.has(language) || store.remote) return createElement(DefaultCode, props);
-	return <ShellBlock code={textOf(props.node).replace(/\n$/, "")} language={language} agent={where.agent} session={where.session} />;
+	const meta = (props as { metastring?: unknown }).metastring;
+	const title = typeof meta === "string" ? /\btitle=(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(meta) : null;
+	return <AnswerCode code={textOf(props.node).replace(/\n$/, "")} language={language} file={(title?.[1] ?? title?.[2] ?? title?.[3])?.trim() || undefined} />;
 }
 
-function ShellBlock({ code, language, agent, session }: { code: string; language: string; agent: string; session: string }) {
+/** The lines of a block, colored by Streamdown's highlighter in pine's code colors (CODE_THEME), or plain
+ *  while the highlighter loads and for a language it does not know. */
+function useCodeLines(code: string, language: string, incomplete: boolean): ReactNode[] {
+	const [late, setLate] = useState<{ code: string; tokens: HighlightResult } | undefined>();
+	const known = language !== "" && PLUGINS.code.supportsLanguage(language as never);
+	const now = known ? PLUGINS.code.highlight({ code, language: language as never, themes: CODE_THEMES, isIncomplete: incomplete }, (tokens) => setLate({ code, tokens })) : null;
+	const tokens = now ?? (late?.code === code ? late.tokens : undefined);
+	if (!tokens) return code.split("\n");
+	// With two themes, a token's look is in its htmlStyle: its color, and its font style as a variable,
+	// which is read here since both themes are pine's.
+	return tokens.tokens.map((line) =>
+		line.map((token, i) => {
+			const style = (token.htmlStyle ?? {}) as Record<string, string>;
+			return (
+				<span key={i} style={{ color: style.color, fontStyle: style["--shiki-dark-font-style"] }}>
+					{token.content}
+				</span>
+			);
+		}),
+	);
+}
+
+/**
+ * A block of code in an answer: the stock Code Block, its language in the header beside the copy button.
+ * A block of shell commands in a conversation also has a Run button, which runs it in a terminal of this
+ * computer: where the app uses another machine's pine, there is none, and while the block is still
+ * being written it waits.
+ */
+function AnswerCode({ code, language, file }: { code: string; language: string; file?: string }) {
+	const where = useContext(WhereContext);
 	const incomplete = useIsCodeFenceIncomplete();
+	const lines = useCodeLines(code, language, incomplete);
+	const runnable = Boolean(where?.session) && SHELLS.has(language) && !store.remote;
+	// The header names the file the block's opening line gives (```ts title="src/app.ts"), with a file's
+	// icon as shadcn's example of Code Block shows one; otherwise the language, or "text", as shadcn's
+	// Markdown example does.
 	return (
-		<CodeBlock code={code} language={language} isIncomplete={incomplete} lineNumbers={false} data-shell="">
-			<CodeBlockCopyButton />
-			{incomplete ? null : (
-				<Button variant="ghost" size="icon-xs" data-run="" aria-label="Run in the terminal" title="Run in this conversation's terminal" onClick={() => store.runInTerminal(agent, session, code)}>
-					<PlayIcon />
-				</Button>
-			)}
+		<CodeBlock data-language={language || undefined} data-shell={runnable || undefined}>
+			<CodeBlockHeader>
+				{file ? (
+					<CodeBlockTitle title={file}>
+						<FileCodeIcon />
+						{file}
+					</CodeBlockTitle>
+				) : (
+					<CodeBlockTitle>{language || "text"}</CodeBlockTitle>
+				)}
+				<CodeBlockActions>
+					<CodeBlockCopyButton value={code} />
+					{runnable && where?.session && !incomplete ? (
+						<Button variant="ghost" size="icon-xs" data-run="" aria-label="Run in the terminal" title="Run in this conversation's terminal" onClick={() => store.runInTerminal(where.agent, where.session!, code)}>
+							<PlayIcon />
+						</Button>
+					) : null}
+				</CodeBlockActions>
+			</CodeBlockHeader>
+			<CodeBlockContent>
+				{lines.map((line, i) => (
+					<CodeBlockLine key={i}>{line}</CodeBlockLine>
+				))}
+			</CodeBlockContent>
 		</CodeBlock>
 	);
 }
 
-const COMPONENTS: Components = { a: Link, img: Picture, details: Details, summary: Summary, code: Code };
+// A table is shadcn's Table, not Streamdown's own (a frame of its own that stops at 300 pixels and
+// scrolls inside the conversation). It scrolls sideways in a ScrollArea, as shadcn scrolls sideways,
+// rather than in Table's own container, whose scrollbar is the system's and covers the last row. A side
+// with more of the table beyond it fades out (stock scroll-fade-x), which says there is more to see.
+// Unlike stock, a cell's text goes onto more lines, between words only, so that a sentence in a cell
+// is not one long line on a phone; an address or a piece of code is one long word, and breaks anywhere.
+function AnswerTable({ node: _, className, ...props }: React.ComponentProps<"table"> & ExtraProps) {
+	return (
+		<ScrollArea className="*:data-[slot=scroll-area-viewport]:scroll-fade-x **:data-[slot=table-container]:overflow-visible">
+			<Table className={cn("wrap-break-word [&_:is(a,code)]:wrap-anywhere", className)} {...props} />
+			<ScrollBar orientation="horizontal" />
+		</ScrollArea>
+	);
+}
+
+function AnswerCell({ node: _, className, ...props }: React.ComponentProps<"td"> & ExtraProps) {
+	return <TableCell className={cn("whitespace-normal", className)} {...props} />;
+}
+
+// Lists as shadcn's typography draws them: the marker outside, so that a wrapped line starts under the
+// text and not under the bullet (Streamdown puts it inside, and makes a paragraph in an item inline,
+// which runs an item's two paragraphs into one line).
+function List({ node: _, className, ...props }: React.ComponentProps<"ul"> & ExtraProps) {
+	return <ul className={cn("ml-6 list-disc [&>li]:mt-2", className)} {...props} />;
+}
+
+function NumberedList({ node: _, className, ...props }: React.ComponentProps<"ol"> & ExtraProps) {
+	return <ol className={cn("ml-6 list-decimal [&>li]:mt-2", className)} {...props} />;
+}
+
+function ListItem({ node: _, className, children, ...props }: React.ComponentProps<"li"> & ExtraProps & { "data-task"?: "done" | "todo" }) {
+	const task = props["data-task"];
+	// A task: the stock Checkbox where the marker was, read only, centred on the first line of its words.
+	if (task) {
+		return (
+			<li className={cn("-ms-6 flex list-none items-start gap-2", className)} {...props}>
+				<span className="flex h-lh items-center">
+					<Checkbox checked={task === "done"} readOnly aria-label={task === "done" ? "Done" : "To do"} />
+				</span>
+				<div className="min-w-0 flex-1 [&>p:not(:first-child)]:mt-2">{children}</div>
+			</li>
+		);
+	}
+	return (
+		<li className={cn("[&>p:not(:first-child)]:mt-2", className)} {...props}>
+			{children}
+		</li>
+	);
+}
+
+// A quote as shadcn's typography draws one: a thin rule and italics, in the text's own color, so that
+// it reads as well as the rest of the answer.
+function Quote({ node: _, className, ...props }: React.ComponentProps<"blockquote"> & ExtraProps) {
+	return <blockquote className={cn("flex flex-col gap-2 border-s-2 ps-6 italic", className)} {...props} />;
+}
+
+// Headings on the answer's own scale: the reading part is at the body's size, and a heading stands a
+// step or two above it, not at Streamdown's fixed 30 pixels. Space above sets a heading apart from
+// what it closes, as shadcn's typography does.
+const HEADING = { h1: "text-xl", h2: "text-lg", h3: "text-base", h4: "text-base", h5: "text-base", h6: "text-base" } as const;
+function heading(Tag: keyof typeof HEADING) {
+	return function Heading({ node: _, className, ...props }: React.ComponentProps<"h1"> & ExtraProps) {
+		return <Tag className={cn("mt-6 font-semibold text-balance", HEADING[Tag], className)} {...props} />;
+	};
+}
+
+function KeyName({ node: _, ...props }: React.ComponentProps<"kbd"> & ExtraProps) {
+	return <Kbd {...props} />;
+}
+
+/** Bold as <strong>, which says it matters, where Streamdown draws a span. */
+function Strong({ node: _, ...props }: React.ComponentProps<"strong"> & ExtraProps) {
+	return <strong className="font-semibold" {...props} />;
+}
+
+function Rule() {
+	return <Separator />;
+}
+
+/** A section of the answer; the footnotes are secondary text, muted as a description is. */
+function Section({ node: _, className, ...props }: React.ComponentProps<"section"> & ExtraProps & { "data-footnotes"?: unknown }) {
+	return <section className={cn(props["data-footnotes"] !== undefined && "text-sm text-muted-foreground", className)} {...props} />;
+}
+
+/** A stock part drawn for an element of the answer, without the syntax tree Streamdown hands it. */
+function bare<P extends object>(Part: React.ComponentType<P>) {
+	return function Bare({ node: _, ...props }: P & ExtraProps) {
+		return <Part {...(props as P)} />;
+	};
+}
+
+const COMPONENTS: Components = {
+	a: Link,
+	img: Picture,
+	details: Details,
+	summary: Summary,
+	code: Code,
+	ul: List,
+	ol: NumberedList,
+	li: ListItem,
+	blockquote: Quote,
+	h1: heading("h1"),
+	h2: heading("h2"),
+	h3: heading("h3"),
+	h4: heading("h4"),
+	h5: heading("h5"),
+	h6: heading("h6"),
+	kbd: KeyName,
+	strong: Strong,
+	hr: Rule,
+	section: Section,
+	table: AnswerTable,
+	thead: bare(TableHeader),
+	tbody: bare(TableBody),
+	tfoot: bare(TableFooter),
+	tr: bare(TableRow),
+	th: bare(TableHead),
+	td: AnswerCell,
+	caption: bare(TableCaption),
+};
 /**
  * The highlighter's theme for code in answers: every color is a `--code-*` variable of index.css, the
  * ones the code editor reads, so that code in an answer and in the code pane look the same and both

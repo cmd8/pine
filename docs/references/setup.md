@@ -36,6 +36,7 @@ is about what agents can do.
 | Any of the first five rows, for another agent | | **only the main agent** (the same tools, with `agent`) | |
 | A new type of event source (a program) | | | **only the main agent** (`add_source_type`), you confirm every time |
 | A model server of your own (llama.cpp, vLLM, LM Studio, ...) | | | **only the main agent** (`add_model_server`), you confirm every time |
+| One model of such a server: added, set up (context, longest answer, pictures, reasoning), removed; how many run on any model at once | | | **only the main agent** (`add_model`, `configure_model`, `remove_model`), you confirm every time |
 
 The main agent is the one `pine.json` names with `"main"`; without that entry it is the agent
 called `main`, or else the first one. It is pine's administrator: what you want changed about
@@ -43,6 +44,7 @@ pine, you ask it for, and it does it with tools that check what they are given, 
 you or an agent editing files. See "The main agent administers pine" below. The other agents do not have `create_agent`,
 `update_agent`, `rename_agent`, `remove_agent`, `agents`, `settings`, `set_setting`, `routes`, `add_route`,
 `remove_route`, `add_source_type`, `remove_source_type`, `add_model_server`, `remove_model_server`,
+`add_model`, `configure_model`, `remove_model`,
 `conversations`, `read_conversation`, `set_conversation`, `remove_conversation`, `rename_group`,
 `remove_group`, `sign_in`, `sign_out` or `sign_in_mcp_server`, and they are refused when they
 ask for the global scope. Their instructions tell them who can do it, so an agent you ask for something that is not its to do sends you to the main agent instead of
@@ -157,7 +159,11 @@ Which model the agent runs on is told to it with your message, so it needs no to
 | `create_agent` `id` `instructions` [`model`] [`tools`] [`color`] | Main agent only. See below. Changing and removing one, and pine's settings: "The main agent administers pine". |
 | **Model servers** | |
 | `add_model_server` `name` `url` [`context`] | Main agent only. Adds a model server of your own by its address; pine asks the server for its models. See "Adding a model server". |
-| `remove_model_server` `name` | Main agent only. Takes one out again, with the key pine keeps for it. Refused while an agent, the default, the judge of goals (`defaults.judge`) or the check of a swarm's answer (`defaults.checker`) uses one of its models. You are asked. |
+| `remove_model_server` `name` | Main agent only. Takes one out again, with the key pine keeps for it. Refused while an agent, the default, the judge of goals (`defaults.judge`), the check of a swarm's answer (`defaults.checker`) or a route's model call uses one of its models. You are asked. |
+| **Models** | |
+| `add_model` `model` [`context`] | Main agent only. Adds one more model of a server that is there already, as `server/model`: one the server serves and pine does not have yet (pine takes a server's models when it is added; a model loaded there since is not in pine). pine asks the server for it. You are asked. See "Setting up a model". |
+| `configure_model` `model` [`context`] [`max_output`] [`pictures`] [`reasoning`] [`runs`] | Main agent only. Changes how one model is set up; only what is given changes. `context`, `max_output`, `pictures` and `reasoning` are for a model of a server of your own; `runs` (how many conversations and sub-agents use it at the same time, `limits.models`; `0` gives it back to `limits.maxConcurrentRuns`) is for any model. You see old and new, and are asked. See "Setting up a model". |
+| `remove_model` `model` | Main agent only. Takes one model of a server of your own out of pine; the server and its other models stay, and so does the model on the server. Refused while it is used (as for `remove_model_server`) and for a server's last model. You are asked. |
 | **Signing in** | |
 | `sign_in` `provider` [`way`] | Main agent only. Signs (logs) pine in to a model provider, such as a Claude or ChatGPT subscription: `way` is `browser` (an account or subscription: Claude, ChatGPT, GitHub Copilot) or `key` (an API key); left out, the provider's usual way. You confirm it, then pine's own dialog asks you for what the sign-in needs: the page to open (with its address and, for some providers, a code), the key in a hidden field, or a code to paste back. What you type goes to pine and never to the agent; the credential is kept in `auth.json`, which no agent can read. Say no to the page's question to stop the sign-in. When the agents had no model that answers, pine chooses one of the new ones. Refused in a conversation that has read outside content. The same as Settings > Models in the Pine app and `pine login`. |
 | `sign_out` `provider` | Main agent only. Removes pine's sign-in to a model provider; you are told which agents use its models, and asked. |
@@ -166,7 +172,7 @@ Which model the agent runs on is told to it with your message, so it needs no to
 | `request_access` [`path`] [`write`] [`network`] `reason` | Asks you for access the conversation does not have: a file or folder outside the workspace (`path`; with `write: true` also to change it), or the network from the shell (`network: true`). You decide; a yes holds for the conversation until it is reset or pine restarts. pine's home is never granted. An agent does not have to call it: when a file tool or a shell command needs something outside, pine asks you the same question itself. See "When a call needs something outside" and "Modes" in [security.md](security.md). |
 | `delegate` `agent` `task` [`wait`] [`thread`] [`worktree`] | Hands a task to another agent and gets its answer. Only there when the agent's `delegates` list is not empty, which by default names every agent but the main one. The other agent works in its own mode or the caller's, whichever is stricter. See [agents.md](agents.md). |
 | `subagent` `tasks` [`stages`] [`model`] [`thinking`] [`worktree`] [`pool`] [`ids`] [`note`] [`check`] [`verify`] | Runs several copies of the agent side by side, one task each, and returns their answers. With `pool` there can be many more tasks than run at once: they are worked through on the conversation's board ([boards.md](boards.md)). With `ids` the copies work tasks that are on a board already and settle them there. With `model` the copies run on another model than the agent's, with `thinking` at another reasoning level. They never ask you anything. See [agents.md](agents.md), "Sub-agents". |
-| `models` | Lists the models that are set up, as `provider/model`, with what each can do (see pictures, reason) and which one is the agent's own. This is how an agent answers "which models are there", and where it finds what `subagent` takes as `model`. |
+| `models` | Lists the models that are set up, as `provider/model`, with what each can do (see pictures, reason) and which one is the agent's own; for a model of a server of your own also its context and longest answer, and for any model its own number of runs at a time. This is how an agent answers "which models are there", and where it finds what `subagent` takes as `model`. For the main agent it also asks each model server of your own what it serves (its `/v1/models`, with the key pine has for it, three seconds at most) and names what the server serves that pine does not have yet, with the server's own title and whether it is loaded where the server says so, and what pine has that the server no longer serves. A server that does not answer is named as such. |
 | `download` `url` `path` | Fetches a file from a web address into the workspace, byte for byte. It is how an agent gets a file that a remote MCP server made: by the link in the tool's answer, never by a file path from it. See "Downloads" in [security.md](security.md) and "Files and pictures from a remote server" in [mcp.md](mcp.md). |
 | `boards`, `board_read`, `board_post`, `board_claim`, `board_done`, `board_answer`, `board_remove` | The tasks of a job that several work on: a conversation and its sub-agents, or several agents. A task is taken by one at a time, its result stays on the board, and one that cannot be done without a decision asks and is answered. A board whose work is finished is removed with `board_remove`; one that others use only after your yes. See [boards.md](boards.md). |
 | `publish_event` `topic` [`text`] [`data`] | Publishes an event on a topic of the agent's `publish` list. Without that list the tool is not there. See [events.md](events.md). |
@@ -204,6 +210,37 @@ for the number. The name cannot be one a provider already has (`anthropic`, `ope
 no stored key can be pointed at another address. You can do the same yourself with
 `pine model add <name> <address>` ([operations.md](operations.md)); what is written is described
 in [configuration.md](configuration.md), "models.json".
+
+## Setting up a model
+
+What pine knows about a model of a server of your own, it took from the server when the server
+was added. A model the server loaded later does not show up in pine until it is added, and a
+server restarted with another context still has the old one in pine. When that is not right,
+tell the main agent; it never edits `models.json` itself, and you do not have to either.
+
+Which models a server has that pine does not know about, the main agent sees in its `models`
+list: it asks each of your model servers for its models every time (the server's
+`/v1/models`), so "which models does studio have that pine doesn't" is answered from the
+server itself, and so is a model pine still has that the server no longer serves.
+
+| You say | The main agent calls |
+|---|---|
+| "studio serves gemma now too, add it" | `add_model` `studio/gemma`: pine asks the server whether it serves `gemma` and how much context it gets, and writes the entry. A model the server does not list is set up on the server first (loaded, or named with `--alias` for llama-server). |
+| "I restarted the server with 64k context" | `configure_model` `studio/qwen3-coder` `context: 65536`. The context is what one request gets: for llama-server, `-c` divided by `-np`. A context larger than the server's makes a long conversation fail; a smaller one makes it compact early. A smaller context also shortens the longest answer to half of it, unless `max_output` is given. |
+| "let it write longer answers" | `configure_model` with `max_output`: the most tokens one answer may have, below the context. |
+| "it can see pictures" / "it cannot" | `configure_model` with `pictures`. Only for a model that reads them: agents are then sent the pictures that come in. |
+| "turn thinking off for it" / "it reasons" | `configure_model` with `reasoning`. Off takes the level map away too, so no level is sent; on marks the model as one that thinks and is sent a level (the levels of a llama.cpp template are mapped when the server is added: [configuration.md](configuration.md), "Thinking levels"). |
+| "only one at a time on the laptop's model" | `configure_model` with `runs: 1`. For any model, a provider's too: how many conversations and sub-agents use it at the same time (`limits.models`). For a server of your own, the number of parallel slots (`-np`). `runs: 0` gives the model back to pine's own limit, `limits.maxConcurrentRuns`. |
+| "take the old model out" | `remove_model` `studio/old`: only from pine; the server is not touched. Not while an agent, a default or a route uses it, and not the server's last model (`remove_model_server` takes the whole server). |
+
+You are shown each change with what was there before, and asked, in every mode. None of the
+three is done in a conversation that has read outside content, except a removal, which you are
+told about. The models of a provider pine signs in to (Claude, ChatGPT, OpenAI, ...) come with
+pine as they are: of those, only `runs` can be set. Which model an agent runs on is not set
+here: `update_agent` with `model` for one agent, `set_setting` with `defaults.model` for all
+("The main agent administers pine"). `models` lists every model with what pine sends it now.
+Through the control API the same is `POST /models/model`, `/models/model/set` and
+`/models/model/remove` ([operations.md](operations.md)).
 
 ## Creating an agent
 
@@ -246,7 +283,7 @@ agent, not a pine that does not start.
 |---|---|
 | Agents | `agents` (list), `create_agent`, `update_agent`, `rename_agent`, `remove_agent` |
 | What an agent has: event sources, subscriptions, MCP servers, skills, schedules | The tools every agent has for itself, with `agent` for another agent, and with `scope: "global"` for all agents |
-| Types of event source, model servers | `add_source_type`, `remove_source_type`, `add_model_server`, `remove_model_server` |
+| Types of event source, model servers, models | `add_source_type`, `remove_source_type`, `add_model_server`, `remove_model_server`, `add_model`, `configure_model`, `remove_model` |
 | pine's settings | `settings` (list), `set_setting` |
 | Routes: rules of your own in pine.json | `routes` (list), `add_route`, `remove_route` |
 | Conversations: your tabs, and each agent's list of them | `conversations` (list), `read_conversation`, `set_conversation`, `remove_conversation`, `rename_group`, `remove_group` |

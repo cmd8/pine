@@ -106,21 +106,23 @@ test("work main hands books shows at books, held to main's safe mode; what happe
 	await frame().locator("[data-slot=office-words] > li[data-agent=books] li[data-work]").waitFor({ state: "detached", timeout: 15_000 });
 });
 
-test("a piece of work opens from under the view, and the browser opens beside the view", async () => {
+test("a piece of work opens from under the view, and the browser opens in the side panel beside the view", async () => {
 	await page.locator("[data-slot=view-inspector] button", { hasText: "you asked main" }).click();
 	await page.locator("[data-slot=view-inspector]").getByRole("button", { name: "Open" }).click();
 	await page.waitForSelector("[data-slot=tab][data-active]", { timeout: 10_000 });
 	assert.match(await page.textContent("[data-slot=tab][data-active]"), /main/);
 	await page.setViewportSize({ width: 1700, height: 900 });
 	await menu("browser");
-	await sees("[data-slot=browser-aside]", "the browser");
-	await sees("[data-slot=view-aside]", "the view, still open beside the browser");
+	await sees("[data-slot=code-panel] [data-slot=browser]", "the browser, in the side panel");
+	await sees("[data-slot=view-aside]", "the view, still open beside it");
 	await shoot("beside-browser");
+	// Each in a group of its own: a narrower window keeps both, narrower.
 	await page.setViewportSize({ width: 1280, height: 820 });
-	await page.waitForSelector("[data-slot=view-aside]", { state: "detached", timeout: 5000 });
-	await menu("view");
-	await sees("[data-slot=view-aside]", "the view in front again");
-	assert.equal(await page.$("[data-slot=browser-aside]"), null, "the browser waits behind it");
+	await sees("[data-slot=view-aside]", "the view, still there");
+	await sees("[data-slot=code-panel] [data-slot=browser]", "the browser, still there");
+	await menu("browser");
+	await page.waitForSelector("[data-slot=code-panel]", { state: "detached", timeout: 5000 });
+	await sees("[data-slot=view-aside]", "the view, open when the side panel is put away");
 });
 
 test("a view can reach neither the app, nor the daemon, nor the network, nor storage, and is told no text of pine's", async () => {

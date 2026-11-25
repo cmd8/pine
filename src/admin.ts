@@ -17,7 +17,7 @@ import { placeOf } from "./snapshots.ts";
 import type { Kv, TaskStore } from "./store.ts";
 import type { Boards } from "./boards.ts";
 import { errText, type Logger, matchesAny, onPath, parseDuration } from "./util.ts";
-import { piDefaults, suggestModel } from "./models.ts";
+import { addServerModel, changeServerModel, checkContext, checkModelChange, checkServerModelRemoval, listModelServers, lookAt, type ModelChange, piDefaults, removeServerModel, serverKey, serverModel, suggestModel } from "./models.ts";
 import type { AgentManager } from "./agents.ts";
 
 export const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -925,4 +925,112 @@ export async function settleModel(cfg: PineConfig, manager: AgentManager, log: L
 		log.warn(`could not choose a model that answers: ${errText(e)}`);
 		return undefined;
 	}
+}
+
+// ---- models of the owner's own servers: added, set up, removed one by one ------------------------
+// One road for the main agent's tools and the control API: a plan is checked and says in words what
+// it does, before anybody is asked; `apply` writes it. models.json is pi's file: after a change pi
+// reads it again, and a model that pi then does not have puts the file back as it was.
+
+/** "server/id" as its two parts. */
+export function splitModelRef(ref: unknown): { name: string; id: string } {
+	const text = String(ref ?? "").trim();
+	const at = text.indexOf("/");
+	if (at < 1 || at === text.length - 1) throw new Error(`give the model as server/model, as the models list names it (for example studio/qwen3-coder), not "${text}"`);
+	return { name: text.slice(0, at), id: text.slice(at + 1) };
+}
+
+async function rewriteModels(cfg: PineConfig, manager: AgentManager, write: () => void, expect?: string): Promise<void> {
+	const file = path.join(cfg.home, "models.json");
+	const before = fs.readFileSync(file, "utf8");
+	write();
+	await manager.reloadModels();
+	if (expect && !(await manager.availableModels()).includes(expect)) {
+		fs.writeFileSync(file, before, { mode: 0o600 });
+		await manager.reloadModels();
+		throw new Error(`not changed: pine did not find ${expect} in models.json afterwards, so the file is as it was. pine check and pine's log say why`);
+	}
+}
+
+/** The agents whose conversations run on this model: they start their next turn with the model as it is now. */
+const runningOn = (cfg: PineConfig, ref: string) => Object.values(cfg.agents).filter((a) => (a.model ?? cfg.defaults.model) === ref).map((a) => a.id);
+
+export interface ModelPlan {
+	/** The model, as "server/id". */
+	ref: string;
+	/** What happens, in words, for the owner's question. */
+	lines: string[];
+	apply: () => Promise<void>;
+}
+
+/** A model that a server of the owner's own serves and pine does not have yet. The server is asked; nothing is written. */
+export async function planModelAdd(cfg: PineConfig, manager: AgentManager, ref: unknown, context?: number): Promise<ModelPlan> {
+	const { name, id } = splitModelRef(ref);
+	checkContext(context);
+	const key = serverKey(cfg.home, name);
+	const server = listModelServers(cfg.home).find((s) => s.name === name)!;
+	if (server.models.some((m) => m.id === id)) throw new Error(`"${name}/${id}" is there already. To change how it is set up: configure_model`);
+	const look = await lookAt(server.baseUrl, key);
+	if (look.locked) throw new Error(`the model server "${name}" did not accept the key pine has for it. Nothing was added. Your owner removes the server and adds it again with the right key`);
+	const model = look.models.find((m) => m.id === id);
+	if (!model) throw new Error(`"${name}" serves no model "${id}". It serves: ${look.models.map((m) => m.id).join(", ")}. A model the server does not list is set up on the server first (loaded, or given a name with --alias)`);
+	const size = context ?? model.contextWindow;
+	if (!size) throw new Error(`the server does not say how much context ${id} gets. Give it as "context": the number of tokens one request may use, as your owner says (what the server was started with); never a guess`);
+	const full = `${name}/${id}`;
+	return {
+		ref: full,
+		lines: [`add the model ${full} of the model server "${name}" at ${server.baseUrl}`, `${size} tokens of context, ${model.images ? "text and pictures" : "text only"}${model.reasoning ? ", reasons" : ""}`],
+		apply: () => rewriteModels(cfg, manager, () => addServerModel(cfg.home, name, model, context), full),
+	};
+}
+
+/** What can be set for one model: its entry (only for a server of the owner's own), and how many runs it takes at a time (for any model). */
+export interface ModelSetup extends ModelChange {
+	/** Runs at a time on this model (`limits.models`); 0 gives it back to pine's own limit. */
+	runs?: number;
+}
+
+/** A change to how one model is set up, checked. Nothing is written. */
+export async function planModelChange(cfg: PineConfig, manager: AgentManager, ref: unknown, setup: ModelSetup): Promise<ModelPlan> {
+	const { name, id } = splitModelRef(ref);
+	const full = `${name}/${id}`;
+	const { runs, ...change } = setup;
+	const entry = Object.values(change).some((v) => v !== undefined);
+	const lines: string[] = [];
+	if (entry) {
+		// Throws for a provider pine signs in to: its models are pi's, as they come.
+		serverModel(cfg.home, name, id);
+		lines.push(...checkModelChange(cfg.home, name, id, change));
+	}
+	let limit: ReturnType<typeof checkModelLimit> | undefined;
+	if (runs !== undefined) {
+		const known = [...new Set([...listModelServers(cfg.home).flatMap((x) => x.models.map((m) => `${x.name}/${m.id}`)), ...(await manager.availableModels())])];
+		limit = checkModelLimit(known, name, id, runs === 0 ? undefined : runs);
+		const was = cfg.limits.models[full];
+		const pine = `pine's own limit (${cfg.limits.maxConcurrentRuns}, shared with every model without a number)`;
+		if (was !== limit.limit) lines.push(`runs at a time: ${was ?? pine} -> ${limit.limit ?? pine}`);
+	}
+	if (!entry && runs === undefined) throw new Error("nothing to change: give at least one of context, max_output, pictures, reasoning, runs");
+	if (!lines.length) throw new Error(`nothing changes: ${full} is set up that way already`);
+	return {
+		ref: full,
+		lines: [`change the model ${full}`, ...lines],
+		apply: async () => {
+			if (entry && lines.some((l) => !l.startsWith("runs at a time"))) await rewriteModels(cfg, manager, () => changeServerModel(cfg.home, name, id, change), full);
+			if (limit) applyModelLimit(cfg, limit);
+			await manager.refreshSessions(runningOn(cfg, full));
+		},
+	};
+}
+
+/** One model taken out of a server of the owner's own, checked. Nothing is written. */
+export function planModelRemove(cfg: PineConfig, manager: AgentManager, ref: unknown): ModelPlan {
+	const { name, id } = splitModelRef(ref);
+	checkServerModelRemoval(cfg, name, id);
+	const full = `${name}/${id}`;
+	return {
+		ref: full,
+		lines: [`remove the model ${full} from pine`, `The server "${name}" and its other models stay${cfg.limits.models[full] !== undefined ? "; its number of runs at a time goes with it" : ""}. Nothing uses it.`],
+		apply: () => rewriteModels(cfg, manager, () => removeServerModel(cfg, name, id)),
+	};
 }

@@ -9,7 +9,7 @@ import path from "node:path";
 import { before, test } from "node:test";
 import { mockMsg } from "../../baseline/tests/mock.mjs";
 import { daemonGone, ours } from "./support/daemon.ts";
-import { activeOption, HERE, announced, api, app, BROWSER_TOGGLE, closed, CODE_EDGE, CODE_TOGGLE, confirm, far, folder, home, json, menu, mock, named, page, sees, shot, SIDE_EDGE, started, stillInside, visit, write } from "./support/window.ts";
+import { activeOption, HERE, announced, api, app, closed, CODE_EDGE, CODE_TOGGLE, confirm, far, folder, home, json, menu, mock, named, page, sees, shot, SIDE_EDGE, started, stillInside, visit, write } from "./support/window.ts";
 
 // The question about the browser for the web tools is app.test.ts's: here it is answered and gone.
 before(() => started());
@@ -180,7 +180,7 @@ test("a conversation is opened from the side bar with the keyboard alone, and a 
 	assert.ok((await group.locator("[role=option]").count()) > 0);
 	// The buttons on the agent's line are stops of their own, shown while the keyboard is on the line; its conversations come after the plus:
 	// Tab goes in, the arrows move, Enter opens.
-	for (const label of ["Settings of scout", "Open a folder for a conversation with scout", "New conversation with scout"]) {
+	for (const label of ["More for scout", "New conversation with scout"]) {
 		await page.keyboard.press("Tab");
 		assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), label);
 		assert.equal(await page.evaluate(() => getComputedStyle(document.activeElement!).opacity), "1", `${label} is shown while it has the keyboard`);
@@ -842,35 +842,20 @@ test("a phone-wide window lays the side bar and the panel over the conversation,
 		await sees("[data-slot=sidebar][data-mobile=true]");
 		await page.keyboard.press("Escape");
 		await page.waitForSelector("[data-slot=sidebar][data-mobile=true]", { state: "detached" });
-		// The panel beside a conversation is a sheet over it, and closing the sheet closes the panel.
+		// The side panel is a sheet over the conversation, and closing the sheet closes the panel. No groups: one row of tabs.
 		await menu("code-agent");
 		await sees("[data-slot=sheet-content] [data-slot=code-panel]");
-		assert.equal(await page.locator("[data-slot=resizable-handle]:has(+ #code-panel)").count(), 0);
+		assert.equal(await page.locator("[data-slot=dock]").count(), 0);
 		// The sheet lies over the title bar's drag region: it takes its own clicks, or a click in it would move the window.
 		assert.equal(await page.$eval("[data-slot=sheet-content]", (e: Element) => getComputedStyle(e).getPropertyValue("-webkit-app-region")), "no-drag");
 		await page.keyboard.press("Escape");
 		await page.waitForSelector("[data-slot=code-panel]", { state: "detached" });
-		// The browser's aside is a sheet the same way, and of the two only the one opened last lies over the conversation;
-		// the other one's icon says it is open behind.
-		await menu("code-agent");
-		await sees("[data-slot=sheet-content] [data-slot=code-panel]");
+		// The browser is the side panel's: the menu's item opens the sheet on it, and again puts it away.
 		await menu("browser");
-		await sees("[data-slot=sheet-content] [data-slot=browser-aside]");
-		assert.equal(await page.locator("[data-slot=code-panel]").count(), 0);
-		assert.equal(await page.locator("[data-slot=resizable-handle]:has(+ #browser-panel)").count(), 0);
-		await sees(`${CODE_TOGGLE}[data-behind]`);
-		// Asking for the one behind brings it to the front; closing that one leaves the other behind, until it is asked for.
-		await menu("code");
-		await sees("[data-slot=sheet-content] [data-slot=code-panel]");
-		assert.equal(await page.locator("[data-slot=browser-aside]").count(), 0);
-		await sees(`${BROWSER_TOGGLE}[data-behind]`);
-		await menu("code");
+		await sees("[data-slot=sheet-content] [data-slot=code-panel] [role=tab][aria-selected=true] >> text=Browser");
+		await menu("browser");
 		await page.waitForSelector("[data-slot=code-panel]", { state: "detached" });
 		assert.equal(await page.locator("[data-slot=sheet-content]").count(), 0);
-		await menu("browser");
-		await sees("[data-slot=sheet-content] [data-slot=browser-aside]");
-		await menu("browser");
-		await page.waitForSelector("[data-slot=browser-aside]", { state: "detached" });
 		// Between a phone and a laptop: the side bar has room for its column, the panel beside the conversation does not.
 		await size(900, 760);
 		await sees("#sidebar-panel [data-slot=sidebar]");
@@ -891,44 +876,46 @@ test("a phone-wide window lays the side bar and the panel over the conversation,
 	}
 });
 
-test("in a window too narrow for columns, putting away the sheet in front leaves the other one open behind, not over the conversation", async () => {
+test("a window too narrow for groups shows one row of all their tabs, and the groups come back as they were when it is wide", async () => {
 	const size = (width: number, height: number) => page.setViewportSize({ width, height });
 	const gone = (sel: string) => page.waitForSelector(sel, { state: "detached" });
+	const names = () => page.$$eval("[data-slot=tab] [data-slot=tab-name]", (els: Element[]) => els.map((e) => (e.textContent ?? "").trim()));
 	try {
 		await page.click("[data-slot=tab] >> nth=0");
 		if (await page.$("[data-slot=code-panel]")) await menu("code");
-		if (await page.$("[data-slot=browser-aside]")) await menu("browser");
+		// Wide: main's tab and a new conversation, the new one split off to the right of it, and the side panel beside them.
+		const tabs = await page.locator("[data-slot=tab]").count();
+		await menu("new");
+		await page.waitForFunction((n) => document.querySelectorAll("[data-slot=tab]").length > n, tabs);
+		await page.locator("[data-slot=tab][data-active]").click({ button: "right" });
+		await page.locator("[role=menuitem]", { hasText: "Split Right" }).click();
+		await page.waitForFunction(() => document.querySelectorAll("[data-slot=group-bar]").length === 2);
+		await menu("code-files");
+		await page.waitForFunction(() => document.querySelectorAll("[data-slot=group-bar]").length === 3);
+		const wide = await names();
+		// Narrow: one row of every tab, the panel's own tab is not in it, and the panel is a sheet that is asked for.
 		await size(900, 760);
-		await menu("browser");
-		await sees("[data-slot=sheet-content] [data-slot=browser-aside]");
-		await menu("code-agent");
+		await gone("[data-slot=dock]");
+		assert.deepEqual(await names(), wide);
+		assert.equal(await page.locator("[data-slot=pane-tab]").count(), 0);
+		assert.equal(await page.locator("[data-slot=sheet-content]").count(), 0, "no sheet comes up by itself");
+		await sees(`${CODE_TOGGLE}[aria-pressed=false]`);
+		await page.click(CODE_TOGGLE);
 		await sees("[data-slot=sheet-content] [data-slot=code-panel]");
-		// Escape puts the side panel away: the browser stays open, behind, and no sheet comes up in its place.
 		await page.keyboard.press("Escape");
 		await gone("[data-slot=code-panel]");
-		await new Promise((r) => setTimeout(r, 300));
-		assert.equal(await page.locator("[data-slot=sheet-content]").count(), 0, "no sheet comes up by itself");
-		await sees(`${BROWSER_TOGGLE}[aria-pressed=true][data-behind]`);
-		await sees(`${CODE_TOGGLE}[aria-pressed=false]`);
-		// Its own toggle brings it back as a sheet; its close button puts it away, and the side panel, open behind, stays there.
-		await menu("code");
-		await menu("browser");
-		await sees("[data-slot=sheet-content] [data-slot=browser-aside]");
-		await page.click("[data-slot=browser-aside] button[aria-label='Close the browser']");
-		await gone("[data-slot=browser-aside]");
-		await new Promise((r) => setTimeout(r, 300));
-		assert.equal(await page.locator("[data-slot=sheet-content]").count(), 0, "no sheet comes up by itself");
-		await sees(`${CODE_TOGGLE}[aria-pressed=true][data-behind]`);
-		// Wide again: the one left open shows as a column.
+		// Wide again: the groups and the side panel as they were.
 		await size(1280, 820);
 		await sees("#code-panel [data-slot=code-panel]");
+		await page.waitForFunction(() => document.querySelectorAll("[data-slot=group-bar]").length === 3);
+		await menu("close");
+		await page.waitForFunction(() => document.querySelectorAll("[data-slot=group-bar]").length === 2);
 		await menu("code");
 		await gone("[data-slot=code-panel]");
+		await page.waitForFunction(() => document.querySelectorAll("[data-slot=group-bar]").length === 1);
 	} finally {
-		await size(1800, 900);
-		if (await page.$("[data-slot=browser-aside]")) await menu("browser");
-		if (await page.$("[data-slot=code-panel]")) await menu("code");
 		await size(1280, 820);
+		if (await page.$("[data-slot=code-panel]")) await menu("code");
 	}
 });
 
@@ -951,8 +938,10 @@ test("what was typed in a file and not saved stays when the panel becomes a shee
 		await page.keyboard.type("unsaved draft");
 		const save = page.locator("[data-slot=code-panel]").getByRole("button", { name: "Save" });
 		assert.ok(await save.isEnabled());
-		// Narrower than the room for a column: the panel is drawn again inside a sheet, with the draft still in it.
+		// Narrower than the room for groups: the panel is drawn again inside a sheet when it is asked for, with the draft still in it.
 		await size(900, 760);
+		await page.waitForSelector("[data-slot=dock]", { state: "detached" });
+		await menu("code-files");
 		await sees("[data-slot=sheet-content] [data-slot=code-panel] .cm-content");
 		assert.match(await page.textContent("[data-slot=code-panel] .cm-content"), /unsaved draft/);
 		assert.ok(await save.isEnabled());
@@ -965,7 +954,7 @@ test("what was typed in a file and not saved stays when the panel becomes a shee
 		await page.keyboard.press("Escape");
 		await new Promise((r) => setTimeout(r, 300));
 		assert.equal(await page.locator("[data-slot=sheet-content] [data-slot=code-panel]").count(), 1);
-		// Wide again: the panel is a column, and the draft is still there to save or to leave.
+		// Wide again: the panel is in its group, and the draft is still there to save or to leave.
 		await size(1280, 820);
 		await sees("#code-panel [data-slot=code-panel] .cm-content");
 		assert.match(await page.textContent("[data-slot=code-panel] .cm-content"), /unsaved draft/);
@@ -980,62 +969,145 @@ test("what was typed in a file and not saved stays when the panel becomes a shee
 	}
 });
 
-test("a window too narrow for the side panel and the browser side by side shows the one opened last, and both again when it is wide", async () => {
-	const size = (width: number, height: number) => page.setViewportSize({ width, height });
-	const gone = (sel: string) => page.waitForSelector(sel, { state: "detached" });
+/** The groups of the window, left to right and top to bottom, each as the names of its tabs (a pane as "@code"). */
+const groups = () =>
+	page.$$eval("[data-slot=group-bar]", (bars: Element[]) =>
+		bars
+			.map((b) => ({ at: b.getBoundingClientRect(), tabs: [...b.querySelectorAll("[data-slot=tab], [data-slot=pane-tab]")].map((t) => (t.getAttribute("data-pane") ? `@${t.getAttribute("data-pane")}` : (t.querySelector("[data-slot=tab-name]")?.textContent ?? "").trim())) }))
+			.sort((a, b) => a.at.top - b.at.top || a.at.left - b.at.left)
+			.map((g) => g.tabs),
+	);
+
+/**
+ * Drags a tab (by the start of its name, or a pane as "@code") onto a group (the one holding the tab named `onto`), at a
+ * zone of its body; "window-left" and the like are right at that edge of the body, in the band along the window's edge.
+ */
+const dragTo = (tab: string, onto: string, zone: "center" | "left" | "right" | "top" | "bottom" | "window-left" | "window-right" | "window-bottom") =>
+	page.evaluate(
+		async ([tab, onto, zone]) => {
+			const all = [...document.querySelectorAll("[data-slot=tab], [data-slot=pane-tab]")];
+			const nameOf = (t: Element) => (t.querySelector("[data-slot=tab-name]")?.textContent ?? "").trim();
+			const find = (name: string) => (name.startsWith("@") ? all.find((t) => t.getAttribute("data-pane") === name.slice(1)) : (all.find((t) => nameOf(t) === name) ?? all.find((t) => nameOf(t).startsWith(name))));
+			const from = find(tab);
+			const to = find(onto)?.closest("[data-slot=group-bar]")?.getAttribute("data-group");
+			if (!from || !to) throw new Error(`no tab ${from ? onto : tab}`);
+			const dataTransfer = new DataTransfer();
+			from.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer }));
+			let zones: Element | undefined;
+			for (let i = 0; i < 100 && !zones; i++) {
+				await new Promise((r) => setTimeout(r, 20));
+				zones = document.querySelector(`[data-slot=drop-zones][data-group="${to}"]`) ?? undefined;
+			}
+			if (!zones) throw new Error("no drop zones were drawn");
+			const r = zones.getBoundingClientRect();
+			const at = { center: [0.5, 0.5], left: [0.15, 0.5], right: [0.85, 0.5], top: [0.5, 0.15], bottom: [0.5, 0.85], "window-left": [0, 0.5], "window-right": [1, 0.5], "window-bottom": [0.5, 1] }[zone];
+			// A pixel inside the body at its very edge.
+			const point = { clientX: Math.min(r.right - 2, Math.max(r.left + 2, r.left + r.width * at[0])), clientY: Math.min(r.bottom - 2, Math.max(r.top + 2, r.top + r.height * at[1])) };
+			zones.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer, ...point }));
+			await new Promise((r) => setTimeout(r, 20));
+			if (zones.getAttribute("data-zone") !== zone) throw new Error(`the zone under the pointer is ${zones.getAttribute("data-zone")}, not ${zone}`);
+			zones.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer, ...point }));
+			// Taken, as a real drop on the window says: a drag that ends with "none" is one let go outside, and tears the tab off.
+			dataTransfer.dropEffect = "move";
+			from.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer, ...point }));
+		},
+		[tab, onto, zone] as const,
+	);
+
+test("tabs and the side panel are dragged into groups beside and under each other, and the side panel follows the conversation in front", async () => {
+	const tabs = await page.locator("[data-slot=tab]").count();
 	try {
+		await page.setViewportSize({ width: 1800, height: 900 });
 		await page.click("[data-slot=tab] >> nth=0");
-		// Wide: the side panel and the browser beside the conversation, both columns.
-		await size(1800, 900);
-		await menu("code-agent");
-		await sees("#code-panel [data-slot=code-panel]");
-		if (!(await page.$("[data-slot=browser-aside]"))) await menu("browser");
-		await sees("#browser-panel [data-slot=browser-aside]");
-		// Narrower (room for a column beside the conversation, not for two): the browser, opened last, stays; the side panel is open behind.
-		await size(1280, 820);
-		await gone("[data-slot=code-panel]");
-		await sees("#browser-panel [data-slot=browser-aside]");
-		assert.equal(await page.locator("[data-slot=sheet-content]").count(), 0, "a column, not a sheet");
-		await sees(`${CODE_TOGGLE}[aria-pressed=true][data-behind]`);
-		await sees(`${BROWSER_TOGGLE}[aria-pressed=true]:not([data-behind])`);
-		// Wide again: both, without a click.
-		await size(1800, 900);
-		await sees("#code-panel [data-slot=code-panel]");
-		await sees("#browser-panel [data-slot=browser-aside]");
-		await sees(`${CODE_TOGGLE}:not([data-behind])`);
-		// Narrow: a click on the icon of the one behind brings it to the front and puts the other behind.
-		await size(1280, 820);
-		await gone("[data-slot=code-panel]");
-		await page.click(CODE_TOGGLE);
-		await sees("#code-panel [data-slot=code-panel]");
-		await gone("[data-slot=browser-aside]");
-		await sees(`${BROWSER_TOGGLE}[data-behind]`);
-		// A click on the icon of the one in front closes it, and the other one shows.
-		await page.click(CODE_TOGGLE);
-		await gone("[data-slot=code-panel]");
-		await sees("#browser-panel [data-slot=browser-aside]");
-		await sees(`${CODE_TOGGLE}[aria-pressed=false]`);
-		// The agent's browser_show brings the browser in front of the side panel.
-		await page.click(CODE_TOGGLE);
-		await sees("#code-panel [data-slot=code-panel]");
-		await gone("[data-slot=browser-aside]");
-		const tabs = await page.locator("[data-slot=tab]").count();
+		if (await page.$("[data-slot=code-panel]")) await menu("code");
+		await sees("[data-slot=tab][data-active] [data-slot=tab-name] >> text=main");
+		assert.equal((await groups()).length, 1);
+		// A second conversation, dragged to the right edge of the group: a group of its own beside main's.
 		await menu("new");
 		await page.waitForFunction((n) => document.querySelectorAll("[data-slot=tab]").length > n, tabs);
+		const fresh = (await page.textContent("[data-slot=tab][data-active] [data-slot=tab-name]"))!.trim();
+		await dragTo(fresh, "main", "right");
+		await page.waitForFunction(() => document.querySelectorAll("[data-slot=group-bar]").length === 2);
+		const [left, right] = await groups();
+		assert.ok(!left.includes(fresh) && right.join() === fresh, JSON.stringify(await groups()));
+		// While a tab is dragged the window says so, and that ends with the drag.
+		assert.equal(await page.$("[data-slot=dock][data-dropping]"), null);
+		// The side panel opens at the right and shows the conversation in front, and another when that comes to the front.
+		await page.click(CODE_TOGGLE);
+		await sees("#code-panel [data-slot=code-panel]");
+		await sees(`[data-slot=pane-tab][data-pane=code] >> text=${fresh}`);
+		await page.locator("[data-slot=tab]", { hasText: /^main$/ }).first().click();
+		await sees("[data-slot=pane-tab][data-pane=code] [data-slot=tab-name] >> text=/^Side panel · main$/");
+		// Settings in front: the side panel stays with main.
+		await menu("settings");
+		await sees("[data-slot=tab][data-active] [data-slot=tab-name] >> text=Settings");
+		await sees("[data-slot=pane-tab][data-pane=code] [data-slot=tab-name] >> text=/^Side panel · main$/");
+		await menu("settings");
+		// The side panel dragged under the new conversation: three groups, the panel below.
+		await dragTo("@code", fresh, "bottom");
+		await page.waitForFunction(() => document.querySelectorAll("[data-slot=group-bar]").length === 3);
+		const below = await page.$eval("#code-panel", (el: Element) => el.getBoundingClientRect().top);
+		const above = await page.$eval("[data-slot=group-bar]:has([data-slot=tab]) ", (el: Element) => el.getBoundingClientRect().top);
+		assert.ok(below > above + 100, "the side panel lies under the conversation");
+		// The arrangement is the window's: loaded again, it is as it was.
+		const was = await groups();
+		await page.reload();
+		await page.waitForFunction(() => document.querySelectorAll("[data-slot=group-bar]").length === 3);
+		assert.deepEqual(await groups(), was);
+		// Let go at the window's left edge (over main's group, which lies along it), the side panel is a column along the whole left of the window.
+		await dragTo("@code", "main", "window-left");
+		await page.waitForFunction(() => {
+			const panel = document.querySelector("#code-panel")?.getBoundingClientRect();
+			const dock = document.querySelector("[data-slot=dock]")!.getBoundingClientRect();
+			return panel && panel.left - dock.left < 10 && dock.bottom - panel.bottom < 10 && panel.height > dock.height * 0.8;
+		});
+		assert.deepEqual((await groups())[0], ["@code"]);
+		// And at the right edge, a column along the whole right again.
+		await dragTo("@code", fresh, "window-right");
+		await page.waitForFunction(() => {
+			const panel = document.querySelector("#code-panel")?.getBoundingClientRect();
+			const dock = document.querySelector("[data-slot=dock]")!.getBoundingClientRect();
+			return panel && dock.right - panel.right < 10 && panel.height > dock.height * 0.8;
+		});
+		// Dragged into the middle of main's group, the new conversation is a tab there again, and its group is gone.
+		await dragTo(fresh, "main", "center");
+		await page.waitForFunction(() => document.querySelectorAll("[data-slot=group-bar]").length === 2);
+		const joined = (await groups())[0];
+		assert.ok(joined[0] === "main" && joined.at(-1) === fresh, JSON.stringify(joined));
+		// A tab let go before another in a row stands before it.
+		await page.evaluate((fresh) => {
+			const find = (name: string) => [...document.querySelectorAll("[data-slot=tab]")].find((t) => (t.querySelector("[data-slot=tab-name]")?.textContent ?? "").trim().startsWith(name))!;
+			const dataTransfer = new DataTransfer();
+			const from = find(fresh);
+			const to = find("main");
+			const r = to.getBoundingClientRect();
+			from.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer }));
+			to.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer, clientX: r.left + 2, clientY: r.top + 5 }));
+			to.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer, clientX: r.left + 2, clientY: r.top + 5 }));
+			dataTransfer.dropEffect = "move";
+			from.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer }));
+		}, fresh);
+		await page.waitForFunction((fresh) => (document.querySelector("[data-slot=tab] [data-slot=tab-name]")?.textContent ?? "").trim().startsWith(fresh), fresh);
+		// The edge between two groups moves with the keyboard too.
+		const width = () => page.$eval("#code-panel", (el: Element) => Math.round(el.getBoundingClientRect().width));
+		const before = await width();
+		await page.focus("[data-slot=dock-edge][data-next~=code]");
+		await page.keyboard.press("ArrowLeft");
+		await page.waitForFunction((w) => document.querySelector("#code-panel")!.getBoundingClientRect().width > w, before);
+		await shot("dock-groups");
+		// The agent's browser_show shows the browser in the side panel, wherever the panel is.
+		await page.locator("[data-slot=tab]", { hasText: fresh }).first().click();
 		await page.fill("[data-slot=composer] textarea", mockMsg([{ tools: [{ name: "browser_show", args: {} }], text: "Have a look." }, { text: "There it is." }], "Show me the page. "));
 		await page.keyboard.press("Enter");
-		await sees("#browser-panel [data-slot=browser-aside]");
+		await sees("#code-panel [data-slot=code-panel] [role=tab][aria-selected=true] >> text=Browser");
 		await sees("[data-slot=markdown] >> text=There it is.");
-		assert.equal(await page.locator("[data-slot=code-panel]").count(), 0);
-		await sees(`${CODE_TOGGLE}[data-behind]`);
+		await menu("code-files");
 		await menu("close");
 		await page.waitForFunction((n) => document.querySelectorAll("[data-slot=tab]").length === n, tabs);
 	} finally {
-		// Both closed and the width the start of this file set, for the tests that follow. (Wide, where both show, a toggle closes.)
-		await size(1800, 900);
-		if (await page.$("[data-slot=browser-aside]")) await menu("browser");
+		// One group again, without the panel, and the width the start of this file set, for the tests that follow.
 		if (await page.$("[data-slot=code-panel]")) await menu("code");
-		await size(1280, 820);
+		await page.setViewportSize({ width: 1280, height: 820 });
 	}
 });
 
@@ -1090,7 +1162,7 @@ test("another machine's pine is used from the foot of the side bar, and this Mac
 	await page.fill("[data-slot=composer] textarea", mockMsg([{ text: "Run this:\n\n```bash\necho far\n```" }], "far commands "));
 	await page.keyboard.press("Enter");
 	const md = page.locator("[data-slot=markdown]", { hasText: "Run this" }).last();
-	await md.locator('[data-streamdown="code-block"]').first().waitFor();
+	await md.locator("[data-slot=code-block]").first().waitFor();
 	assert.equal(await md.locator("[data-run]").count(), 0);
 	await shot("18-other-machine");
 

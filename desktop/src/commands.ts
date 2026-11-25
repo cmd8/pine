@@ -75,17 +75,17 @@ export const COMMANDS: Command[] = [
 		},
 	},
 	{
-		name: "code", title: "Side panel", about: "The agent, files, changes, tool output, what is running, the board and a terminal, beside the conversation", hint: "[agent|files|changes|turn|output|running|board|terminal|off]", keys: "⌥⌘B",
+		name: "code", title: "Side panel", about: "The agent, files, changes, tool output, what is running, the board, a terminal and the browser of the conversation in front", hint: "[agent|files|changes|turn|output|running|board|terminal|browser|off]", keys: "⌥⌘B",
 		run: (args) => {
 			const word = args.trim().toLowerCase();
 			if (!word) return store.command("code");
 			if (word === "off") return void (store.close("code"), store.touch());
-			if (!["agent", "changes", "turn", "files", "output", "running", "board", "terminal"].includes(word)) return store.flash("The panel shows: agent, files, changes, turn, output, running, board, terminal.");
+			if (!["agent", "changes", "turn", "files", "output", "running", "board", "terminal", "browser"].includes(word)) return store.flash("The panel shows: agent, files, changes, turn, output, running, board, terminal, browser.");
 			return store.command(`code-${word}`);
 		},
 	},
 	{ name: "terminal", title: "Terminal", about: "A shell of your own in the conversation's folder, in the side panel", keys: "⌃`", chat: true, run: () => store.command("code-terminal") },
-	{ name: "browser", title: "Browser", about: "The agent's browser, in an aside at the right of the window", keys: "⇧⌘B", run: menu("browser") },
+	{ name: "browser", title: "Browser", about: "The agent's browser, a part of the side panel", keys: "⇧⌘B", run: menu("browser") },
 	{ name: "view", title: "View", about: "All of pine at a glance, drawn by the view in pine's views folder, in a panel at the right", keys: "⇧⌘O", run: menu("view") },
 	{ name: "goal", title: "Goal", about: "Keep the agent working until something is reached", hint: "[objective|pause|resume|clear]", chat: true, run: (args, tab) => (chat(tab) ? (args.trim() ? store.setGoal(tab!, args) : store.askGoal(tab!)) : undefined) },
 	{ name: "swarm", title: "Swarm", about: "Have the agent lead a job: sub-agents work it through on the board, and the answer is checked", hint: "[what is to be done|pause|resume|clear]", chat: true, run: (args, tab) => (chat(tab) ? store.setSwarm(tab!, args) : undefined) },

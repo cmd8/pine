@@ -103,7 +103,7 @@ asked you for it (`pine model add`, `add_model_server`); `models.json` names it 
 | `defaults.idleMs` | `15m` | A live session without work is closed after this (and resumed from disk later). |
 | `defaults.settings` | `{}` | pi settings applied to every agent, for example `{ "compaction": { "reserveTokens": 8000 } }`. They are put on top of pi's own settings files and stay in force when pi reads those files again. |
 | `limits.maxConcurrentRuns` | `8` | Model slots: how many runs talk to the model server at once; the others wait their turn. A run that only waits (for sub-agents, a delegated task, your approval) gives its slot back meanwhile. With a hosted model 8 is fine; with a model server of your own (llama.cpp, LM Studio, Ollama) set it to the number of requests the server answers side by side (`-np` for llama.cpp): more only makes each slower. Settings > General > Limits: Agents at work at once. |
-| `limits.models` | none | Runs at a time on one model, by its whole name: `{ "local/qwen3-coder": 2, "local/gemma-vision": 1 }`. A whole number from 1 to 64. Such a model has a queue of its own, apart from `limits.maxConcurrentRuns`, which holds for every model without a number: a model on your own computer takes one or two requests at once where a hosted one takes many, and one endpoint can serve models that are set up differently. An agent that waits for its sub-agents gives its place up meanwhile, so a model held to 1 still gets a job with sub-agents done, one after the other. Set it in Settings > Models, on the model's line, or here; it holds from the next run on, and goes when the model's server is removed. |
+| `limits.models` | none | Runs at a time on one model, by its whole name: `{ "local/qwen3-coder": 2, "local/gemma-vision": 1 }`. A whole number from 1 to 64. Such a model has a queue of its own, apart from `limits.maxConcurrentRuns`, which holds for every model without a number: a model on your own computer takes one or two requests at once where a hosted one takes many, and one endpoint can serve models that are set up differently. An agent that waits for its sub-agents gives its place up meanwhile, so a model held to 1 still gets a job with sub-agents done, one after the other. Set it in Settings > Models, on the model's line, ask the main agent (`configure_model` with `runs`), or set it here; it holds from the next run on, and goes when the model's server is removed. |
 | `limits.maxSubagents` | `4` | Sub-agents one conversation runs at a time: the default of `subagents.maxParallel` for every agent whose `agent.json` names none. More tasks wait for a free place; they count towards `limits.maxConcurrentRuns` too. Settings > General > Limits: Sub-agents at a time. |
 | `limits.maxPoolTasks` | `100` | The most tasks one call of `subagent` takes as a pool, worked through a few at a time ([boards.md](boards.md), "A pool of sub-agents"). Settings > General > Limits: Largest batch of sub-agent tasks. |
 | `limits.warmSlots` | `true` | Whether pine has the idle slots of a llama.cpp model server read, in the background, what a conversation of the agent that used it last begins with, so that a new conversation or a sub-agent starts at once. See [agents.md](agents.md), "What the model server keeps". |
@@ -227,8 +227,10 @@ it, and `pine.json` with no `defaults.model`: the first model you connect become
 
 You do not have to write an entry yourself: `pine model add <name> <address>` asks the server
 what it serves and writes it ([operations.md](operations.md), "With a model server of your
-own"), and the main agent does the same with `add_model_server` ([setup.md](setup.md)). What
-they write looks like the `local` entry:
+own"), and the main agent does the same with `add_model_server` ([setup.md](setup.md)). The
+main agent also adds one more model of a server (`add_model`), changes a model's context,
+longest answer, pictures and reasoning (`configure_model`) and takes one out (`remove_model`):
+[setup.md](setup.md), "Setting up a model". What they write looks like the `local` entry:
 
 ```json
 {

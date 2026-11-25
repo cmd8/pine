@@ -346,3 +346,29 @@ test("a torn-off window keeps its size and puts the pointer on its tab row, insi
 	assert.equal(insideRect({ x: 10, y: 10 }, { x: 0, y: 0, width: 10, height: 20 }), false);
 	assert.equal(insideRect({ x: 9, y: 19 }, { x: 0, y: 0, width: 10, height: 20 }), true);
 });
+
+test("cleanWindowLayout keeps the arrangement of tabs, checked: conversations by name, the two panes, nothing else", () => {
+	const dock = {
+		kind: "split",
+		dir: "row",
+		sizes: [3, 1, "x"],
+		children: [
+			{ kind: "group", items: [{ agent: "main", session: "main" }, { agent: "", session: "x" }, "terminal", { agent: "scout", session: "s1" }], front: 2 },
+			{ kind: "group", items: ["code"] },
+			{ kind: "nonsense" },
+		],
+	};
+	const layout = cleanWindowLayout({ tabs: [], dock });
+	assert.deepEqual(layout?.dock, {
+		kind: "split",
+		dir: "row",
+		sizes: [0.75, 0.25],
+		children: [
+			{ kind: "group", items: [{ agent: "main", session: "main" }, { agent: "scout", session: "s1" }] },
+			{ kind: "group", items: ["code"] },
+		],
+	});
+	// What is not an arrangement is left out, and the rest of the layout stays.
+	assert.equal(cleanWindowLayout({ tabs: [], dock: { kind: "split", dir: "row", sizes: [], children: [] } })?.dock, undefined);
+	assert.equal(cleanWindowLayout({ tabs: [], dock: "row" })?.dock, undefined);
+});

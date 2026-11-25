@@ -235,15 +235,13 @@ export function contextAt(body: any): number | undefined {
 	return n ? Math.round((WINDOW * Number(n)) / 100) : undefined;
 }
 
-/** The edge between the side bar and the rest of the window, and the one before the panel beside a conversation. */
 /** How the app calls this computer: "This Mac" on a Mac, "This computer" elsewhere. */
 export const HERE = process.platform === "darwin" ? "Mac" : "computer";
+/** The edge between the side bar and the rest of the window, and the one before the group the side panel is in. */
 export const SIDE_EDGE = "#sidebar-panel + [data-slot=resizable-handle]";
-export const CODE_EDGE = "[data-slot=resizable-handle]:has(+ #code-panel)";
-/** The edge before the browser's aside, and the toggles of the panel and of the browser at the top right of the title bar. */
-export const BROWSER_EDGE = "[data-slot=resizable-handle]:has(+ #browser-panel)";
+export const CODE_EDGE = "[data-slot=dock-edge][data-next~=code]";
+/** The toggle of the side panel at the top right of the window. */
 export const CODE_TOGGLE = "header [data-toggle=code]";
-export const BROWSER_TOGGLE = "header [data-toggle=browser]";
 
 /** A test closed the app itself: there is none left for the end of the file to close. */
 export const closed = () => void (app = undefined);

@@ -1,7 +1,7 @@
 // A program a conversation left running, and the way from it into the conversation's browser: the
 // real app on a home of its own, an agent that starts a small server in the background, and a
-// stand-in for the door of the conversation's browser. No real browser is started, and nothing
-// is opened in the owner's own.
+// stand-in for the door of the conversation's browser. Links of an answer go the same way, or to the
+// owner's own browser. No real browser is started; what would open in the owner's own is noted.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
@@ -114,18 +114,59 @@ test("a server the agent left running is one click away in the conversation's br
 	assert.equal(asked[0], `http://localhost:${port}`);
 	await sees(`[data-slot=browser] [data-slot=tabs-trigger][aria-selected=true] >> text=The server`);
 
-	// The same address under Running goes to the same browser, and opens the browser's aside where it was closed.
-	await menu("browser");
-	await page.waitForSelector("[data-slot=browser-aside]", { state: "detached" });
+	// The same address under Running goes to the same browser, which the side panel shows in place of Running.
 	await menu("code-running");
 	await page.locator("[data-slot=code-panel]").getByRole("button", { name: `localhost:${port}` }).click();
 	await waitFor("the link under Running was opened in the conversation's browser", () => asked.length === 2);
 	assert.equal(asked[1], `http://localhost:${port}`);
-	await sees("[data-slot=browser-aside] [data-slot=browser] input[aria-label=Address]");
-	// This window has room for one of the two beside the conversation: the browser, opened last, is in front of the side panel.
-	await page.waitForSelector("[data-slot=code-panel]", { state: "detached" });
-	await sees("header [data-toggle=code][data-behind]");
+	await sees("[data-slot=code-panel] [data-slot=browser] input[aria-label=Address]");
+	await sees("[data-slot=code-panel] [role=tab][aria-selected=true] >> text=Browser");
 	assert.deepEqual(await app.evaluate(() => (globalThis as any).opened), [], "nothing went to the owner's own browser");
+});
+
+test("a link of an answer opens in the conversation's browser, one on this computer in the owner's own, and its menu offers both", async () => {
+	const local = `http://localhost:${port}/local`;
+	await page.fill("[data-slot=composer] textarea", mockMsg([{ text: `See [the docs](https://example.com/docs) and [the server](${local}).` }], "Links. "));
+	await page.press("[data-slot=composer] textarea", "Enter");
+	const md = page.locator("[data-slot=markdown]", { hasText: "See the docs" }).last();
+	await md.locator("[data-href]").first().waitFor({ timeout: 20_000 });
+	const opened = () => app.evaluate(() => [...(globalThis as any).opened]) as Promise<string[]>;
+	const before = asked.length;
+
+	// A page on the web: in the conversation's browser, where the agent sees it too.
+	await md.locator('[data-href="https://example.com/docs"]').click();
+	await waitFor("the web link was opened in the conversation's browser", () => asked.length === before + 1);
+	assert.equal(asked.at(-1), "https://example.com/docs");
+	assert.deepEqual(await opened(), []);
+
+	// An address on this computer: in the owner's own browser, since the conversation's would let the agent reach it.
+	await md.locator(`[data-href="${local}"]`).click();
+	for (let i = 0; i < 40 && !(await opened()).length; i++) await new Promise((r) => setTimeout(r, 50));
+	assert.deepEqual(await opened(), [local]);
+	assert.equal(asked.length, before + 1, "the local address did not go to the conversation's browser");
+
+	// With ⌘ (Ctrl) or ⌥ (Alt) held, a web link goes to the owner's own browser too.
+	await md.locator('[data-href="https://example.com/docs"]').click({ modifiers: [process.platform === "darwin" ? "Meta" : "Control"] });
+	for (let i = 0; i < 40 && (await opened()).length < 2; i++) await new Promise((r) => setTimeout(r, 50));
+	assert.deepEqual(await opened(), [local, "https://example.com/docs"]);
+	await md.locator('[data-href="https://example.com/docs"]').click({ modifiers: ["Alt"] });
+	for (let i = 0; i < 40 && (await opened()).length < 3; i++) await new Promise((r) => setTimeout(r, 50));
+	assert.deepEqual(await opened(), [local, "https://example.com/docs", "https://example.com/docs"]);
+	assert.equal(asked.length, before + 1, "neither went to the conversation's browser");
+
+	// The right button offers both, and says what the conversation's browser means for a local address.
+	await app.evaluate(({ ipcMain }: any) => {
+		const g = globalThis as any;
+		g.linkMenus = [];
+		ipcMain.removeHandler("pine:context-menu");
+		ipcMain.handle("pine:context-menu", (_e: unknown, items: Array<{ id: string; label: string; separator?: boolean }>) => (g.linkMenus.push(items.filter((i) => !i.separator).map((i) => i.label)), "pine"));
+	});
+	await md.locator(`[data-href="${local}"]`).click({ button: "right" });
+	await waitFor("the local address was opened in the conversation's browser from the link's menu", () => asked.length === before + 2);
+	assert.equal(asked.at(-1), local);
+	const [labels] = await app.evaluate(() => (globalThis as any).linkMenus);
+	assert.deepEqual(labels, [`Open in Pine's Browser (lets the agent reach localhost:${port})`, "Open in Your Browser", "Copy Address"]);
+	assert.equal((await opened()).length, 3, "nothing more went to the owner's own browser");
 });
 
 test("a program is stopped from Running, through a confirm that closes on Stop", async () => {
