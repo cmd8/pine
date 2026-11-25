@@ -149,6 +149,22 @@ export function fuzzy(query: string, text: string): number {
 	return -1;
 }
 
+/**
+ * What a picker lists for what was typed: the items whose label fits, then those whose line beside it
+ * fits, each in the order `fuzzy` ranks them. An item that fits neither is left out; a line that does not
+ * fit is a miss, not a rank (a miss of -1 counted after the labels came out as 9 and kept every item).
+ */
+export function narrow<T extends { label: string; about?: string }>(query: string, items: T[]): T[] {
+	if (!query) return items;
+	const rank = (i: T) => {
+		const label = fuzzy(query, i.label);
+		if (label >= 0) return label;
+		const about = i.about ? fuzzy(query, i.about) : -1;
+		return about >= 0 ? 10 + about : -1;
+	};
+	return items.map((i) => ({ i, rank: rank(i) })).filter((x) => x.rank >= 0).sort((a, b) => a.rank - b.rank).map((x) => x.i);
+}
+
 export const MODES: Array<{ value: string; label: string; about: string }> = [
 	{ value: "auto", label: "Auto", about: "Works without asking and without a sandbox: your whole account and the network. Critical actions are still asked about." },
 	{ value: "safe", label: "Safe", about: "Works without asking inside a sandbox: the agent's own folders, no network. Asks for what lies outside." },

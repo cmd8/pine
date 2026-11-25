@@ -4,7 +4,7 @@ import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogHea
 import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useNamedLine } from "./lists.tsx";
 import type { Picker } from "./model.ts";
-import { fuzzy } from "./text.ts";
+import { narrow } from "./text.ts";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function PickDialog({ p }: { p: Picker }) {
@@ -13,7 +13,7 @@ export function PickDialog({ p }: { p: Picker }) {
 	const select = (el: HTMLInputElement | null) => {
 		if (el && p.initial && p.selected !== undefined) requestAnimationFrame(() => el.setSelectionRange(0, p.selected!));
 	};
-	const shown = useMemo(() => (query && !p.free ? p.items.map((i) => ({ i, rank: Math.min(...[fuzzy(query, i.label), fuzzy(query, i.about ?? "") + 10].filter((r) => r >= 0), 99) })).filter((x) => x.rank < 99).sort((a, b) => a.rank - b.rank).map((x) => x.i) : p.items), [query, p]);
+	const shown = useMemo(() => (p.free ? p.items : narrow(query, p.items)), [query, p]);
 	// The list starts on the one in use. A label with a line beside it gets three fifths of the row and is cut there; one
 	// alone (a model's name, which can be longer than the dialog) has the row and wraps, so that it is read whole.
 	const line = useNamedLine(query, p.current, !p.loading);
