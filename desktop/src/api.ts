@@ -527,7 +527,7 @@ export const api = {
 	setState: (key: string, value: unknown) => post<{ ok: boolean }>("/state", { key, value }),
 
 	// the folder a conversation works in
-	changes: (agent: string, session: string) => get<{ root: string; repo: boolean; branch?: string; worktree?: { branch: string; base: string; ahead: number; behind: number; dirty: number; merged: boolean }; files: Change[]; more: boolean }>(`${a(agent)}/view/changes${s(session)}`),
+	changes: (agent: string, session: string) => get<{ root: string; repo: boolean; branch?: string; /** The repository's top folder: `files` are paths from there. */ top?: string; worktree?: { branch: string; base: string; ahead: number; behind: number; dirty: number; merged: boolean }; files: Change[]; more: boolean }>(`${a(agent)}/view/changes${s(session)}`),
 	diff: (agent: string, session: string, file: string) => get<{ diff: string; truncated: boolean }>(`${a(agent)}/view/diff${s(session)}&path=${e(file)}`),
 	tree: (agent: string, session: string, dir: string) => get<{ entries: Array<{ name: string; dir: boolean; size: number }>; more: boolean }>(`${a(agent)}/view/tree${s(session)}&path=${e(dir)}`),
 	file: (agent: string, session: string, file: string) => get<{ text?: string; size: number; binary: boolean; truncated: boolean }>(`${a(agent)}/view/file${s(session)}&path=${e(file)}&max=2000000`),

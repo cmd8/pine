@@ -116,6 +116,28 @@ export const SUB = "flex min-h-9 flex-none items-center gap-1.5 border-b border-
 const PICTURE = "block max-h-80 max-w-full rounded-lg border sm:max-w-md";
 const STATUS: Record<string, string> = { M: "text-warn", A: "text-add", "?": "text-add", D: "text-del", R: "text-info" };
 
+/**
+ * The color git gives a path of the folder, for its icon in the tree and the search: a file by its
+ * own status, a folder by what is in it (new where all of it is new, changed otherwise), as an
+ * editor's tree marks them. Nothing for what git does not name, or outside a repository.
+ */
+function gitTones(data?: { root: string; top?: string; files: Change[] }): (path: string, dir?: boolean) => string | undefined {
+	if (!data?.top || !data.files.length) return () => undefined;
+	// git names a path from the top of the repository, which the folder may lie below.
+	const below = data.root.startsWith(`${data.top}/`) ? `${data.root.slice(data.top.length + 1)}/` : "";
+	const status = new Map(data.files.map((f) => [f.path, f.status]));
+	// A folder git does not know yet is named once, with a "/" at its end, for everything in it.
+	const newDirs = data.files.filter((f) => f.path.endsWith("/"));
+	return (p, dir) => {
+		const full = below + p;
+		const own = status.get(full) ?? status.get(`${full}/`) ?? newDirs.find((f) => full.startsWith(f.path))?.status;
+		if (own) return STATUS[own];
+		if (!dir) return undefined;
+		const inside = data.files.filter((f) => f.path.startsWith(`${full}/`));
+		return inside.length ? (inside.every((f) => f.status === "?" || f.status === "A") ? STATUS.A : STATUS.M) : undefined;
+	};
+}
+
 function language(file: string): Extension {
 	const ext = file.slice(file.lastIndexOf(".") + 1).toLowerCase();
 	if (["ts", "mts", "cts"].includes(ext)) return javascript({ typescript: true });
@@ -243,7 +265,7 @@ function LinesSkeleton({ rows = 6 }: { rows?: number }) {
 }
 
 /** One row of the file tree: a folder (open or not) or a file with its size, indented by its depth. */
-export function DirRow(props: { name: string; dir: boolean; size: number; depth: number; open?: boolean; active?: boolean; /** Cut, and waiting to be pasted: drawn faded. */ cut?: boolean; skeleton?: false } | { name?: undefined; dir?: undefined; size?: undefined; depth: number; open?: undefined; active?: undefined; /** While a folder is read: a row of its shape. */ skeleton: true }) {
+export function DirRow(props: { name: string; dir: boolean; size: number; depth: number; open?: boolean; active?: boolean; /** Cut, and waiting to be pasted: drawn faded. */ cut?: boolean; /** git's color for it (`gitTones`). */ tone?: string; skeleton?: false } | { name?: undefined; dir?: undefined; size?: undefined; depth: number; open?: undefined; active?: undefined; /** While a folder is read: a row of its shape. */ skeleton: true }) {
 	const indent = { paddingLeft: `calc(var(--spacing) * ${2.5 + props.depth * 3.5})` };
 	if (props.skeleton || props.name === undefined)
 		return (
@@ -253,11 +275,11 @@ export function DirRow(props: { name: string; dir: boolean; size: number; depth:
 				<Skeleton className="h-4 w-28" />
 			</div>
 		);
-	const { name, dir, size: bytes, open, active, cut } = props;
+	const { name, dir, size: bytes, open, active, cut, tone } = props;
 	return (
 		<TreeItemLabel className={cn(rowClass(active), cut && "opacity-50")} style={indent}>
 			{dir ? (open ? <ChevronDownIcon className="size-3.5 shrink-0 text-faint" /> : <ChevronRightIcon className="size-3.5 shrink-0 text-faint" />) : <span className="w-3.5 flex-none" />}
-			<FileKind name={name} dir={dir} open={open} />
+			<FileKind name={name} dir={dir} open={open} tone={tone} />
 			<span className="min-w-0 flex-1 truncate">{name}</span>
 			{!dir ? <span className="text-faint">{size(bytes)}</span> : null}
 		</TreeItemLabel>
@@ -348,6 +370,8 @@ interface Rows {
 	isCut: (path: string) => boolean;
 	/** A touch screen, where a double tap is not a habit: a tap opens a file. */
 	coarse: boolean;
+	/** git's color for a path (`gitTones`). */
+	tone: (path: string, dir?: boolean) => string | undefined;
 }
 const held = (e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; altKey: boolean }) => e.shiftKey || e.metaKey || e.ctrlKey || e.altKey;
 
@@ -410,7 +434,7 @@ function Dir({ tab, dir, depth, tick, onLoad, rows }: { tab: Tab; dir: string; d
 				const open = state.open.has(full);
 				return (
 					<TreeItem key={full} value={full} label={e.name} branch={e.dir} className={TREE_ITEM} data-path={full} onDoubleClick={e.dir ? undefined : (ev: React.MouseEvent) => held(ev) || rows.pick(full)}>
-						<DirRow name={e.name} dir={e.dir} size={e.size} depth={depth} open={open} active={state.file === full} cut={rows.isCut(full)} />
+						<DirRow name={e.name} dir={e.dir} size={e.size} depth={depth} open={open} active={state.file === full} cut={rows.isCut(full)} tone={rows.tone(full, e.dir)} />
 						{e.dir ? <TreeGroup>{open ? <Dir tab={tab} dir={full} depth={depth + 1} tick={tick} onLoad={onLoad} rows={rows} /> : null}</TreeGroup> : null}
 					</TreeItem>
 				);
@@ -528,6 +552,8 @@ function Files({ tab, file, setFile }: { tab: Tab; file?: string; setFile: (file
 		return rows;
 	}, [tab.key, q, state.contents, tick]);
 	useEffect(() => setTick((n) => n + 1), [tab.codeTick]);
+	// What git says of the folder's files, for the color of their icons; nothing where it is no repository.
+	const git = useLoad(() => api.changes(tab.agent, tab.session).catch(() => undefined), [tab.key, tick]);
 	const coarse = useMediaQuery("(pointer: coarse)");
 	const root = tab.folder ?? tab.workspace;
 	const isDir = (full: string) => {
@@ -560,7 +586,7 @@ function Files({ tab, file, setFile }: { tab: Tab; file?: string; setFile: (file
 			redraw();
 		},
 	});
-	const rows: Rows = { pick: setFile, isCut: actions.isCut, coarse };
+	const rows: Rows = { pick: setFile, isCut: actions.isCut, coarse, tone: gitTones(git.data) };
 	if (file) return <FileView tab={tab} file={file} close={() => setFile(undefined)} />;
 	const inside = state.contents ? "Search inside files too: on" : "Search inside files too";
 	return (
@@ -602,7 +628,7 @@ function Files({ tab, file, setFile }: { tab: Tab; file?: string; setFile: (file
 							>
 								{found.data.map((f) => (
 									<ListboxItem key={f.path} value={f.path} label={f.path} data-path={f.path} className={cn(rowClass(), rows.isCut(f.path) && "opacity-50")} onDoubleClick={(e) => held(e) || setFile(f.path)} onClick={coarse ? () => setFile(f.path) : undefined}>
-										<FileKind name={f.path.slice(f.path.lastIndexOf("/") + 1)} />
+										<FileKind name={f.path.slice(f.path.lastIndexOf("/") + 1)} tone={rows.tone(f.path)} />
 										<span className={f.line ? "max-w-3/5 shrink-0 truncate" : "min-w-0 truncate"}>{f.path}</span>
 										{f.line ? <span className="min-w-0 flex-1 truncate font-mono text-faint">{f.line}: {f.text}</span> : null}
 									</ListboxItem>
