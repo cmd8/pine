@@ -232,6 +232,7 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["slack was disconnected for a while, is what came in during that time complete or incomplete", /^source-types#(after-a-time-without-a-connection|slack)/],
 		["messages in an encrypted matrix room do not arrive", /^source-types#matrix/],
 		["discord closes the connection, something about message content intent", /^source-types#discord/],
+		["the bot on our zulip never notices when somebody mentions it", /^source-types#zulip/],
 		["tell me when an email from my bank arrives", /^source-types#(mail|which-type)/],
 		["does watching my inbox mark messages as read", /^source-types#mail/],
 		["my NAS can only send email notifications", /^source-types#(smtp|which-type-for-which-service)/],

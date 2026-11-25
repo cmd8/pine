@@ -54,7 +54,7 @@ scans", or `pine unsubscribe main scans`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `type` | | One of the built-in types, each described in [source-types.md](source-types.md): `folder`, `mqtt`, `webhook`, `ftp`, `telegram`, `http`, `command`, `feed`, `calendar`, `stream`, `mail`, `slack`, `matrix`, `discord`, `smtp`, `syslog`, `onvif`, `modbus`, `serial`, `presence`, `system`. Or a type of your own registered under `sourceTypes` (see "A source type of your own"). Or `use` instead: the path of a module, for a one-off. |
+| `type` | | One of the built-in types, each described in [source-types.md](source-types.md): `folder`, `mqtt`, `webhook`, `ftp`, `telegram`, `http`, `command`, `feed`, `calendar`, `stream`, `mail`, `slack`, `matrix`, `discord`, `zulip`, `smtp`, `syslog`, `onvif`, `modbus`, `serial`, `presence`, `system`. Or a type of your own registered under `sourceTypes` (see "A source type of your own"). Or `use` instead: the path of a module, for a one-off. |
 | `description` | | What it reports. Agents choose what to subscribe to by this line, so write it for them. |
 | `agents` | all | In `pine.json` only: the agents that may subscribe, e.g. `["house"]`. |
 | `trust` | `"untrusted"` | Who its events speak for. See "Trust" below. |
@@ -97,7 +97,7 @@ Whatever the type:
   address is said to be local in the dialog. A redirect to another host is not followed, and a
   token goes only to the host it was given for.
 - **A source that also sends, sends only where you listed.** `sendTo` of `mail`, `slack`,
-  `matrix` and `discord`, `publish` of `mqtt`. Without the list nothing can be sent.
+  `matrix`, `discord` and `zulip`, `publish` of `mqtt`. Without the list nothing can be sent.
 - **How it is doing is said where sources are listed** (`pine sources`, `/sources`, the
   agent's `sources` tool): connected since when, last looked when, failing since when and why.
 
@@ -111,7 +111,7 @@ tool says which can and what each takes:
 | `telegram` | A message to you, in your chat with the bot, with a picture, a video or a sound file if the agent has one to show | `text`, and optionally `file`: the path of a picture, video or sound file in its workspace |
 | `mqtt` | A message to a topic on the source's `publish` list, to act on a device | `data`: `{ "topic": "lamp/set", "message": "on" }`, optionally with `retain` and `qos` |
 
-`mail`, `slack`, `matrix` and `discord` send too, to the addresses, channels and rooms on
+`mail`, `slack`, `matrix`, `discord` and `zulip` send too, to the addresses, channels and rooms on
 their `sendTo` list; what each takes is in its section of [source-types.md](source-types.md).
 
 > When the print is done, tell me on Telegram and switch the enclosure light off.

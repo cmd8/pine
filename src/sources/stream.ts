@@ -27,7 +27,7 @@ import { capped, clip, found, pattern, shown } from "../watching.ts";
  * event "down":    { url, error }    after three attempts in a row that did not connect
  * event "up":      { url }           when it is connected again
  *
- * This file also holds what the types that keep a connection open share (slack, matrix, discord):
+ * This file also holds what the types that keep a connection open share (slack, matrix, discord, zulip):
  * the loop that connects again, one WebSocket from open to close, and what a status line may say.
  */
 

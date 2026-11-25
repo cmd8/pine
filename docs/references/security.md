@@ -648,15 +648,15 @@ safe:
   no login in its protocol, so without a list of sender addresses (`allow`) the dialog says
   that anyone on the network can write lines, and `pine check` says so afterwards.
 - A type that connects out (`feed`, `calendar`, `stream`, `mail`, `slack`, `matrix`,
-  `discord`, `http`) reaches the address you confirmed and no other: a public name that one
+  `discord`, `zulip`, `http`) reaches the address you confirmed and no other: a public name that one
   day leads into your network is refused, a redirect to another host is not followed, and a
   token goes only to the host it was given for. An address a camera hands back (`onvif`) is
   used for its path only.
 - What people write is never taken for your words. A mail's sender line can be forged and a
-  channel is read by others, so `mail`, `smtp`, `slack`, `matrix` and `discord` report
+  channel is read by others, so `mail`, `smtp`, `slack`, `matrix`, `discord` and `zulip` report
   outside content, whoever the message says it is from. Do not give such a source
   `"trust": "owner"`; `pine check` names every source that has it.
-- A source that can also send (`mail`, `slack`, `matrix`, `discord`, `mqtt`) sends only to
+- A source that can also send (`mail`, `slack`, `matrix`, `discord`, `zulip`, `mqtt`) sends only to
   the addresses, channels, rooms or topics on its own list, checked by the type itself. Such a
   send is asked about after outside content like any other way of sending something out.
 - A look of an `http` source with `render` is made by pine's browser, started for that one

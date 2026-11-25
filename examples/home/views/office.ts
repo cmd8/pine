@@ -576,7 +576,7 @@ export function sourceSign(type: string | undefined, kind: ViewInput["kind"]): S
 	if (kind === "clock") return "clock";
 	const t = type ?? "";
 	if (/mail|smtp|imap/.test(t)) return "mail";
-	if (/telegram|slack|matrix|discord|chat/.test(t)) return "chat";
+	if (/telegram|slack|matrix|discord|zulip|chat/.test(t)) return "chat";
 	if (/folder|ftp|file/.test(t)) return "folder";
 	if (/calendar/.test(t)) return "clock";
 	if (/command|system|serial/.test(t)) return "term";

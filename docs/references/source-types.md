@@ -1494,24 +1494,24 @@ bot, all of it or only what mentions the bot or contains a word. It asks Zulip w
 long-polled request that is answered the moment something arrives (`/events`), so nothing
 listens on a port.
 
-> Watch #seekvpn on Zulip and tell me when somebody mentions a release.
+> Watch #releases on Zulip and tell me when somebody mentions a release.
 
 ```json
 "zulip": {
-  "type": "zulip", "site": "https://iso.zulipchat.com",
+  "type": "zulip", "site": "https://example.zulipchat.com",
   "email": "${ZULIP_EMAIL}", "key": "${ZULIP_API_KEY}",
-  "streams": ["seekvpn"], "keywords": ["release"],
-  "description": "the seekvpn channel on Zulip"
+  "streams": ["releases"], "keywords": ["release"],
+  "description": "the releases channel on Zulip"
 }
 ```
 
 | Option | Default | |
 |---|---|---|
-| `site` | | The organization's address, e.g. `https://iso.zulipchat.com`. |
+| `site` | | The organization's address, e.g. `https://example.zulipchat.com`. |
 | `email` | | The bot's email address. It is used to sign in and its own messages are never reported. |
 | `key` | | The bot's API key, found under Settings, Bots. Kept in `.env`. |
-| `streams` | every channel public to the bot | Only these channels, by name. |
-| `mentions` | `false` | `true`: only messages that mention the bot. |
+| `streams` | every channel public to the bot | Only these channels, by name. Direct messages to the bot are reported either way. |
+| `mentions` | `false` | `true`: only messages that mention the bot, by name or a group it is in (not `@all`). In a channel Zulip marks a mention only for those who are subscribed to it: add the bot to the channel. |
 | `keywords` | | Only messages that contain one of these words. Capitals do not matter. With `mentions` as well, either is enough. |
 | `ignore` | | Sender email addresses whose messages are never reported. |
 | `sendTo` | none | Channels an agent may write to. Without it the source only listens. See "Sending through a source" in [sources.md](sources.md). |
@@ -1519,8 +1519,8 @@ listens on a port.
 
 Event `message`:
 `{ text, user, name, stream, topic, kind, id, mention?, keyword?, dropped? }`.
-`kind` is `"dm"` for a direct message and `"stream"` for one in a channel; `mention` is `true`
-when the bot was mentioned. What the bot itself writes is never reported. The first look is
+`kind` is `"dm"` for a direct message and `"stream"` for one in a channel, where `stream` and
+`topic` say where; `mention` is `true` when the bot was mentioned. What the bot itself writes is never reported. The first look is
 the starting point: earlier messages are not reported.
 
 **Making the bot.** In your organization under Settings, Bots, "Add a bot": give it a name,
@@ -1533,11 +1533,11 @@ connection picks up where it left off. When Zulip has let the queue expire, a ne
 registered and only what is written from then on is reported (`stream`, "Staying connected").
 
 Sending writes to a channel on `sendTo` and nowhere else, as the bot:
-`{"stream": "seekvpn", "topic": "pine", "text": "..."}`. An agent's answer to a message in a
-channel on `sendTo` goes back to the same topic automatically. Direct messages and messages
-in other channels are reported without an automatic reply; direct messages have an empty
-`stream` field. A channel reaches other people, and
-what is written there is other people's words: its events are outside content.
+`{"stream": "releases", "topic": "pine", "text": "..."}` (without `topic`, the topic `pine`).
+An agent's answer to a message is not posted by itself: it writes with `send`, which asks you
+first once its conversation has read what somebody wrote. Besides that the source writes
+nothing to the organization: it joins no channel and creates none. A channel reaches other
+people, and what is written there is other people's words: its events are outside content.
 
 ### smtp
 
