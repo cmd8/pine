@@ -1199,7 +1199,7 @@ const barHeight = (top: boolean) => (top ? 2.75 : 2.25) * (parseFloat(getCompute
 
 /**
  * The edge between two groups: dragged, it moves the room from one to the other; double-clicked, it shares it
- * equally; focused, the arrow keys move it. `next` names the panes of the group after it (the side panel, the view),
+ * equally; focused (with the stock handle's focus ring), the arrow keys move it. `next` names the panes of the group after it (the side panel, the view),
  * for whoever looks for the edge before one.
  */
 function Edge({ h, next }: { h: dock.Handle; next?: string }) {
@@ -1226,7 +1226,7 @@ function Edge({ h, next }: { h: dock.Handle; next?: string }) {
 				by(keys[e.key]);
 			}}
 			title={`Drag to make the groups ${row ? "wider or narrower" : "taller or shorter"}`}
-			className={cn("absolute z-10 touch-none outline-none after:absolute focus-visible:after:bg-ring after:rounded-full after:bg-ring/0 after:transition-colors hover:after:bg-ring/50", row ? "cursor-col-resize after:inset-y-2 after:left-1/2 after:w-0.5 after:-translate-x-1/2" : "cursor-row-resize after:inset-x-2 after:top-1/2 after:h-0.5 after:-translate-y-1/2")}
+			className={cn("absolute z-10 touch-none rounded-full after:absolute after:rounded-full after:bg-ring/0 after:transition-colors hover:after:bg-ring/50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-hidden", row ? "cursor-col-resize after:inset-y-2 after:left-1/2 after:w-0.5 after:-translate-x-1/2" : "cursor-row-resize after:inset-x-2 after:top-1/2 after:h-0.5 after:-translate-y-1/2")}
 			style={{ left: h.rect.x, top: h.rect.y, width: h.rect.width, height: h.rect.height }}
 			onPointerDown={(e) => {
 				const split = dock.findNode(store.dock, h.split);
