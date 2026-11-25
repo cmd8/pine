@@ -328,6 +328,45 @@ export function zoneOf(rect: Rect, x: number, y: number): Zone {
 	return d < 0.25 ? edge : "center";
 }
 
+/** The share of the window a tab let go at one of its edges takes there (`splitWindow`). */
+export const WINDOW_SHARE = 0.35;
+
+/**
+ * Whether a point over a group's body (`rect`, with `x` and `y` in the same coordinates as it and as the window's
+ * `area`) lies in the band along an edge of the whole window: only an edge the group touches, and only within `band`
+ * pixels of it (at most a fifth of the group, so that the group's own zones stay). A tab let go there gets a group along
+ * that whole edge, not along the edge of the one group.
+ */
+export function windowEdgeOf(sides: Sides, rect: Rect, area: Rect, x: number, y: number, band: number): Edge | undefined {
+	const across = Math.min(band, rect.width / 5);
+	const down = Math.min(band, rect.height / 5);
+	const near: Array<[Edge, number, number]> = [
+		["left", sides.left ? x - area.x : Infinity, across],
+		["right", sides.right ? area.x + area.width - x : Infinity, across],
+		["top", sides.top ? y - rect.y : Infinity, down],
+		["bottom", sides.bottom ? area.y + area.height - y : Infinity, down],
+	];
+	const [edge, d, room] = near.reduce((a, b) => (b[1] < a[1] ? b : a));
+	return d < room ? edge : undefined;
+}
+
+/** The part of the whole window a tab let go at one of its edges would take. */
+export function windowRect(area: Rect, edge: Edge): Rect {
+	const { x, y, width: w, height: h } = area;
+	const across = w * WINDOW_SHARE;
+	const down = h * WINDOW_SHARE;
+	switch (edge) {
+		case "left":
+			return { x, y, width: across, height: h };
+		case "right":
+			return { x: x + w - across, y, width: across, height: h };
+		case "top":
+			return { x, y, width: w, height: down };
+		default:
+			return { x, y: y + h - down, width: w, height: down };
+	}
+}
+
 /** The part of a group's rect a zone would take, for the mark shown while a tab is dragged over it. */
 export function zoneRect(rect: Rect, zone: Zone): Rect {
 	const { x, y, width: w, height: h } = rect;

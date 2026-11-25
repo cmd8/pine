@@ -880,7 +880,7 @@ const halfOf = (e: React.DragEvent): "before" | "after" => {
  * Something let go on the layout, to go into `group` (before `before`, at its end without one) or into a new group at
  * one of its edges: an item of this window moves there, a tab of another window is asked for and opened there.
  */
-function landed(e: React.DragEvent, to: { group: string; before?: string; edge?: dock.Edge }): void {
+function landed(e: React.DragEvent, to: { group: string; before?: string; edge?: dock.Edge; window?: boolean }): void {
 	const kind = tabDragKind(e);
 	if (!kind) return;
 	e.preventDefault();
@@ -888,7 +888,8 @@ function landed(e: React.DragEvent, to: { group: string; before?: string; edge?:
 	if (kind === "other") return void store.dropTab(to);
 	const item = e.dataTransfer.getData(ownType());
 	if (!item) return;
-	if (to.edge) store.splitGroup(item, to.group, to.edge);
+	if (to.edge && to.window) store.splitWindow(item, to.edge);
+	else if (to.edge) store.splitGroup(item, to.group, to.edge);
 	else store.putInGroup(item, to.group, to.before);
 }
 
@@ -1135,26 +1136,36 @@ function Body({ item }: { item: string }) {
 
 /** The frame of a pane in a group: the card every tab's content is drawn on. */
 function PaneFrame({ children }: { children: React.ReactNode }) {
-	return <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background">{children}</div>;
+	return <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background text-sm">{children}</div>;
 }
 
+/** How near an edge of the window a dragged tab has to be for that edge, not the edge of the group under it. */
+const WINDOW_BAND = 48;
+
 /**
- * Where a dragged tab would go when let go over a group: the group itself, or a new group at one of its edges. Lies
- * over the group's body only while a tab is dragged, so that what is drawn there (a view's frame, the app's own
- * browser page) cannot take the drag for itself.
+ * Where a dragged tab would go when let go over a group: the group itself, a new group at one of its edges, or, in
+ * the band along an edge of the window, a new group along that whole edge. Lies over the group's body only while a
+ * tab is dragged, so that what is drawn there (a view's frame, the app's own browser page) cannot take the drag for
+ * itself. `rect` and `area` (the whole window's room) are in the same coordinates.
  */
-function DropZones({ group, rect }: { group: string; rect: dock.Rect }) {
-	const [zone, setZone] = useState<dock.Zone>();
+function DropZones({ group, rect, sides, area }: { group: string; rect: dock.Rect; sides: dock.Sides; area: dock.Rect }) {
+	const [zone, setZone] = useState<{ zone: dock.Zone; window: boolean }>();
 	const at = (e: React.DragEvent) => {
 		const r = e.currentTarget.getBoundingClientRect();
-		return dock.zoneOf({ x: 0, y: 0, width: r.width, height: r.height }, e.clientX - r.left, e.clientY - r.top);
+		const x = rect.x + e.clientX - r.left;
+		const y = rect.y + e.clientY - r.top;
+		const edge = dock.windowEdgeOf(sides, rect, area, x, y, WINDOW_BAND);
+		return edge ? { zone: edge, window: true } : { zone: dock.zoneOf(rect, x, y), window: false };
 	};
-	const mark = zone ? dock.zoneRect({ x: 0, y: 0, width: rect.width, height: rect.height }, zone) : undefined;
+	const whole = zone ? (zone.window ? dock.windowRect(area, zone.zone as dock.Edge) : dock.zoneRect(rect, zone.zone)) : undefined;
+	// Drawn from this body's corner: a mark along the window's edge reaches over the groups beside it.
+	const mark = whole ? { x: whole.x - rect.x, y: whole.y - rect.y, width: whole.width, height: whole.height } : undefined;
+	const tag = zone ? `${zone.window ? "window-" : ""}${zone.zone}` : undefined;
 	return (
 		<div
 			data-slot="drop-zones"
 			data-group={group}
-			data-zone={zone}
+			data-zone={tag}
 			className="absolute z-20"
 			style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
 			onDragOver={(e) => {
@@ -1162,13 +1173,13 @@ function DropZones({ group, rect }: { group: string; rect: dock.Rect }) {
 				e.preventDefault();
 				e.dataTransfer.dropEffect = "move";
 				const z = at(e);
-				if (z !== zone) setZone(z);
+				if (z.zone !== zone?.zone || z.window !== zone?.window) setZone(z);
 			}}
 			onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setZone(undefined)}
 			onDrop={(e) => {
 				const z = at(e);
 				setZone(undefined);
-				landed(e, z === "center" ? { group } : { group, edge: z });
+				landed(e, z.zone === "center" ? { group } : { group, edge: z.zone, window: z.window });
 			}}
 		>
 			{mark ? <div className="pointer-events-none absolute rounded-xl bg-primary/15 ring-2 ring-primary/60 transition-all duration-100" style={{ left: mark.x, top: mark.y, width: mark.width, height: mark.height }} /> : null}
@@ -1269,7 +1280,8 @@ function DockArea({ column }: { column: boolean }) {
 	// With no tab open the window says so, whatever panes were open: they come back with the next tab.
 	const tree = s.tabs.length ? s.dock : NONE;
 	const groups = dock.groupsOf(tree);
-	const at = room ? dock.layout(tree, { x: column ? 0 : GAP, y: 0, width: room.width - GAP - (column ? 0 : GAP), height: room.height - GAP }, GAP) : undefined;
+	const area = room ? { x: column ? 0 : GAP, y: 0, width: room.width - GAP - (column ? 0 : GAP), height: room.height - GAP } : undefined;
+	const at = area ? dock.layout(tree, area, GAP) : undefined;
 	/** Where a group's body lies: under its bar. */
 	const bodyOf = (id: string): dock.Rect | undefined => {
 		const r = at?.groups.get(id);
@@ -1316,7 +1328,7 @@ function DockArea({ column }: { column: boolean }) {
 						const panes = after?.kind === "split" ? dock.itemsOf(after.children[h.index + 1]).map(paneOf).filter(Boolean).join(" ") : "";
 						return <Edge key={`${h.split}:${h.index}`} h={h} next={panes || undefined} />;
 					})}
-					{dragging ? byId.map((g) => <DropZones key={g.id} group={g.id} rect={bodyOf(g.id)!} />) : null}
+					{dragging ? byId.map((g) => <DropZones key={g.id} group={g.id} rect={bodyOf(g.id)!} sides={at.sides.get(g.id)!} area={area!} />) : null}
 				</>
 			) : null}
 		</div>

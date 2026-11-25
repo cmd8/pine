@@ -1,7 +1,7 @@
 // The tree that arranges a window's tabs (src/dock.ts): pure functions, no window.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { dragEdge, findGroup, group, groupHolding, groupsOf, insert, itemsOf, layout, type Node, prune, remove, resize, restore, same, save, setFront, split, splitWindow, zoneOf } from "../src/dock.ts";
+import { dragEdge, windowEdgeOf, windowRect, findGroup, group, groupHolding, groupsOf, insert, itemsOf, layout, type Node, prune, remove, resize, restore, same, save, setFront, split, splitWindow, zoneOf } from "../src/dock.ts";
 
 /** The shape of a tree as text: `[a b*]` a group with b in front, `row(...)` and `col(...)` splits. */
 const show = (n: Node): string => (n.kind === "group" ? `[${n.items.map((i) => (i === n.front ? `${i}*` : i)).join(" ")}]` : `${n.dir === "row" ? "row" : "col"}(${n.children.map(show).join(" ")})`);
@@ -88,6 +88,22 @@ test("dragging an edge moves room between its neighbours, never below the least"
 	assert.deepEqual(dragEdge([0.5, 0.25, 0.25], 1, -900, 1000, 100), [0.5, 0.1, 0.4]);
 	const t = split(group(["a", "b"]), groupsOf(group(["a", "b"]))[0].id, "right", "b");
 	assert.equal(resize(t, "nope", [1]), t);
+});
+
+test("the band along the window's edges: only where the group touches the window, and only near it", () => {
+	const area = { x: 0, y: 0, width: 1000, height: 800 };
+	// The lower group of a window split in two: it touches the left, right and bottom of the window, not the top.
+	const low = { x: 0, y: 450, width: 1000, height: 350 };
+	const sides = { top: false, left: true, right: true, bottom: true };
+	assert.equal(windowEdgeOf(sides, low, area, 10, 600, 48), "left");
+	assert.equal(windowEdgeOf(sides, low, area, 990, 600, 48), "right");
+	assert.equal(windowEdgeOf(sides, low, area, 500, 790, 48), "bottom");
+	assert.equal(windowEdgeOf(sides, low, area, 500, 460, 48), undefined, "the top of this group is not the window's");
+	assert.equal(windowEdgeOf(sides, low, area, 100, 600, 48), undefined, "too far in: the group's own left edge");
+	// A small group keeps room for its own zones.
+	assert.equal(windowEdgeOf(sides, { x: 0, y: 450, width: 100, height: 350 }, area, 30, 600, 48), undefined);
+	assert.deepEqual(windowRect(area, "left"), { x: 0, y: 0, width: 350, height: 800 });
+	assert.deepEqual(windowRect(area, "bottom"), { x: 0, y: 520, width: 1000, height: 280 });
 });
 
 test("the zone over a group: its edges, or the middle", () => {

@@ -1782,6 +1782,12 @@ export class Store extends Model {
 		this.front(item);
 	}
 
+	/** A tab or a pane put into a new group along a whole edge of the window. */
+	splitWindow(item: string, edge: dock.Edge): void {
+		this.dock = dock.splitWindow(this.dock, edge, item, dock.WINDOW_SHARE);
+		this.front(item);
+	}
+
 	/** The edge between two groups dragged: their shares of the split they are in. */
 	resizeSplit(splitId: string, sizes: number[], done: boolean): void {
 		this.dock = dock.resize(this.dock, splitId, sizes);
@@ -2086,7 +2092,7 @@ export class Store extends Model {
 	 * A tab of another window was let go on this one: before a tab of a group, at the end of one, or at one of its edges.
 	 * It is asked for, and opened here with its draft.
 	 */
-	async dropTab(to: { group: string; before?: string; edge?: dock.Edge }): Promise<void> {
+	async dropTab(to: { group: string; before?: string; edge?: dock.Edge; window?: boolean }): Promise<void> {
 		this.tabDragIn = false;
 		this.touch();
 		if (typeof bridge.tabDrop !== "function") return;
@@ -2107,6 +2113,7 @@ export class Store extends Model {
 			void this.fill(tab).then(() => this.refreshConversations(agent));
 		}
 		if (!dock.findGroup(this.dock, to.group)) this.activate(tab);
+		else if (to.edge && to.window) this.splitWindow(tab.item, to.edge);
 		else if (to.edge) this.splitGroup(tab.item, to.group, to.edge);
 		else this.putInGroup(tab.item, to.group, to.before);
 		// What it was asked and nobody answered yet is shown here now.

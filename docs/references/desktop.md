@@ -553,6 +553,7 @@ group; the side panel and the view each open in a group of their own at the righ
 | Drag a tab onto another tab | It goes before or after that one (the half you let go over), in that tab's group |
 | Drag a tab to the end of a row | It goes last in that group |
 | Drag a tab over a group | Where it would go is marked: the middle puts it into the group, an edge (the outer quarter) into a new group on that side, which takes half the room |
+| Drag a tab to an edge of the window | Right at the window's edge (the outermost 48 pixels of a group that lies along it), it goes into a new group along that whole edge, a third of the window wide or tall: a column the height of the window beside groups split one above another, or a row along the whole bottom |
 | Split Right, Split Down | In a tab's right click, where its group has another tab: the tab gets a group of its own beside or under it |
 | Drag the edge between two groups | Makes one larger and the other smaller; focus the edge with Tab and use the arrow keys (`⇧` for larger steps), a double click shares the room equally |
 | Click into a group | Its tab in front is the tab in front of the window: new tabs (`⌘T`) go into its group, and `⌃Tab` and `⌘1` to `⌘9` go through its tabs |

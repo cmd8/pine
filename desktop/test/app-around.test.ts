@@ -978,8 +978,11 @@ const groups = () =>
 			.map((g) => g.tabs),
 	);
 
-/** Drags a tab (by the start of its name, or a pane as "@code") onto a group (the one holding the tab named `onto`), at a zone of its body. */
-const dragTo = (tab: string, onto: string, zone: "center" | "left" | "right" | "top" | "bottom") =>
+/**
+ * Drags a tab (by the start of its name, or a pane as "@code") onto a group (the one holding the tab named `onto`), at a
+ * zone of its body; "window-left" and the like are right at that edge of the body, in the band along the window's edge.
+ */
+const dragTo = (tab: string, onto: string, zone: "center" | "left" | "right" | "top" | "bottom" | "window-left" | "window-right" | "window-bottom") =>
 	page.evaluate(
 		async ([tab, onto, zone]) => {
 			const all = [...document.querySelectorAll("[data-slot=tab], [data-slot=pane-tab]")];
@@ -997,9 +1000,12 @@ const dragTo = (tab: string, onto: string, zone: "center" | "left" | "right" | "
 			}
 			if (!zones) throw new Error("no drop zones were drawn");
 			const r = zones.getBoundingClientRect();
-			const at = { center: [0.5, 0.5], left: [0.05, 0.5], right: [0.95, 0.5], top: [0.5, 0.05], bottom: [0.5, 0.95] }[zone];
-			const point = { clientX: r.left + r.width * at[0], clientY: r.top + r.height * at[1] };
+			const at = { center: [0.5, 0.5], left: [0.15, 0.5], right: [0.85, 0.5], top: [0.5, 0.15], bottom: [0.5, 0.85], "window-left": [0, 0.5], "window-right": [1, 0.5], "window-bottom": [0.5, 1] }[zone];
+			// A pixel inside the body at its very edge.
+			const point = { clientX: Math.min(r.right - 2, Math.max(r.left + 2, r.left + r.width * at[0])), clientY: Math.min(r.bottom - 2, Math.max(r.top + 2, r.top + r.height * at[1])) };
 			zones.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer, ...point }));
+			await new Promise((r) => setTimeout(r, 20));
+			if (zones.getAttribute("data-zone") !== zone) throw new Error(`the zone under the pointer is ${zones.getAttribute("data-zone")}, not ${zone}`);
 			zones.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer, ...point }));
 			// Taken, as a real drop on the window says: a drag that ends with "none" is one let go outside, and tears the tab off.
 			dataTransfer.dropEffect = "move";
@@ -1048,6 +1054,21 @@ test("tabs and the side panel are dragged into groups beside and under each othe
 		await page.reload();
 		await page.waitForFunction(() => document.querySelectorAll("[data-slot=group-bar]").length === 3);
 		assert.deepEqual(await groups(), was);
+		// Let go at the window's left edge (over main's group, which lies along it), the side panel is a column along the whole left of the window.
+		await dragTo("@code", "main", "window-left");
+		await page.waitForFunction(() => {
+			const panel = document.querySelector("#code-panel")?.getBoundingClientRect();
+			const dock = document.querySelector("[data-slot=dock]")!.getBoundingClientRect();
+			return panel && panel.left - dock.left < 10 && dock.bottom - panel.bottom < 10 && panel.height > dock.height * 0.8;
+		});
+		assert.deepEqual((await groups())[0], ["@code"]);
+		// And at the right edge, a column along the whole right again.
+		await dragTo("@code", fresh, "window-right");
+		await page.waitForFunction(() => {
+			const panel = document.querySelector("#code-panel")?.getBoundingClientRect();
+			const dock = document.querySelector("[data-slot=dock]")!.getBoundingClientRect();
+			return panel && dock.right - panel.right < 10 && panel.height > dock.height * 0.8;
+		});
 		// Dragged into the middle of main's group, the new conversation is a tab there again, and its group is gone.
 		await dragTo(fresh, "main", "center");
 		await page.waitForFunction(() => document.querySelectorAll("[data-slot=group-bar]").length === 2);
