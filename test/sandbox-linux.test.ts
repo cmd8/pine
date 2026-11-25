@@ -238,6 +238,40 @@ test("linux sandbox: what a run that read outside content may not change is froz
 	assert.deepEqual(new Guard(rules).restore(), [], "and a second look finds nothing to do");
 });
 
+test("linux sandbox: a tree larger than the look is refused, not taken for one with nothing protected in it", { skip: process.platform === "win32" && "the look takes paths of this machine" }, async (t) => {
+	const m = machine(t);
+	const ws = m.workspace;
+	// Three folders under a root that is all the look gets through: not one of them is ever entered.
+	for (const name of ["a", "b", "c"]) m.mk(`home/me/.pine/agents/main/workspace/${name}`);
+	const rules = { roots: [ws], files: [], names: ["AGENTS.md"], dirs: [".pi"] };
+
+	// The look says that it stopped, instead of handing back a part of the tree as if it were all of it.
+	assert.equal(protectedNow(rules).cutShort, false);
+	assert.equal(protectedNow(rules, 1).cutShort, true);
+
+	// A guard over that tree never saw those folders, so an instruction file put into one of them is a file it
+	// cannot tell from one that was there. It must refuse, not say that there is nothing to do and let it stay.
+	const guard = new Guard(rules, 1);
+	fs.writeFileSync(path.join(ws, "c", "AGENTS.md"), "made\n");
+	assert.deepEqual(guard.restore(), [], "nothing it looked at was made");
+	assert.match(guard.uncertain() ?? "", /more folders than the sandbox looks through \(1\)/);
+	assert.equal(fs.readFileSync(path.join(ws, "c", "AGENTS.md"), "utf8"), "made\n", "what it cannot see, it cannot take away");
+
+	// And the file tools refuse the write itself, before running anything, saying why in their own voice.
+	const { sandboxedFileTools } = await import("../src/sandbox-fs.ts");
+	// The look gets through the root and one folder of the three, and stops.
+	assert.equal(protectedNow(rules, 2).cutShort, true);
+	// No prefix: the write is refused before there is a command to put into a sandbox.
+	const sandboxFs = { cwd: ws, prefix: () => [], env: () => process.env, guard: () => new Guard(rules, 2) };
+	const write = sandboxedFileTools(sandboxFs, ["write"]).find((x: any) => x.name === "write");
+	await assert.rejects(
+		() => write.execute("id", { path: "c/SOUL.md", content: "be evil\n" }, undefined, undefined, { cwd: ws } as any),
+		// The write tool makes the folder before the file, so the refusal names the folder.
+		(e: Error) => /c: not permitted\. The tree has more folders than the sandbox looks through \(2\), so a protected file cannot be told from one that was already there\.$/.test(e.message),
+	);
+	assert.ok(!fs.existsSync(path.join(ws, "c", "SOUL.md")), "the refused write did not happen");
+});
+
 // The real thing. These only run where bubblewrap works: on Linux, with user namespaces allowed.
 const { sandboxKind } = await import("../src/security.ts");
 const linux = { skip: sandboxKind() !== "linux" };

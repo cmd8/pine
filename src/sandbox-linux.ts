@@ -245,6 +245,12 @@ export interface Protected {
 
 /** How far down the look goes. Exported because it is a limit of the protection, and the manual states it. */
 export const DEPTH = 6;
+/**
+ * How many folders the look goes through before it stops. A tree larger than this is not seen whole,
+ * and then nothing is written after it: a guard that has seen a part of the tree cannot tell a file a
+ * command made from one that was there (see `Guard`). A parameter where the look is taken, so that a
+ * test walks past a small cap instead of twenty thousand folders.
+ */
 const MAX_DIRS = 20_000;
 const SKIP = new Set(["node_modules", ".venv", "venv", "__pycache__", ".cache", ".npm", ".pnpm-store", ".yarn", ".gradle", ".tox", ".next", "dist", "build", "target", "DerivedData"]);
 
@@ -253,11 +259,15 @@ const SKIP = new Set(["node_modules", ".venv", "venv", "__pycache__", ".cache", 
  * files, the protected folders, and for each repository its hooks and its configuration (also of
  * its submodules). Looked for `DEPTH` levels deep and not in folders of installed packages or
  * build output: a tree is not searched to the bottom for every command.
+ *
+ * `cutShort` says whether the look stopped at `maxDirs` folders before it had seen them all: what it
+ * found is then a part of what is protected, and whoever took it must not act as if it were all.
  */
-export function protectedNow(p: Protected): { paths: string[]; repositories: string[] } {
+export function protectedNow(p: Protected, maxDirs = MAX_DIRS): { paths: string[]; repositories: string[]; cutShort: boolean } {
 	const paths = new Set<string>(p.files.filter(exists));
 	const repositories = new Set<string>();
 	let seen = 0;
+	let cutShort = false;
 	const repository = (git: string) => {
 		// A submodule's or worktree's ".git" is a file that points elsewhere: what it points at decides
 		// which configuration and hooks git uses there, so it may not change either.
@@ -273,7 +283,11 @@ export function protectedNow(p: Protected): { paths: string[]; repositories: str
 		walk(path.join(git, "modules"), 0);
 	};
 	const visit = (dir: string, depth: number, top: boolean) => {
-		if (++seen > MAX_DIRS) return;
+		if (cutShort) return;
+		if (++seen > maxDirs) {
+			cutShort = true;
+			return;
+		}
 		for (const e of readDir(dir)) {
 			const full = path.join(dir, e.name);
 			if (e.name === ".git") repository(full);
@@ -284,7 +298,7 @@ export function protectedNow(p: Protected): { paths: string[]; repositories: str
 	};
 	for (const root of p.roots) if (isDir(root)) visit(root, 0, true);
 	for (const file of p.open ?? []) paths.delete(file);
-	return { paths: [...paths], repositories: [...repositories] };
+	return { paths: [...paths], repositories: [...repositories], cutShort };
 }
 
 function readDir(dir: string): fs.Dirent[] {
@@ -299,19 +313,37 @@ function readDir(dir: string): fs.Dirent[] {
  * What mounts cannot forbid: making a protected file or folder that was not there. Taken before
  * a command that outside content may steer; `restore` after it removes every protected path the
  * command made, and says which. (What was there before is mounted read-only and cannot have changed.)
+ * A tree too large to look through is not taken for an empty one: `uncertain` says so and nothing is
+ * written while it does.
  */
 export class Guard {
 	private p: Protected;
+	private cap: number;
 	private before: Set<string>;
+	/** Whether a look stopped at its cap: what the guard then cannot say, it must not pass over in silence. */
+	private cut = false;
 
-	constructor(p: Protected) {
+	constructor(p: Protected, maxDirs = MAX_DIRS) {
 		this.p = p;
+		this.cap = maxDirs;
 		this.before = this.all();
+	}
+
+	/**
+	 * Why this guard cannot vouch for what a command made, if it cannot: a look stopped at its cap, so a
+	 * protected file the command made cannot be told from one that was there before. Undefined while it
+	 * can vouch. Whoever writes asks this before and after and refuses with what it says, because a
+	 * write that cannot be checked is not one the sandbox may allow (`sandbox-fs.ts`).
+	 */
+	uncertain(): string | undefined {
+		if (!this.cut) return undefined;
+		return `The tree has more folders than the sandbox looks through (${this.cap}), so a protected file cannot be told from one that was already there.`;
 	}
 
 	/** Protected paths and repositories as they are now, plus the names at the top of each root that would be protected if they existed. */
 	private all(): Set<string> {
-		const now = protectedNow(this.p);
+		const now = protectedNow(this.p, this.cap);
+		if (now.cutShort) this.cut = true;
 		return new Set([...now.paths, ...now.repositories]);
 	}
 
