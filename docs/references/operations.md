@@ -434,7 +434,7 @@ are JSON with `Content-Type: application/json`.
 | `POST /tasks/<id>/now` | For a message of yours that was steered into running work (`<id>` is the message's task) and not read yet: stop the step that work is on, and let it go on with the message. Answers `{ sent }`, false when the message was read already or the work has ended |
 | `POST /approvals/<id>` `{ allow, always?, values? }` | Answer an approval. A request that lists `inputs` (a token, a password) is only allowed together with `values: { <name>: "..." }`; the terminal UI has a field for them. A question an agent asks with its `question` tool is such a request (`tool: "question"`, with the answers it offers in `choices`): answer it with `values: { "answer": "..." }`, or with `allow: false` for no answer |
 | `POST /state` `{ key, value }` | Write state; `null` deletes |
-| `POST /hook/<name>` | Webhook: a hook from `http.hooks` ([events.md](events.md)) or a running `webhook` source ([source-types.md](source-types.md)). No token; each has its own secret, unless a hook is declared `"open": true` |
+| `POST /hook/<name>` | Webhook: a hook from `http.hooks` ([events.md](events.md)) or a running `webhook` source ([source-types.md](source-types.md)). No token; each has its own secret, unless a hook is declared `"open": true`. A request from a web page (one with `Origin` or `Sec-Fetch-Site`) is refused here too |
 
 ### Setting pine up through the control API
 

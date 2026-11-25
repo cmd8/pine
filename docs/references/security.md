@@ -34,7 +34,9 @@ refusing; it limits what a run can do, by where its input came from.
   without DNS rebinding. Bodies must be JSON and at most 1 MB (64 MB for a message with attached
   files).
 - **Webhooks:** each hook has a secret (bearer or HMAC of the body) unless you set `"open":
-  true`, a rate limit (120 requests a minute), and a fixed topic.
+  true`, a rate limit (120 requests a minute), and a fixed topic. A request from a web page is
+  refused there as at the control API, so a page in your browser cannot call an open hook; the
+  `Host` is not checked, so a tunnel or reverse proxy in front still works.
 - **MQTT, watched folders:** you choose the topics and folders. What arrives is treated as
   outside content.
 - **The Pine app on a phone or in a browser:** browser access is off until you turn it on in

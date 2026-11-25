@@ -73,9 +73,10 @@ export function readOnlyCommand(command: string): boolean {
 			if (!READ_ONLY_GIT.has(sub)) return false;
 			// "git branch -D x", "git remote add", "git tag -d": the same word, another thing.
 			if (/\s(-[dDmM]\b|--delete\b|--force\b|add\b|remove\b|rm\b|set-url\b|rename\b)/.test(part)) return false;
-			// "git diff --output=~/.zshrc": the subcommand only looks, the option writes its answer
-			// into a file, which the next program to start may read.
-			if (/(^|\s)-o(=|\s|$)|--output(=|\s|$)/.test(part)) return false;
+			// "git diff --output $HOME/.zshrc": the subcommand only looks, the option writes its answer
+			// into a file, which the next program to start may read. (git has no short form of it:
+			// "git ls-files -o" is --others, and only looks.)
+			if (/--output(=|\s|$)/.test(part)) return false;
 			continue;
 		}
 		if (!READ_ONLY.has(name)) return false;
