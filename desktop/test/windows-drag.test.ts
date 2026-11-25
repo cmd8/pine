@@ -97,7 +97,7 @@ async function dropOn(p: Page, on: string | undefined, half: "before" | "after" 
 			const dataTransfer = new DataTransfer();
 			dataTransfer.setData("application/x-pine-tab", JSON.stringify({ window: "another", index: 0 }));
 			el.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer, ...at }));
-			const marked = on === undefined ? el.hasAttribute("data-drop") : el.className.includes("before:absolute");
+			const marked = el.hasAttribute("data-drop");
 			if (!marked) return false;
 			el.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer, ...at }));
 			return true;

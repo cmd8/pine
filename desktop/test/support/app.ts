@@ -98,8 +98,10 @@ export async function launchApp(env: Record<string, string | undefined>): Promis
 	const set: Record<string, string> = {};
 	for (const [name, value] of Object.entries(all)) if (value !== undefined) set[name] = value;
 	const app = await electron.launch({ args: [await builtApp()], env: set, timeout: patient(30_000) });
-	// What a test waits for without saying how long (Playwright's 30 seconds) waits as long as the rest.
-	app.context().setDefaultTimeout(patient(30_000));
+	// What a test waits for without saying how long (Playwright's 30 seconds) waits as long as the rest, but never
+	// as long as a test may take (two minutes, package.json): a wait that runs out then says what it waited for,
+	// where one that outlasted the test would leave only "test timed out".
+	app.context().setDefaultTimeout(Math.min(patient(30_000), 60_000));
 	await quiet(app);
 	return app;
 }

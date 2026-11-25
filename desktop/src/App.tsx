@@ -955,6 +955,7 @@ function DockTab({ item, row, index }: { item: string; row: string[]; index: num
 					data-slot={pane ? "pane-tab" : "tab"}
 					data-pane={pane}
 					data-focus={on || undefined}
+					data-drop={drop || undefined}
 					className={cn("group/tab max-w-55 min-w-28 flex-initial justify-start gap-2 px-1 [-webkit-app-region:no-drag]", drop && "before:absolute before:inset-y-1 before:w-1 before:rounded-full before:bg-primary", drop && (drop === "after" ? "before:-right-1" : "before:-left-1"))}
 					draggable
 					onDragStart={(e) => {
