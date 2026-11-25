@@ -15,7 +15,8 @@
 //   },
 //   cwd, sandbox, env               // filled in by pine: the agent's workspace, what puts a command into its sandbox, its shell environment
 // }
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import path from "node:path";
 import { type McpTool, options, serve } from "./lib.ts";
 
 interface Param {
@@ -61,27 +62,72 @@ export function buildArgv(cmd: Command, args: Record<string, unknown>): string[]
 	return cmd.run.map((part) => part.replace(/\{\{\s*(\w+)\s*\}\}/g, (_m, name) => (name in values ? values[name] : "")));
 }
 
-function run(name: string, cmd: Command, args: Record<string, unknown>): Promise<string> {
+export function run(name: string, cmd: Command, args: Record<string, unknown>): Promise<string> {
 	let argv = buildArgv(cmd, args);
 	if (cmd.sandbox && o.sandbox?.length) argv = [...o.sandbox, ...argv];
 	const max = cmd.maxOutput ?? 30_000;
+	const limit = cmd.timeoutSec ?? 30;
 	return new Promise((resolve, reject) => {
-		const child = spawn(argv[0], argv.slice(1), { cwd: cmd.cwd ?? o.cwd, env: { ...(o.env ?? { PATH: process.env.PATH ?? "" }), ...(cmd.env ?? {}) }, stdio: ["ignore", "pipe", "pipe"] });
+		// A group of its own, so that a command which starts more (`bash -lc "thing & sleep 999"`) can be ended whole:
+		// the others inherit its stdout and stderr, and a command killed on its own leaves them holding the pipes, so
+		// the answer would be waited for as long as they run.
+		const child = spawn(argv[0], argv.slice(1), { cwd: cmd.cwd ?? o.cwd, env: { ...(o.env ?? { PATH: process.env.PATH ?? "" }), ...(cmd.env ?? {}) }, stdio: ["ignore", "pipe", "pipe"], detached: true, windowsHide: true });
 		let out = "";
+		let ended: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+		let stopped = false;
+		let settled = false;
 		const add = (d: Buffer) => {
 			if (out.length < max) out += d.toString("utf8");
 		};
 		child.stdout.on("data", add);
 		child.stderr.on("data", add);
-		const timer = setTimeout(() => child.kill("SIGKILL"), (cmd.timeoutSec ?? 30) * 1000);
-		child.on("error", (e) => (clearTimeout(timer), reject(new Error(`${name}: ${e.message}`))));
-		child.on("close", (code, signal) => {
+		// The whole group. Windows has none: a program's tree is ended by its parents instead (taskkill /T).
+		const group = () => {
+			if (!child.pid) return;
+			if (process.platform === "win32") {
+				execFile(path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"), ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
+				return;
+			}
+			try {
+				process.kill(-child.pid, "SIGKILL");
+			} catch {
+				// nobody left in it
+			}
+		};
+		const settle = (code: number | null, signal: NodeJS.Signals | null) => {
+			if (settled) return;
+			settled = true;
 			clearTimeout(timer);
+			// Whatever still writes to them is not this call's answer, and must not hold the call open.
+			child.stdout.destroy();
+			child.stderr.destroy();
 			const text = out.length > max ? `${out.slice(0, max)}\n[output cut at ${max} characters]` : out;
-			if (signal) return reject(new Error(`${name} was stopped after ${cmd.timeoutSec ?? 30} s\n${text}`));
+			// The timeout is named as one even where a killed program answers with an exit code and no signal (Windows).
+			if (stopped || signal) return reject(new Error(`${name} was stopped after ${limit} s\n${text}`));
 			if (code !== 0) return reject(new Error(`${name} exited with code ${code}\n${text}`));
 			resolve(text.trim() || "(no output)");
+		};
+		const timer = setTimeout(() => {
+			stopped = true;
+			group();
+			// One that had already ended is answered from its exit, which has come.
+			if (ended) settle(ended.code, ended.signal);
+		}, limit * 1000);
+		child.on("error", (e) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			reject(new Error(`${name}: ${e.message}`));
 		});
+		child.on("exit", (code, signal) => {
+			ended = { code, signal };
+			// Answered from here, not from `close`, when the timeout is what ended it: a program that left the group
+			// (job control gives each job one of its own) is not reached by the kill and keeps the pipes open, and
+			// `close` would wait for it. Any other ending is answered from `close`, so that the last of what the
+			// command wrote is in the answer.
+			if (stopped) settle(code, signal);
+		});
+		child.on("close", settle);
 	});
 }
 
