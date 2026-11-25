@@ -448,11 +448,20 @@ test("control API: token, no browsers, signed webhooks, bounded bodies", async (
 	assert.equal(await status("/hook/door", { method: "POST", body }), 401);
 	assert.equal(await status("/hook/door", { method: "POST", body, headers: { "x-hub-signature-256": `sha256=${"0".repeat(64)}` } }), 401);
 	assert.equal(await status("/hook/unknown", { method: "POST", body }), 404);
+	// The one route without a token is guarded against pages too: a browser sends Origin or Sec-Fetch-Site, a webhook sender sends neither.
+	assert.equal(await status("/hook/door", { method: "POST", body, headers: { origin: "https://evil.example", authorization: "Bearer hook-secret-1234" } }), 403);
+	assert.equal(await status("/hook/door", { method: "POST", body, headers: { "sec-fetch-site": "cross-site", authorization: "Bearer hook-secret-1234" } }), 403);
 	assert.equal(await status("/hook/door", { method: "POST", body, headers: { "x-hub-signature-256": `sha256=${sig}` } }), 202);
 	assert.equal(await status("/hook/door", { method: "POST", body, headers: { authorization: "Bearer hook-secret-1234" } }), 202);
-	await until(() => h.pine.tasks.list({ agent: "main", status: "done" }).length === 3);
+	// A webhook from outside comes through a tunnel or proxy that forwards /hook/ under its own Host: that alone must not refuse it.
+	const viaTunnel = await new Promise<number>((resolve) => {
+		const r = http.request({ host: "127.0.0.1", port: h.pine.http!.port, path: "/hook/door", method: "POST", headers: { authorization: "Bearer hook-secret-1234", host: "doorbell.example", "content-length": Buffer.byteLength(body) } }, (res) => (res.resume(), resolve(res.statusCode ?? 0)));
+		r.end(body);
+	});
+	assert.equal(viaTunnel, 202);
+	await until(() => h.pine.tasks.list({ agent: "main", status: "done" }).length === 4);
 	const events = h.pine.bus.query({ topic: "hook/door" });
-	assert.equal(events.length, 2);
+	assert.equal(events.length, 3);
 	assert.ok(events.every((e) => e.trust === "untrusted" && e.source === "http"), "a webhook is outside content even when its signature is right");
 	assert.ok(!JSON.stringify(h.pine.bus.query({ limit: 500 })).includes(h.pine.token), "the token appears in no event");
 	await h.close();
