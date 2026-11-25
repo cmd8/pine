@@ -48,6 +48,8 @@ PINE of course also handles regular chat, coding, tasks and orchestration. Agent
    repeating · once      └─────┬─────┘
                                │  delegate ──► other agents
                                │  subagent ──► with distinct prompts, in parallel
+                               │  swarms   ──► many agents in parallel
+                               │  boards   ──► where agents exchange progess
                                ▼
                  answers · messages · actions
 
