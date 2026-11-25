@@ -87,6 +87,8 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["group the okapi conversations together", /^(agents#groups-of-conversations|setup#conversations-and-tabs)/],
 		["delete a whole group with its conversations", /^(agents#groups-of-conversations|setup#conversations-and-tabs)/],
 		["start the daemon from a desktop app and get its token", /^operations#(a-ui-of-its-own|commands\/pine-service)/],
+		["how do I see which pine daemons are running on my computer", /^operations#commands($|\/pine-list)/],
+		["kill every pine process that is still running", /^operations#commands($|\/pine-killall)/],
 		["change a setting over the control api from a script", /^operations#(setting-pine-up-through-the-control-api|the-control-api)/],
 		["save a file from an editor through the daemon", /^(operations#setting-pine-up-through-the-control-api\/post-agents-id-view-write|security#3-the-sandbox|coding#from-a-script)/],
 		["sign in to a model provider from another program", /^operations#setting-pine-up-through-the-control-api/],

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { ConfigError, defaultHome, delegatesText, effectiveMcp, loadConfig, mainAgentId, PINE_ROOT, type PineConfig, purposeOf, unsandboxed } from "./config.ts";
 import { audit, levelOf } from "./security.ts";
@@ -7,7 +8,7 @@ import { pineManual, showRead, showSearch } from "./manual.ts";
 import { modelKeys } from "./models.ts";
 import { allSkills, listSkills } from "./skills.ts";
 import { whenText } from "./timers.ts";
-import { expandHome } from "./util.ts";
+import { expandHome, since } from "./util.ts";
 
 const HELP = `pine - PI neural engine
 
@@ -32,6 +33,10 @@ Daemon
                                   the web tools use, and on Linux the sandbox (asks before it runs anything
                                   as administrator; --yes skips the question). Safe to run again
   pine check                      validate the configuration and list what it sets up
+  pine list [--json]              the pine daemons running on this computer: pine start, pine service (the
+                                  Pine app's), and the terminal UI with a daemon inside. --home: that home's only
+  pine killall                    stop all of them (one still there after 12 seconds is killed). --home: that home's only
+  pine kill <pid>                 stop one of them, by the number pine list shows
   pine start                      run the daemon in the foreground
   pine service [--keep]           for a UI that is a separate program: find the running daemon or start one,
                                   and say on one line of JSON where it answers and with which token. A daemon
@@ -382,7 +387,7 @@ async function installBrowser(): Promise<number> {
 	return spawnSync(process.execPath, [cli, "install", "chromium"], { stdio: "inherit" }).status ?? 1;
 }
 
-const COMMANDS = new Set(["agent", "agents", "approvals", "approve", "browser-install", "cancel", "check", "deny", "dev-model", "emit", "events", "help", "init", "login", "logout", "manual", "mcp", "mode", "model", "reset", "schedules", "send", "service", "skills", "sources", "start", "state", "status", "subscribe", "task", "tasks", "tui", "unsubscribe", "update", "version"]);
+const COMMANDS = new Set(["agent", "agents", "approvals", "approve", "browser-install", "cancel", "check", "deny", "dev-model", "emit", "events", "help", "init", "kill", "killall", "list", "login", "logout", "manual", "mcp", "mode", "model", "reset", "schedules", "send", "service", "skills", "sources", "start", "state", "status", "subscribe", "task", "tasks", "tui", "unsubscribe", "update", "version"]);
 
 /** Whether a first argument means a folder to open: something written as a path, or the name of a folder here that is not a command. */
 function folderArgument(word: string | undefined, cwd = process.cwd()): string | undefined {
@@ -533,6 +538,37 @@ async function main(): Promise<void> {
 		const server = await startClaudeModel({ port: Number(flags.port ?? 7464), model: typeof flags.model === "string" ? flags.model : "haiku", log: (l) => console.error(`${new Date().toISOString()} ${l}`) });
 		out(`claude -p model server on ${server.baseUrl} (model ids: claude-haiku, claude-sonnet, claude-opus). Ctrl-C to stop.`);
 		process.on("SIGINT", () => void server.close().then(() => process.exit(0)));
+		return;
+	}
+
+	if (cmd === "list" || cmd === "killall" || cmd === "kill") {
+		// Every pine daemon on this computer, whatever started it, found in the system's list of processes.
+		const { findDaemons, stopDaemons } = await import("./daemons.ts");
+		const only = typeof flags.home === "string" ? home : undefined;
+		// pine kill <pid> stops a daemon pine found, never whatever process a number names.
+		const pid = cmd === "kill" ? Number(rest[0]) : undefined;
+		if (cmd === "kill" && !(Number.isInteger(pid) && pid! > 0)) throw new Error("usage: pine kill <pid>   (pine list shows the numbers)");
+		const daemons = (await findDaemons(COMMANDS)).filter((d) => (!only || d.home === only) && (pid === undefined || d.pid === pid));
+		const tilde = (p: string) => (p === os.homedir() || p.startsWith(`${os.homedir()}${path.sep}`) ? `~${p.slice(os.homedir().length)}` : p);
+		const line = (d: (typeof daemons)[number]) =>
+			`${d.pid}  ${d.command}${d.app ? " (the Pine app)" : ""}  home ${tilde(d.home)}  ${d.base ?? (d.portsKnown ? "control API not answering" : "control API not known")}  up ${since(d.age)}`;
+		const none = only ? `No pine daemon runs for ${tilde(only)}.` : "No pine daemon runs on this computer.";
+		if (cmd === "list") {
+			if (flags.json === true) return out(daemons);
+			if (!daemons.length) return out(none);
+			for (const d of daemons) out(line(d));
+			return;
+		}
+		if (!daemons.length) {
+			if (cmd === "kill") throw new Error(`${pid} is not a pine daemon${only ? ` of ${tilde(only)}` : ""}, so it is left alone. pine list shows the ones there are.`);
+			return out(none);
+		}
+		let failed = false;
+		for (const r of await stopDaemons(daemons)) {
+			if (r.how === "failed") failed = true;
+			out(`${r.how === "stopped" ? "Stopped" : r.how === "killed" ? "Killed (it did not stop within 12 seconds)" : `Could not stop (${r.error})`}  ${line(r.daemon)}`);
+		}
+		if (failed) process.exitCode = 1;
 		return;
 	}
 
