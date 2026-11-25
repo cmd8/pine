@@ -124,6 +124,46 @@ test("file tools are jailed to the workspace, symlinks included", { skip: proces
 	await h.close();
 });
 
+test("a path is judged in the case the file system keeps, not the case it was typed in", async (t) => {
+	const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-case-")));
+	t.after(() => fs.rmSync(outside, { recursive: true, force: true }));
+	const h = await harness({
+		files: { ".env": "PINE_TEST_SECRET=not-for-agents\n" },
+		// No sandbox: these checks are all that stands between the run and the whole account.
+		agents: { a: { agent: { mode: "auto", workspace: path.join(outside, "a") }, files: { "private.txt": "A-PRIVATE\n" } }, b: { agent: { mode: "auto", workspace: path.join(outside, "b") } } },
+	});
+	// A file system that ignores case opens a path whatever case it is given in (APFS by default),
+	// so that is the case a check has to judge; `realpath` on macOS reports the caller's instead.
+	const shout = (p: string) => p.replace(/[a-z]/g, (c) => c.toUpperCase());
+	const secret = path.join(h.home, ".env");
+	const theirs = path.join(outside, "a", "private.txt");
+	if (!fs.existsSync(shout(h.home)) || !fs.existsSync(shout(theirs))) return t.skip("this file system tells paths apart by case");
+	await h.pine.agents.run({
+		agent: "b",
+		prompt: mockMsg([
+			{
+				tools: [
+					{ name: "read", args: { path: secret } },
+					{ name: "read", args: { path: shout(secret) } },
+					{ name: "read", args: { path: theirs } },
+					{ name: "read", args: { path: shout(theirs) } },
+					{ name: "write", args: { path: shout(theirs), content: "B-WAS-HERE\n" } },
+				],
+			},
+		]),
+		...owner,
+	});
+	const out = h.toolResults();
+	assert.match(out[0], /not accessible to agents/, out[0]);
+	assert.match(out[1], /not accessible to agents/, `the same file in another case is the same file: ${out[1]}`);
+	assert.match(out[2], /another agent's workspace/, out[2]);
+	assert.match(out[3], /another agent's workspace/, `another agent's workspace is closed however its path is spelled: ${out[3]}`);
+	assert.match(out[4], /another agent's workspace/, `and not written to either: ${out[4]}`);
+	assert.equal(fs.readFileSync(theirs, "utf8"), "A-PRIVATE\n");
+	assert.ok(!JSON.stringify(h.mock.state.requests.at(-1).body).includes("A-PRIVATE"));
+	await h.close();
+});
+
 test("file tools run inside the sandbox themselves, so swapping in a symlink gains nothing", { skip: !sandboxAvailable() }, async () => {
 	const { loadConfig } = await import("../src/config.ts");
 	const { rootsFor, sandboxArgv, sandboxGuard, shellEnv } = await import("../src/security.ts");

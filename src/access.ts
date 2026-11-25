@@ -13,6 +13,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { isInside } from "./security.ts";
 import type { Logger } from "./util.ts";
 
 /** One thing the sandbox refused a command: "file-read-data /Users/x/notes", "mach-lookup com.apple.windowserver". */
@@ -446,8 +447,6 @@ export function sortDenials(denials: Denial[]): Refused {
 	}
 	return { read: [...read].filter((p) => !write.has(p)), write: [...write], network, services: [...services] };
 }
-
-const isInside = (root: string, p: string) => p === root || p.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
 
 /**
  * Many refusals become few questions: a refused path that lies in something the command named is
