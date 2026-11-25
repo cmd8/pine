@@ -22,6 +22,9 @@ import { errText, parseDuration, resolvePath } from "../util.ts";
  *
  * event "added": { path, file, size, images? }   images is set for jpg, png, webp and gif under 10 MB
  */
+/** How soon a watcher that failed is tried again, and how far apart the tries grow. Tests move it. */
+export const timing = { retryMs: 1000, retryMaxMs: 60_000 };
+
 const TYPES: Record<string, string> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif" };
 
 /** A file name mask ("*.pdf", "*.{png,jpg}", "a?.txt, b*.md") as a test for a file's name. Capitals do not matter. */
@@ -104,36 +107,48 @@ export default function folder(source: SourceApi): void {
 	};
 
 	// A watcher gives up for reasons that are none of the folder's doing: an inotify limit reached, its
-	// rights taken away, the folder replaced. Unhandled that arrives as an exception that takes the
-	// daemon down while the source still says it runs, so it goes into the source's status, the dead
-	// watcher is dropped, and a new one is tried, further apart each time.
-	const RETRY_FIRST = 1000;
+	// rights taken away, the folder removed or replaced (Windows says so with an error). Unhandled that
+	// is an exception nothing catches, logged while the source still says it runs, so it goes into the
+	// source's status, the dead watcher is dropped, and a new one is tried, further apart each time.
+	// A new one throws at once while the folder is gone, and that is a failure like the other.
 	let watcher: fs.FSWatcher | undefined;
 	let retry: NodeJS.Timeout | undefined;
-	let waitMs = RETRY_FIRST;
+	let waitMs = timing.retryMs;
+	let stopped = false;
+	const failed = (e: unknown) => {
+		if (stopped) return;
+		watcher?.close();
+		watcher = undefined;
+		source.log.warn(`stopped watching ${dir}`, errText(e));
+		// The status line is read without the outside-content mark, and an error's text can name a folder
+		// inside, which anybody who drops files there named: only the error's code goes into it.
+		const code = String((e as NodeJS.ErrnoException)?.code ?? "");
+		source.status(`not watching the folder${/^E[A-Z]{2,12}$/.test(code) ? ` (${code})` : ""}; trying again in ${Math.round(waitMs / 1000)} s, and less often each time it fails`);
+		retry = setTimeout(open, waitMs);
+		waitMs = Math.min(waitMs * 2, timing.retryMaxMs);
+	};
 	const open = () => {
-		watcher = fs.watch(dir, { recursive: o.recursive !== false }, (_type, name) => {
-			// One that reports something is a working one: the wait for a new one starts over.
-			waitMs = RETRY_FIRST;
-			if (!name) return;
-			const file = path.join(dir, String(name));
-			if ((pattern && !pattern.test(file)) || (mask && !mask.test(path.basename(file))) || ignore.test(String(name)) || pending.has(file)) return;
-			pending.set(file, setTimeout(() => check(file, -1), 200));
-		});
-		watcher.on("error", (e) => {
-			watcher?.close();
-			watcher = undefined;
-			source.log.warn(`stopped watching ${dir}`, errText(e));
-			source.status(`not watching ${dir}: ${errText(e)}. Trying again in ${waitMs / 1000} s, and less often each time it fails.`);
-			retry = setTimeout(open, waitMs);
-			waitMs = Math.min(waitMs * 2, 60_000);
-		});
+		retry = undefined;
+		try {
+			watcher = fs.watch(dir, { recursive: o.recursive !== false }, (_type, name) => {
+				// One that reports something is a working one: the wait for a new one starts over.
+				waitMs = timing.retryMs;
+				if (!name) return;
+				const file = path.join(dir, String(name));
+				if ((pattern && !pattern.test(file)) || (mask && !mask.test(path.basename(file))) || ignore.test(String(name)) || pending.has(file)) return;
+				pending.set(file, setTimeout(() => check(file, -1), 200));
+			});
+		} catch (e) {
+			return failed(e);
+		}
+		watcher.on("error", failed);
 		// A watcher that works has nothing to say about itself: this clears the line a failure wrote.
 		source.status("");
 		source.log.info(`watching ${dir}`);
 	};
 	open();
 	source.onStop(() => {
+		stopped = true;
 		if (retry) clearTimeout(retry);
 		watcher?.close();
 		pending.forEach((t) => clearTimeout(t));

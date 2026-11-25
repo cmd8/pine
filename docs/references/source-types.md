@@ -138,6 +138,12 @@ A folder: reports every new or changed file once it has stopped growing.
 Event `added`: `{ path, file, size, images? }`. For jpg, png, webp and gif under 10 MB the
 picture is shown to the agent if its model can look at images.
 
+An empty file is waited for twice as long, since a program that writes one in one go leaves it
+empty for an instant, and then reported with `size` 0 (a placeholder, a marker); when something is
+written into it later, it is reported again. When the folder cannot be watched (it was removed, its
+rights were taken away, the system's limit of watched folders is reached), the source's status says
+so with the system's error code, and it tries again, less often each time, up to once a minute.
+
 ### mqtt
 
 An MQTT broker: reports the messages on the topics you name.
