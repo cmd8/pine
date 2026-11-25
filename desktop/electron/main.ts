@@ -1020,6 +1020,7 @@ const TAB_DROP_GRACE_MS = 2000;
 function startTabDrag(w: ManagedWindow, drag: TabDrag): void {
 	broadcast("pine:tab-drag", false);
 	tabDrag = { ...drag, from: w, host: w.host };
+	if (HEADLESS) (globalThis as any).tabDragStarted = { tab: drag.tab, window: w.id };
 	for (const other of windowsForHost(w.host)) if (other !== w) sendTo(other, "pine:tab-drag", true);
 }
 

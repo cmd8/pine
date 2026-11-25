@@ -75,14 +75,23 @@ async function pickUp(p: Page, name: string, part = false): Promise<void> {
 }
 
 /** What the app made of the last drag that ended (`tabDragEnded` in electron/main.ts), for a failure to say why nothing happened. */
-async function whyNot(): Promise<string> {
-	const said = await app?.evaluate(({ BrowserWindow }: any) => ({ ended: (globalThis as any).tabDragEnded ?? "the app was not told the drag ended", windows: BrowserWindow.getAllWindows().map((w: any) => w.getBounds()) })).catch((e: Error) => e.message);
-	return JSON.stringify(said);
+async function whyNot(p?: Page): Promise<string> {
+	const said = await app
+		?.evaluate(({ BrowserWindow }: any) => ({ started: (globalThis as any).tabDragStarted ?? "the app was not told a drag began", ended: (globalThis as any).tabDragEnded ?? "the app was not told the drag ended", windows: BrowserWindow.getAllWindows().map((w: any) => w.getBounds()) }))
+		.catch((e: Error) => e.message);
+	// The page's side: whether the tab the drag began on is still on the page, and how many drag ends reached it.
+	const page = await p?.evaluate(() => ({ tabStillThere: (window as any).__dragged?.tab?.isConnected, dragEndsSeen: (window as any).__dragEnds ?? 0 })).catch((e: Error) => e.message);
+	return JSON.stringify({ ...(typeof said === "object" ? said : { said }), page });
 }
 
 /** Lets go of the tab picked up in a window where nothing takes it, at a place of the screen. */
 async function letGo(p: Page, at: { x: number; y: number }): Promise<void> {
 	await app?.evaluate(() => void delete (globalThis as any).tabDragEnded);
+	await p.evaluate(() => {
+		const w = window as any;
+		w.__dragEnds = 0;
+		if (!w.__countsDragEnds) (w.__countsDragEnds = true), document.addEventListener("dragend", () => w.__dragEnds++, true);
+	});
 	await p.evaluate((at) => {
 		const { tab, dataTransfer } = (window as any).__dragged;
 		tab.dispatchEvent(new DragEvent("dragend", { bubbles: true, cancelable: true, dataTransfer, screenX: at.x, screenY: at.y }));
@@ -170,7 +179,7 @@ test("a tab let go outside every window opens in a window of its own there, with
 	const area = await app.evaluate(({ screen }: any, p: { x: number; y: number }) => screen.getDisplayNearestPoint(p).workArea, point);
 	await pickUp(win1, "tear-me", true);
 	const win2 = await waitForWindow(app, () => letGo(win1, point)).catch(async (e) => {
-		throw new Error(`no window was torn off at ${JSON.stringify(point)}: ${await whyNot()} (${e.message})`);
+		throw new Error(`no window was torn off at ${JSON.stringify(point)}: ${await whyNot(win1)} (${e.message})`);
 	});
 	await win2.waitForSelector("[data-slot=tab][data-active] [data-slot=tab-name] >> text=tear-me", { timeout: 20_000 });
 	await win2.waitForFunction(() => (document.querySelector("[data-slot=composer] textarea") as HTMLTextAreaElement | null)?.value === "torn off with me");
@@ -222,7 +231,7 @@ test("a window's only tab let go outside moves the window there instead of openi
 			want,
 		)
 		.catch(async (e: Error) => {
-			throw new Error(`${e.message}: ${await whyNot()}`);
+			throw new Error(`${e.message}: ${await whyNot(win1)}`);
 		});
 	assert.equal(await windowCount(app), 1);
 	assert.deepEqual(await tabNames(win1), ["main"]);
