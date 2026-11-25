@@ -286,7 +286,9 @@ test("what only the desktop app has refuses or does nothing, as the preview's st
 	assert.equal(await b.reveal("/x"), undefined);
 	assert.equal(await b.notify("t", "b"), undefined);
 	assert.equal(await b.badge(3), undefined);
-	assert.equal(await b.contextMenu([{ id: "a", label: "A" }]), undefined);
+	// Optional on the page's bridge (a browser has its own menus); the mobile bridge has it, and it shows nothing.
+	assert.equal(typeof b.contextMenu, "function");
+	assert.equal(await b.contextMenu!([{ id: "a", label: "A" }]), undefined);
 	for (const off of [b.onInitLine, b.onVoice, b.onTermData, b.onTermExit, b.onTermRun].map((on) => on(() => {}))) off();
 	assert.deepEqual(calls, []);
 });

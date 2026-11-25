@@ -17,16 +17,16 @@
     "apk:release": "npm run sync && node scripts/gradle.mjs android assembleRelease",
     "smoke": "node scripts/smoke.mjs",
     "smoke:ios": "node scripts/smoke-ios.mjs",
-    "ios": "npm run sync:ios && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/DerivedData CODE_SIGNING_ALLOWED=NO build",
+    "ios": "npm run sync:ios && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/DerivedData CODE_SIGNING_ALLOWED=NO ARCHS=arm64 build",
     "ios:run": "npm run sync:ios && cap run ios --no-sync",
     "ipa": "node scripts/ipa.ts"
   },
   "devDependencies": {
-    "@capacitor/android": "^8.6.2",
-    "@capacitor/cli": "^8.6.2",
-    "@capacitor/core": "^8.6.2",
-    "@capacitor/ios": "^8.6.2",
-    "@types/node": "^26.6.6",
+    "@capacitor/android": "^8.6.3",
+    "@capacitor/cli": "^8.6.3",
+    "@capacitor/core": "^8.6.3",
+    "@capacitor/ios": "^8.6.3",
+    "@types/node": "^26.6.10",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
