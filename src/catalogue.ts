@@ -108,7 +108,7 @@ const BRIEF: Record<string, string> = {
 	list_mcp_resource_templates: "list the resource templates of MCP servers",
 	read_mcp_resource: "read a resource of an MCP server",
 	skills: "your skills and whom each is for",
-	models: 'the models your owner has set up, as provider/model, and what each can do: what subagent takes as "model"',
+	models: 'the models your owner has set up, as provider/model, and what each can do: what subagent takes as "model". For the main agent also what each model server of your owner\'s serves that pine does not have yet (add_model adds it)',
 	add_skill: 'write down how something is done, so that you can do it again without being told ("remember how to do this"); the same name replaces it. A fact belongs into MEMORY.md instead',
 	remove_skill: "remove a skill (to change one: add it again under the same name)",
 	agents: "pine's agents: what each is for, the model, mode, reach and what each has; with \"id\", one agent in full with the instructions",

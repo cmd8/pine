@@ -16,7 +16,7 @@ import { login, logout, type Prompter } from "./login.ts";
 import { setEnv } from "./env-file.ts";
 import { type ApprovalRequest, isInside, levelOf, realish } from "./security.ts";
 import { type Part, pineManual, showRead, showSearch } from "./manual.ts";
-import { addModelServer, checkServerName, listModelServers, lookAt, modelServerUsers, removeModelServer, serverUrl } from "./models.ts";
+import { addModelServer, checkServerName, listModelServers, lookAt, modelServerUsers, removeModelServer, type ServerModel, servedBy, serverUrl } from "./models.ts";
 import { allSkills, checkSkill, deleteSkill, listSkills, skillDir, skillsBeside, writeSkill } from "./skills.ts";
 import { describeOptions, FRESH } from "./sources.ts";
 import { localTime } from "./timers.ts";
@@ -523,8 +523,17 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 						const sizes = own.has(m.provider) ? `, ${m.contextWindow} tokens of context, answers up to ${m.maxTokens}, server of your owner's own` : "";
 						return `- ${ref}${ref === mine ? " (yours)" : ""}: ${m.input?.includes("image") ? "sees pictures" : "text only"}${m.reasoning ? ", reasons" : ""}${sizes}${runs !== undefined ? `, ${runs} at a time` : ""}`;
 					});
+					// The main agent sets models up, so it is told what each server of the owner's serves that pine does not have yet.
+					const served = agent.id === mainAgentId(cfg) ? await servedBy(cfg.home) : [];
+					const said = (m: ServerModel) => `${m.id}${m.title || m.state ? ` (${[m.title, m.state].filter(Boolean).join(", ")})` : ""}`;
+					const servers = served.map((x) =>
+						"error" in x
+							? `- ${x.name}: not asked what it serves: ${x.error}`
+							: `- ${x.name} serves${x.missing.length ? `, not in pine: ${x.missing.slice(0, 30).map(said).join("; ")}` : " nothing pine does not have"}${x.gone.length ? `. In pine, no longer served: ${x.gone.join(", ")}` : ""}`,
+					);
+					const asked = servers.length ? `\n\nWhat the model servers of your owner's own serve (asked just now):\n${servers.join("\n")}` : "";
 					const admin = agent.id === mainAgentId(cfg) ? `\n\nAs the main agent you set models up: add_model_server and add_model add, configure_model changes context, longest answer, pictures, reasoning and how many run at a time (runs; without a number of its own a model shares pine's ${cfg.limits.maxConcurrentRuns}), remove_model and remove_model_server take out.` : "";
-					return ok(`${all.length} model${all.length === 1 ? "" : "s"}:\n${lines.join("\n")}${all.length > 60 ? `\n... and ${all.length - 60} more` : ""}\n\nsubagent takes one of them as "model", for sub-tasks another model does better than yours. Your own model is changed by your owner${agent.id === mainAgentId(cfg) ? " or by you with update_agent" : ` or by the main agent (${mainAgentId(cfg)})`}, not by you.${admin}`);
+					return ok(`${all.length} model${all.length === 1 ? "" : "s"}:\n${lines.join("\n")}${all.length > 60 ? `\n... and ${all.length - 60} more` : ""}\n\nsubagent takes one of them as "model", for sub-tasks another model does better than yours. Your own model is changed by your owner${agent.id === mainAgentId(cfg) ? " or by you with update_agent" : ` or by the main agent (${mainAgentId(cfg)})`}, not by you.${asked}${admin}`);
 				},
 			}),
 		);

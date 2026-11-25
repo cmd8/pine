@@ -91,6 +91,7 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["my server loaded another model but pine does not show it", /^(setup#setting-up-a-model|operations#problems)/],
 		["turn off thinking for one of my local models", /^(setup#setting-up-a-model|configuration#thinking-levels)/],
 		["only one request at a time to the model on my laptop", /^(setup#setting-up-a-model|configuration#.*limits-models)/],
+		["which models does my llama server have that pine does not know about", /^setup#(setting-up-a-model|.*\/models$)/],
 		["configure_model", /configure-model$/],
 		["remove_model", /remove-model$/],
 		["alert my owner unattended without approval for each message", /^sources#telling-you-needs-no-approval$/],

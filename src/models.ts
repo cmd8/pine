@@ -103,7 +103,18 @@ export interface ServerModel {
 	 * template tells apart, lowest first. Its own default is not among them.
 	 */
 	efforts?: string[];
+	/** What the server calls it besides its id, where it says (a router's `meta.title`, `name`): plain words only, never written into a file. */
+	title?: string;
+	/** Whether it is loaded, where a router says (`meta.state`, `status`): one plain word. */
+	state?: string;
 }
+
+/**
+ * A server's own words about a model, kept only when they are plain: letters, digits, spaces and
+ * a little punctuation, short. They are shown to an agent, and a server can say anything.
+ */
+const plainTitle = (v: unknown) => (typeof v === "string" && /^[\p{L}\p{N} .,()+:/_'&-]{1,80}$/u.test(v.trim()) ? v.trim() : undefined);
+const plainState = (v: unknown) => (typeof v === "string" && /^[A-Za-z][A-Za-z_-]{0,15}$/.test(v) ? v.toLowerCase() : undefined);
 
 /** What a server answered: its models, or that it wants a key first. */
 export type Look = { locked: true } | { locked: false; models: ServerModel[] };
@@ -158,11 +169,11 @@ const positive = (n: unknown): number | undefined => (typeof n === "number" && N
  * Ask a server what it serves. Nothing follows a redirect: the address the owner agreed to is
  * the only one that gets a request, and the only one that sees the key.
  */
-export async function lookAt(baseUrl: string, key?: string): Promise<Look> {
+export async function lookAt(baseUrl: string, key?: string, timeoutMs = 10_000): Promise<Look> {
 	modelOrigins.add(new URL(baseUrl).origin);
 	const get = async (url: string) => {
 		try {
-			return await fetch(url, { headers: key ? { authorization: `Bearer ${key}` } : {}, redirect: "error", signal: AbortSignal.timeout(10_000) });
+			return await fetch(url, { headers: key ? { authorization: `Bearer ${key}` } : {}, redirect: "error", signal: AbortSignal.timeout(timeoutMs) });
 		} catch (e) {
 			throw new Error(`no model server answers at ${url} (${errText((e as any)?.cause ?? e)})`);
 		}
@@ -192,6 +203,8 @@ export async function lookAt(baseUrl: string, key?: string): Promise<Look> {
 			reasoning,
 			// Only the names pine knows are kept: what a server says goes into a file.
 			...(reasoning ? { efforts: EFFORTS.filter((level) => Array.isArray(caps.reasoning_effort_levels) && caps.reasoning_effort_levels.includes(level)) } : {}),
+			...(plainTitle(m.meta?.title ?? m.name) && plainTitle(m.meta?.title ?? m.name) !== m.id ? { title: plainTitle(m.meta?.title ?? m.name) } : {}),
+			...(plainState(m.meta?.state ?? m.status?.value ?? m.status) ? { state: plainState(m.meta?.state ?? m.status?.value ?? m.status) } : {}),
 		});
 	}
 	if (!models.length) throw new Error(`${baseUrl} lists no model with a usable name${list.length ? ` (it has ${list.length}, named with spaces or other characters; llama-server takes a plain name with --alias)` : ""}`);
@@ -476,6 +489,32 @@ export function listModelServers(home: string): ServerInfo[] {
 			models: (Array.isArray(p.models) ? p.models : []).filter((m: any) => typeof m?.id === "string").map((m: any) => ({ id: m.id, contextWindow: positive(m.contextWindow), images: Array.isArray(m.input) && m.input.includes("image"), reasoning: m.reasoning === true })),
 		};
 	});
+}
+
+/** What one server of the owner's own serves that pine does not have, or why that is not known. */
+export type Served = { name: string; missing: ServerModel[]; gone: string[] } | { name: string; error: string };
+
+/**
+ * Ask every server of the owner's own what it serves (`/models`), side by side and briefly: only
+ * the addresses the owner confirmed, with the key pine sends them anyway, no redirect. `missing`:
+ * served and not in pine; `gone`: in pine and no longer served.
+ */
+export async function servedBy(home: string, timeoutMs = 3000): Promise<Served[]> {
+	return Promise.all(
+		listModelServers(home).map(async (s): Promise<Served> => {
+			try {
+				const look = await lookAt(s.baseUrl, serverKey(home, s.name), timeoutMs);
+				if (look.locked) return { name: s.name, error: "it did not accept the key pine has for it" };
+				const have = new Set(s.models.map((m) => m.id));
+				const served = new Set(look.models.map((m) => m.id));
+				return { name: s.name, missing: look.models.filter((m) => !have.has(m.id)), gone: [...have].filter((id) => !served.has(id)) };
+			} catch (e) {
+				// A message of pine's own: the server's answer is not repeated.
+				const why = errText(e);
+				return { name: s.name, error: /timed? ?out|aborted/i.test(why) ? "it did not answer in time" : /no model server answers/.test(why) ? "it does not answer" : /key/.test(why) ? why : "its list of models could not be read" };
+			}
+		}),
+	);
 }
 
 /**
