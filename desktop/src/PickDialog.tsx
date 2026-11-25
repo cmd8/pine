@@ -8,7 +8,11 @@ import { fuzzy } from "./text.ts";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function PickDialog({ p }: { p: Picker }) {
-	const [query, setQuery] = useState("");
+	const [query, setQuery] = useState(p.initial ?? "");
+	// A name to change starts selected up to its extension, as a file's name is renamed elsewhere; once the dialog has put the focus in it.
+	const select = (el: HTMLInputElement | null) => {
+		if (el && p.initial && p.selected !== undefined) requestAnimationFrame(() => el.setSelectionRange(0, p.selected!));
+	};
 	const shown = useMemo(() => (query && !p.free ? p.items.map((i) => ({ i, rank: Math.min(...[fuzzy(query, i.label), fuzzy(query, i.about ?? "") + 10].filter((r) => r >= 0), 99) })).filter((x) => x.rank < 99).sort((a, b) => a.rank - b.rank).map((x) => x.i) : p.items), [query, p]);
 	// The list starts on the one in use.
 	const line = useNamedLine(query, p.current, !p.loading);
@@ -23,7 +27,7 @@ export function PickDialog({ p }: { p: Picker }) {
 				if (e.key === "Enter" && p.free && query.trim()) (e.preventDefault(), p.done(query.trim()));
 			}}
 		>
-			<CommandInput placeholder={p.placeholder ?? "Type to narrow the list"} value={query} onValueChange={setQuery} />
+			<CommandInput ref={select} placeholder={p.placeholder ?? "Type to narrow the list"} value={query} onValueChange={setQuery} />
 			<CommandList className="scroll-fade" aria-busy={p.loading || undefined}>
 				{/* The title shows as the group's heading: the dialog's own title is for screen readers. */}
 				<CommandGroup heading={p.title}>

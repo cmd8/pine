@@ -800,6 +800,13 @@ These are invariants. A change that breaks one needs a test that shows why it is
    inside the folder whatever a path has become, and a link or a second name of a file
    elsewhere is never written through. Without a sandbox it writes nothing. Do not write there
    with `fs`, and do not add a second place that writes a folder for a UI.
+   The file tree's changes (`POST /agents/<id>/view/files`, `changeFiles`: make, rename, copy,
+   move, delete) are the same place: the same route's checks, and `inFolder`, the helper
+   `putInto` runs in, with a fixed script of the shell per change and the names as its
+   arguments. A name is looked at for a clear refusal (`nameIn`: the folder it lies in, links
+   resolved, has to be inside), and its last part is acted on as it is, so that a link is
+   moved, copied (`cp -P`) or deleted itself and never what it points at. Nothing is put where
+   something already is. A new kind of change is one more script there, never a second road.
 
 12. **What an agent left running is found by the daemon, not reported by the agent.** Every
    shell command notes its process group before its sandbox starts (`Programs.note`, fixed

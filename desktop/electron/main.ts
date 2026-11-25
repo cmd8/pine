@@ -1739,13 +1739,25 @@ function wire(): void {
 		Menu.getApplicationMenu()?.popup({ window: w.win, x: Math.round((Number(x) || 0) * zoom), y: Math.round((Number(y) || 0) * zoom) });
 	});
 	// An item with `checked` is one of a set of choices (the side bar's "Sort by"), drawn with the system's mark.
-	handle("pine:context-menu", (w, items: Array<{ id: string; label: string; enabled?: boolean; separator?: boolean; danger?: boolean; checked?: boolean }>) => {
+	handle("pine:context-menu", (w, items: Array<{ id: string; label: string; enabled?: boolean; separator?: boolean; danger?: boolean; checked?: boolean; keys?: string }>) => {
 		return new Promise<string | undefined>((resolve) => {
 			let picked: string | undefined;
-			const menu = Menu.buildFromTemplate(items.slice(0, 30).map((i) => (i.separator ? { type: "separator" as const } : { label: String(i.label).slice(0, 80), enabled: i.enabled !== false, ...(typeof i.checked === "boolean" ? { type: "radio" as const, checked: i.checked } : {}), click: () => (picked = String(i.id)) })));
+			const menu = Menu.buildFromTemplate(items.slice(0, 30).map((i) => (i.separator ? { type: "separator" as const } : { label: String(i.label).slice(0, 80), enabled: i.enabled !== false, ...accelerator(i.keys), ...(typeof i.checked === "boolean" ? { type: "radio" as const, checked: i.checked } : {}), click: () => (picked = String(i.id)) })));
 			menu.popup({ window: w.win, callback: () => resolve(picked) });
 		});
 	});
+}
+
+/**
+ * A context menu entry's shortcut as the system's menu shows it, from the page's way of writing one
+ * ("⌥⌘C", "F2", "⌦"). Shown only: the page handles the keys itself, so the menu does not take them.
+ */
+function accelerator(keys: unknown): { accelerator: string; registerAccelerator: false } | object {
+	const m = typeof keys === "string" ? /^([⌃⌥⇧⌘]{0,4})([A-Z0-9]|F[0-9]{1,2}|↩|⌫|⌦)$/.exec(keys) : null;
+	if (!m) return {};
+	const held = { "⌃": "Ctrl", "⌥": "Alt", "⇧": "Shift", "⌘": "CmdOrCtrl" } as Record<string, string>;
+	const key = ({ "↩": "Enter", "⌫": "Backspace", "⌦": "Delete" } as Record<string, string>)[m[2]] ?? m[2];
+	return { accelerator: [...[...m[1]].map((c) => held[c]), key].join("+"), registerAccelerator: false };
 }
 
 /** A dot for the taskbar button on Windows, drawn here: 16 pixels, in the theme's color for what is wrong or waits. */

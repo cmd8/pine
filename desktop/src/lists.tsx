@@ -21,13 +21,19 @@ export const onPick = (set: (value: string) => void) => (value: unknown) => {
  */
 export const TREE_ITEM = "outline-none";
 
+/** How far apart the lines of code stand in the side panel: as in its editor (`.cm-scroller` in CodePanel.tsx), tighter than the stock block's. */
+export const CODE_LINES = "leading-normal";
+
 /**
  * A row of a list or of the tree: highlighted while it is the one open. The lists are one tab stop each, so
  * the row that has the keyboard shows it, also where the focus is on the tree's item around it (`TREE_ITEM`).
+ * 24px at 14px text, as close as an editor's file tree sets its rows (VS Code's 22px at 13px).
  */
 export function rowClass(on?: boolean) {
 	// The focus is drawn as stock controls draw it: a ring, inside the row so that the next row does not cover it.
-	return cn("flex h-7 flex-none items-center gap-2 px-2.5 text-xs whitespace-nowrap ring-ring/50 outline-none ring-inset focus-visible:ring-3 [[data-slot=tree-item]:focus-visible>&]:ring-3", on ? "bg-accent font-medium" : "hover:bg-accent");
+	// A selected row (several can be, in the tree and the lists of files) is drawn as the open one. The tree marks one with an
+	// empty data-selected, which the stock `data-selected:` ("true") does not match.
+	return cn("flex h-6 flex-none items-center gap-2 px-2.5 text-sm whitespace-nowrap ring-ring/50 outline-none ring-inset focus-visible:ring-3 aria-selected:bg-accent [&[data-selected]]:bg-accent [[data-slot=tree-item]:focus-visible>&]:ring-3", on ? "bg-accent font-medium" : "hover:bg-accent");
 }
 
 /** A value no line has: the list starts with no line chosen, until useNamedLine chooses one. */

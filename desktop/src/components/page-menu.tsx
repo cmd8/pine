@@ -1,8 +1,10 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { bridge } from "../bridge.ts";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { shortcut } from "../text.ts";
 
-export type MenuEntry = { id: string; label: string; enabled?: boolean; separator?: boolean; danger?: boolean; checked?: boolean };
+/** One entry of a menu. `keys` is its shortcut, shown beside it, written as `shortcut()` takes it ("⌥⌘C"); the menu does not press it. */
+export type MenuEntry = { id: string; label: string; enabled?: boolean; separator?: boolean; danger?: boolean; checked?: boolean; keys?: string };
 
 type Request = { items: MenuEntry[]; at: { x: number; y: number }; done: (id?: string) => void };
 
@@ -48,6 +50,7 @@ export function PageMenu({ items, at, onDone, onGone }: { items: MenuEntry[]; at
 		) : (
 			<DropdownMenuItem key={i.id} variant={i.danger ? "destructive" : "default"} disabled={i.enabled === false} onClick={() => end(i.id)}>
 				{i.label}
+				{i.keys ? <DropdownMenuShortcut>{shortcut(i.keys)}</DropdownMenuShortcut> : null}
 			</DropdownMenuItem>
 		);
 	return (

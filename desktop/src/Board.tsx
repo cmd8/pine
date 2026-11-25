@@ -22,7 +22,7 @@ import { store, type Tab, useModel } from "./model.ts";
 import { plural } from "./text.ts";
 import { useLoad } from "./use-load.ts";
 
-const SUB = "flex min-h-9 flex-none items-center gap-1.5 border-b border-line-soft px-2.5 py-1.5 text-xs text-muted-foreground";
+const SUB = "flex min-h-9 flex-none items-center gap-1.5 border-b border-line-soft px-2.5 py-1.5 text-sm text-muted-foreground";
 
 /** A board as the owner calls it. */
 export const boardLabel = (b: BoardBrief) => (b.scope === "global" ? `${b.name} · all agents` : b.scope === "agent" ? `${b.name} · all conversations of ${b.agent}` : b.name || "This conversation");
@@ -118,7 +118,7 @@ export function BoardList({ view, actions }: { view: BoardView; actions: BoardAc
 						{view.tasks.map((t) => {
 							const shown = open.has(t.id) || t.state === "blocked";
 							const about = notesOf(t.id);
-							const result = t.result ? <p className="text-xs whitespace-pre-wrap text-muted-foreground select-text">{t.result}</p> : null;
+							const result = t.result ? <p className="whitespace-pre-wrap text-muted-foreground select-text">{t.result}</p> : null;
 							return (
 								<Item size="sm" key={t.id} data-task={t.id} data-state={t.state}>
 									<ItemMedia variant="icon">
@@ -189,7 +189,7 @@ export function BoardList({ view, actions }: { view: BoardView; actions: BoardAc
 
 function Note({ note, remove }: { note: BoardItem; remove?: () => void }) {
 	return (
-		<div className="flex flex-col gap-1 border-l-2 border-line-soft pl-2 text-xs" data-note={note.id}>
+		<div className="flex flex-col gap-1 border-l-2 border-line-soft pl-2" data-note={note.id}>
 			<span className="flex items-center gap-1.5 text-faint">
 				<span>
 					#{note.id} · {note.by === "owner" ? "you" : note.by}

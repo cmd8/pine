@@ -94,6 +94,17 @@
 	--term-select: #717cb425;
 }
 
+/* The waves of SwirlMarker (src/components/swirl-marker.tsx) flowing in to where they rest, once: each rule says
+   from where (`--swirl-from`), so that both flow toward the label. */
+@theme {
+	--animate-swirl: swirl 1.4s cubic-bezier(0.22, 1, 0.36, 1);
+	@keyframes swirl {
+		from {
+			mask-position: var(--swirl-from) 50%;
+		}
+	}
+}
+
 /* The system's own fonts. Static, so that they are on the root for script too: the code editor and the terminal
    (CodePanel.tsx, Terminal.tsx) read them there, where Tailwind cannot see a utility that uses them. */
 @theme static {

@@ -30,6 +30,7 @@ import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress
 import { Toggle } from "@/components/ui/toggle";
 import { HoverTooltip } from "@/components/hover-tooltip";
 import { QuoteChip } from "@/components/quote-chip";
+import { SwirlMarker } from "@/components/swirl-marker";
 import { BookmarkList } from "@/components/bookmark-list";
 import { SelectionToolbar, SelectionToolbarButton, useTextSelection } from "@/components/selection-toolbar";
 import { TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -595,7 +596,7 @@ export const Row = memo(function Row({ item, tab }: { item: Item; v: number; tab
  */
 function Checkpoint({ tab }: { tab: Tab }) {
 	return (
-		<Marker variant="separator">
+		<SwirlMarker>
 			<MarkerContent className="inline-flex items-center gap-2">
 				before your last message
 				<HoverTooltip>
@@ -606,7 +607,7 @@ function Checkpoint({ tab }: { tab: Tab }) {
 					</TooltipContent>
 				</HoverTooltip>
 			</MarkerContent>
-		</Marker>
+		</SwirlMarker>
 	);
 }
 

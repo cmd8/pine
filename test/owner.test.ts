@@ -532,6 +532,98 @@ test("the owner's editor writes a file of a conversation's folder, and a link pl
 	await h.close();
 });
 
+test("the owner's file tree makes, renames, copies, moves and deletes files of a conversation's folder, and never through a link out of it", { skip: !sandboxAvailable() && "no sandbox on this system" }, async (t) => {
+	const outside = tmp(t, "pine-outside-");
+	const project = tmp(t, "pine-project-");
+	fs.mkdirSync(path.join(project, "src"));
+	fs.writeFileSync(path.join(project, "src", "app.ts"), "export const answer = 41;\n");
+	fs.writeFileSync(path.join(outside, "secret.txt"), "as it was\n");
+	const h = await harness({ pine: { http: { port: 0 } }, agents: { main: {} } });
+	const a = api(h);
+	assert.equal((await a.post("/agents/main/folder", { session: "proj", folder: project })).status, 200);
+	const files = (body: Record<string, unknown>) => a.post("/agents/main/view/files", { session: "proj", ...body });
+	const has = (p: string) => fs.existsSync(path.join(project, p));
+
+	// Made, with the folders a new name needs; never over what is there.
+	assert.deepEqual((await files({ op: "folder", path: "lib/deep" })).body, { paths: ["lib/deep"] });
+	assert.deepEqual((await files({ op: "file", path: "lib/deep/x.ts" })).body, { paths: ["lib/deep/x.ts"] });
+	assert.equal(fs.readFileSync(path.join(project, "lib", "deep", "x.ts"), "utf8"), "");
+	assert.match((await files({ op: "file", path: "src/app.ts" })).body.error, /already something named src\/app.ts/);
+	assert.equal(fs.readFileSync(path.join(project, "src", "app.ts"), "utf8"), "export const answer = 41;\n");
+	// Renamed, also into another folder; never onto another file, never into itself.
+	assert.deepEqual((await files({ op: "rename", path: "lib/deep/x.ts", to: "lib/y.ts" })).body, { paths: ["lib/y.ts"] });
+	assert.equal((await files({ op: "rename", path: "lib/y.ts", to: "src/app.ts" })).status, 409);
+	assert.equal((await files({ op: "rename", path: "lib", to: "lib/deep/lib" })).status, 409);
+	assert.ok(has("lib/y.ts") && has("src/app.ts"));
+	// A copy gets a name that is free; a move keeps its name and refuses to cover another.
+	assert.deepEqual((await files({ op: "copy", paths: ["src/app.ts"], into: "src" })).body, { paths: ["src/app copy.ts"] });
+	assert.deepEqual((await files({ op: "copy", paths: ["src/app.ts"], into: "src" })).body, { paths: ["src/app copy 2.ts"] });
+	assert.deepEqual((await files({ op: "move", paths: ["src/app copy.ts", "lib/y.ts"], into: "" })).body, { paths: ["app copy.ts", "y.ts"] });
+	assert.equal((await files({ op: "move", paths: ["src/app copy 2.ts"], into: "lib/deep/x.ts" })).status, 409, "into a file");
+	assert.equal((await files({ op: "move", paths: ["lib"], into: "lib/deep" })).status, 409, "into itself");
+	// Deleted, several at once; the folder itself never.
+	assert.deepEqual((await files({ op: "delete", paths: ["app copy.ts", "y.ts", "lib", "src/app copy 2.ts"] })).body, { paths: [] });
+	assert.ok(!has("app copy.ts") && !has("y.ts") && !has("lib") && !has("src/app copy 2.ts"));
+	for (const p of ["", ".", "src/..", "/"]) assert.equal((await files({ op: "delete", paths: [p] })).status, 409, `delete ${JSON.stringify(p)}`);
+	assert.ok(has("src/app.ts"));
+
+	// A link out of the folder is moved, copied and deleted as the link it is; nothing is reached through it.
+	fs.symlinkSync(path.join(outside, "secret.txt"), path.join(project, "leak.txt"));
+	fs.symlinkSync(outside, path.join(project, "out"));
+	assert.equal((await files({ op: "copy", paths: ["leak.txt"], into: "src" })).status, 200);
+	assert.ok(fs.lstatSync(path.join(project, "src", "leak.txt")).isSymbolicLink(), "a copied link stays a link");
+	for (const body of [
+		{ op: "delete", paths: ["out/secret.txt"] },
+		{ op: "file", path: "out/new.txt" },
+		{ op: "folder", path: "out/new" },
+		{ op: "rename", path: "out/secret.txt", to: "stolen.txt" },
+		{ op: "rename", path: "src/app.ts", to: "out/app.ts" },
+		{ op: "copy", paths: ["out/secret.txt"], into: "src" },
+		{ op: "copy", paths: ["src/app.ts"], into: "out" },
+		{ op: "move", paths: ["src/app.ts"], into: "out" },
+		{ op: "delete", paths: ["../escape"] },
+		{ op: "file", path: `../${path.basename(outside)}/new.txt` },
+		{ op: "file", path: path.join(outside, "new.txt") },
+		{ op: "delete", paths: ["a\0b"] },
+		{ op: "chmod", paths: ["src/app.ts"] },
+	]) {
+		const r = await files(body);
+		assert.ok(r.status === 409 || r.status === 400, `${JSON.stringify(body)}: ${r.status} ${JSON.stringify(r.body)}`);
+	}
+	assert.deepEqual((await files({ op: "delete", paths: ["leak.txt", "out", "src/leak.txt"] })).body, { paths: [] });
+	assert.equal(fs.readFileSync(path.join(outside, "secret.txt"), "utf8"), "as it was\n");
+	assert.deepEqual(fs.readdirSync(outside), ["secret.txt"]);
+
+	// Found by what is in them, ignoring case.
+	fs.writeFileSync(path.join(project, "src", "notes.md"), "first\nThe ANSWER is here\n");
+	assert.deepEqual((await a.get("/agents/main/view/grep?session=proj&q=answer")).body.files.map((f: { path: string; line: number }) => [f.path, f.line]).sort(), [["src/app.ts", 1], ["src/notes.md", 2]]);
+	assert.deepEqual((await a.get("/agents/main/view/grep?session=proj&q=nowhere")).body.files, []);
+
+	// In the agent's workspace its own files stay where they are: the rest of a deletion or a move goes on, they are said to be kept.
+	const ws = h.workspace("main");
+	for (const f of ["AGENTS.md", "MEMORY.md", "notes.md"]) fs.writeFileSync(path.join(ws, f), `${f}\n`);
+	const mine = (body: Record<string, unknown>) => a.post("/agents/main/view/files", body);
+	assert.deepEqual((await mine({ op: "folder", path: "sub" })).body, { paths: ["sub"] });
+	assert.deepEqual((await mine({ op: "move", paths: ["MEMORY.md", "notes.md"], into: "sub" })).body, { paths: ["sub/notes.md"], kept: ["MEMORY.md"] });
+	assert.deepEqual((await mine({ op: "delete", paths: ["AGENTS.md", "sub/notes.md"] })).body, { paths: [], kept: ["AGENTS.md"] });
+	assert.match((await mine({ op: "rename", path: "agents.md", to: "old.md" })).body.error, /one of the agent's own files/);
+	assert.deepEqual((await mine({ op: "copy", paths: ["AGENTS.md"], into: "sub" })).body, { paths: ["sub/AGENTS.md"] }, "a copy is no harm");
+	assert.deepEqual((await mine({ op: "delete", paths: ["sub"] })).body, { paths: [] }, "a copy deeper down is just a file");
+	assert.deepEqual(["AGENTS.md", "MEMORY.md"].map((f) => fs.readFileSync(path.join(ws, f), "utf8")), ["AGENTS.md\n", "MEMORY.md\n"]);
+	// A folder of the owner's own is not the agent's: its AGENTS.md is the project's, and goes when asked.
+	fs.writeFileSync(path.join(project, "AGENTS.md"), "the project's\n");
+	assert.deepEqual((await files({ op: "delete", paths: ["AGENTS.md"] })).body, { paths: [] });
+	assert.ok(!has("AGENTS.md"));
+
+	// pine's home is never changed through a conversation's folder, and the rest is as for any request.
+	assert.equal((await a.post("/agents/main/folder", { session: "home", folder: h.home })).status === 200 ? (await a.post("/agents/main/view/files", { session: "home", op: "delete", paths: ["pine.json"] })).status : 403, 403);
+	assert.ok(fs.existsSync(path.join(h.home, "pine.json")));
+	assert.equal((await a.post("/agents/nobody/view/files", { op: "delete", paths: ["x"] })).status, 404);
+	assert.equal((await fetch(`${a.base}/agents/main/view/files`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session: "proj", op: "delete", paths: ["src"] }) })).status, 401);
+	assert.ok(has("src/app.ts"));
+	await h.close();
+});
+
 test("the owner gives an agent a color of its own: kept in its agent.json, read back by the control API, taken away with none", async () => {
 	const h = await harness({ pine: { http: { port: 0 } }, agents: { main: {}, books: { agent: { description: "Keeps the books" } } } });
 	const a = api(h);

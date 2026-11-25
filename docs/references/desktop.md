@@ -749,7 +749,7 @@ opened for it, else the agent's workspace):
 
 | View | Shows |
 |---|---|
-| Files | The folder as a tree, a search by name, and the editor. The tree is one Tab stop: the arrow keys move, open and close folders, typing goes to a name, Enter opens a file; the search's results and the changes are lists the arrow keys move in the same way |
+| Files | The folder as a tree, a search by name (and, with the button at the search's right, by what is in the files), and the editor. Each file has an icon for its kind, in its language's color from the theme. The tree is one Tab stop: the arrow keys move, open and close folders, typing goes to a name, Enter opens a file; the search's results and the changes are lists the arrow keys move in the same way. See "Files" below for selecting and the menu |
 | Changes | Two ranges, chosen at the top of the view. **All changes**: what differs from the last commit (git), each file with its counts, and its diff on a click. **Last turn**: what your last message changed, whatever git says, with "Take back" (`/undo`); `/code turn` opens it |
 | Output | The tool calls of the last messages, each with all it printed |
 | Terminal | A shell of your own for the conversation, in its folder: see "The terminal" below (`` ⌃` ``, View > Terminal, `/terminal`) |
@@ -779,7 +779,47 @@ the number of tasks that are not settled yet beside its name.
 What stands on a board was written by agents and can repeat what they read: the app draws it
 as plain text. The terminal UI has no such tab.
 
-**The editor.** A click on a file in Files (or "Edit" on a diff) opens it in an editor with
+### Files
+
+In the side panel's Files you select files, several at once, and rename, copy, move or delete
+them from a right click's menu, as in an editor's file tree.
+
+The search at the top finds files by their name. With the button at its right it also searches
+inside the files: every file whose text holds the words, with the first line that does (ignoring
+case; in a git repository the files git knows or would add, elsewhere all but what a
+`.gitignore` leaves out, and never `node_modules`).
+
+In the tree and in the search's results a click selects a file or a folder, and a double click
+(or Enter) opens a file in the editor; a click on a folder opens or closes it. Shift-click
+selects the rows between, ⌘-click (Ctrl-click on Windows and Linux) adds a row or takes it
+away, and `⌘A` (Ctrl+A) selects every row that shows. On a touch screen a tap opens a file.
+
+A right click on a row gives the menu for what is selected (a row that is not selected is
+selected alone first); a right click beside the rows is about the folder itself. What does not
+fit what is selected is greyed out: Open, Rename and New for more than one row, Open for a
+folder, Paste while nothing is cut or copied.
+
+In an agent's workspace its own files at the top (`AGENTS.md`, `SOUL.md`, `TOOLS.md`,
+`MEMORY.md`) are edited and copied, but not deleted, cut or renamed: in a selection they are
+left out and the rest goes on, with a word about what was kept. In a folder you opened for a
+conversation an `AGENTS.md` is the project's own, and is a file like any other.
+
+| Entry | What it does | Mac | Windows, Linux |
+|---|---|---|---|
+| Open | Opens the file in the editor (or the player) | `↩` | Enter |
+| Show in the Finder (Explorer, Files) | Shows it in the system's file manager. Only where the folder is on this computer | `⌥⌘R` | Alt+Shift+R |
+| New File…, New Folder… | Asks for a name and makes it in the folder (beside a file); `docs/notes.md` makes the folders on the way. A new file opens in the editor | | |
+| Cut, Copy | Keeps the rows for a Paste, and puts their paths on the clipboard | `⌘X`, `⌘C` | Ctrl+X, Ctrl+C |
+| Paste | Copies or moves what was cut or copied into the folder (beside a file). A copy that would cover a name gets another (`notes copy.md`); a move that would is refused. What was cut is pasted once. Only into the folder it came from | `⌘V` | Ctrl+V |
+| Copy Path, Copy Relative Path | The paths on the clipboard, from the root or from the conversation's folder, one a line | `⌥⌘C`, `⌥⇧⌘C` | Alt+Shift+C, Ctrl+Alt+Shift+C |
+| Rename… | Asks for the new name, with the old one selected up to its extension | F2 | F2 |
+| Delete | Asks first, then deletes for good (there is no trash) | `⌘⌫` | Delete |
+
+The changes go through the daemon (`POST /agents/<id>/view/files`), done as saving is: inside a
+sandbox that writes in that folder alone, so a link an agent planted there is acted on as the
+link it is and never leads a change out of the folder ([security.md](security.md)).
+
+**The editor.** A double click on a file in Files (or "Edit" on a diff) opens it in an editor with
 line numbers, colors for the common languages, search (`⌘F` in the editor) and undo.
 `⌘S` saves. A file the agent changes while you look at it is shown anew; if you have typed
 meanwhile, the app says that the file changed on disk and lets you take the new one. Files

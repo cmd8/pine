@@ -181,6 +181,37 @@ export async function findFiles(root: string, query: string, limit = 20): Promis
 		.map((x) => x.file);
 }
 
+/** A file whose text holds what somebody looked for, with the first line that does. */
+export interface Found {
+	path: string;
+	line: number;
+	text: string;
+}
+
+/**
+ * Files of a folder whose text holds what somebody typed, ignoring case, each with its first line
+ * that does: for finding a file by what is in it. git's grep, which looks only (`git`): in a
+ * repository the files it knows or would add, elsewhere every file but what a .gitignore leaves
+ * out, and never `node_modules`. Binary files are skipped. Nothing outside the folder is named.
+ */
+export async function grepFiles(root: string, query: string, limit = 100): Promise<Found[]> {
+	if (!query || query.includes("\0")) return [];
+	const base = realish(root);
+	const where = (await repository(base)) ? ["--untracked"] : ["--no-index", "--exclude-standard"];
+	const r = await git(base, ["grep", ...where, "-I", "-i", "-F", "-n", "-z", "--max-count=1", "-e", query, "--", ".", ":(exclude,glob)**/node_modules/**"], { maxBytes: 1_000_000, timeoutMs: 10_000 });
+	const found: Found[] = [];
+	for (const row of r.out.split("\n")) {
+		const [file, line, ...rest] = row.split("\0");
+		if (!file || !line) continue;
+		const text = rest.join("\0");
+		// A long line is cut around what was found.
+		const at = Math.max(0, text.toLowerCase().indexOf(query.toLowerCase()) - 40);
+		found.push({ path: file, line: Number(line), text: (at ? "…" : "") + text.slice(at, at + 200).trim() });
+		if (found.length >= limit) break;
+	}
+	return found;
+}
+
 export interface Entry {
 	name: string;
 	dir: boolean;
@@ -288,20 +319,173 @@ export async function writeText(root: string, rel: string, text: string): Promis
  * it is, with what it pointed at.
  */
 export function putInto(base: string, target: string, bytes: Buffer, mode = 0o644): Promise<{ code: number; err: string }> {
-	const jail = helperArgv([base]);
-	if (!jail) return Promise.resolve({ code: 127, err: "there is no sandbox on this system to write the file in, and without one pine writes nothing into a folder an agent works in. Change the file with an editor of your own" });
 	// A name nobody can have put there before; and should one be there, it is not written into (-C).
 	const fresh = `${target}.pine-${crypto.randomBytes(9).toString("hex")}`;
 	const script = 'set -eC; trap \'rm -f "$2"\' EXIT; cat > "$2"; chmod "$3" "$2"; mv -f "$2" "$1"';
+	return inFolder(base, script, [target, fresh, (mode & 0o777).toString(8)], bytes);
+}
+
+/**
+ * Run a fixed script of the shell's in a sandbox that lets it write in `base` and nowhere else: how
+ * everything that changes a folder for the owner's hand is done (`putInto`, `changeFiles`). The
+ * paths are arguments of their own, never part of the command's text.
+ */
+function inFolder(base: string, script: string, args: string[], stdin?: Buffer): Promise<{ code: number; err: string }> {
+	const jail = helperArgv([base]);
+	if (!jail) return Promise.resolve({ code: 127, err: "there is no sandbox on this system to change the folder in, and without one pine changes nothing in a folder an agent works in. Do it with a program of your own" });
 	return new Promise((resolve) => {
-		// The paths are arguments of their own, never part of the command's text.
-		const child = spawn(jail[0], [...jail.slice(1), bin("sh"), "-c", script, "sh", target, fresh, (mode & 0o777).toString(8)], { stdio: ["pipe", "ignore", "pipe"], env: { ...helperBase(), PATH: helperPath(), LC_ALL: "C" } });
+		const child = spawn(jail[0], [...jail.slice(1), bin("sh"), "-c", script, "sh", ...args], { stdio: [stdin ? "pipe" : "ignore", "ignore", "pipe"], env: { ...helperBase(), PATH: helperPath(), LC_ALL: "C" } });
 		let err = "";
 		child.stderr!.on("data", (d: Buffer) => (err.length < 2000 ? (err += d.toString("utf8")) : undefined));
-		child.stdin!.on("error", () => {});
-		child.stdin!.end(bytes);
-		const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
+		if (stdin) {
+			child.stdin!.on("error", () => {});
+			child.stdin!.end(stdin);
+		}
+		const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
 		child.on("error", (e) => (clearTimeout(timer), resolve({ code: 127, err: e.message })));
 		child.on("close", (code) => (clearTimeout(timer), resolve({ code: code ?? 1, err })));
 	});
+}
+
+/** What the owner does to the files of a conversation's folder from a UI's file tree, besides writing one. */
+export type FileChange =
+	| { op: "folder" | "file"; path: string }
+	| { op: "rename"; path: string; to: string }
+	| { op: "copy" | "move"; paths: string[]; into: string }
+	| { op: "delete"; paths: string[] };
+
+/**
+ * A name in the folder, as it is to be acted on: the folder it lies in with links resolved (which
+ * has to be inside), and the last part as it is, so that a link is moved, copied or deleted itself
+ * and never what it points at. The root itself is no such name. As for `writeText`, this look is for
+ * a clear refusal; what keeps every change inside is the sandbox of `inFolder`.
+ */
+function nameIn(base: string, rel: unknown, what: string): string {
+	if (typeof rel !== "string" || !rel || rel.includes("\0")) throw new Error(`${what}: a path from the top of the folder`);
+	const named = path.resolve(base, rel);
+	if (named === base || !isInside(base, named)) throw new Error(`${rel} is not a name in ${base}`);
+	const dir = realish(path.dirname(named));
+	if (dir !== base && !isInside(base, dir)) throw new Error(`${rel} leads out of ${base}: a link on the way points elsewhere`);
+	return path.join(dir, path.basename(named));
+}
+
+const exists = (p: string) => {
+	try {
+		fs.lstatSync(p);
+		return true;
+	} catch {
+		return false;
+	}
+};
+
+/** "name copy.ext", then "name copy 2.ext" and on: a name for a copy that nothing in `dir` has. */
+function freeName(dir: string, name: string): string {
+	if (!exists(path.join(dir, name))) return name;
+	const dot = name.lastIndexOf(".");
+	const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+	for (let n = 1; ; n++) {
+		const next = `${stem} copy${n > 1 ? ` ${n}` : ""}${ext}`;
+		if (!exists(path.join(dir, next))) return next;
+	}
+}
+
+const TAKEN = 17;
+// Each script refuses to put anything where something already is (TAKEN), and makes the folders a new name needs.
+const SCRIPTS = {
+	folder: `if [ -e "$1" ] || [ -L "$1" ]; then exit ${TAKEN}; fi; mkdir -p -- "$1"`,
+	file: `set -e; if [ -e "$1" ] || [ -L "$1" ]; then exit ${TAKEN}; fi; mkdir -p -- "$(dirname -- "$1")"; set -C; : > "$1"`,
+	// A third argument says that only the case of the name changes, which a system that ignores case calls taken.
+	rename: `set -e; if [ -z "$3" ] && { [ -e "$2" ] || [ -L "$2" ]; }; then exit ${TAKEN}; fi; mkdir -p -- "$(dirname -- "$2")"; mv -- "$1" "$2"`,
+	// -P: a link is copied as the link it is, never followed.
+	copy: `set -e; while [ $# -gt 1 ]; do if [ -e "$2" ] || [ -L "$2" ]; then exit ${TAKEN}; fi; cp -RP -- "$1" "$2"; shift 2; done`,
+	move: `set -e; while [ $# -gt 1 ]; do if [ -e "$2" ] || [ -L "$2" ]; then exit ${TAKEN}; fi; mv -- "$1" "$2"; shift 2; done`,
+	// rm does not follow a link, to a folder or anywhere else.
+	delete: `rm -rf -- "$@"`,
+};
+
+/**
+ * Make, rename, copy, move or delete files of a conversation's folder: what the owner does in a UI's
+ * file tree. The owner's alone (the control API; no tool reaches it), and done as `writeText` writes:
+ * every name looked at for a clear refusal (`nameIn`), the change itself made by a fixed script in a
+ * sandbox that writes in the folder and nowhere else (`inFolder`). Nothing is put where something
+ * already is: a copy gets a free name, anything else is refused. Returns the names as they are now.
+ *
+ * `keep` names files at the top of the folder that stay where they are, whatever is asked: in an
+ * agent's workspace its own files (`WORKSPACE_FILES`), which can be edited and copied but are not
+ * deleted, moved or renamed. A deletion or a move of several names leaves those out and says so
+ * (`kept`); a rename of one is refused.
+ */
+export async function changeFiles(root: string, change: FileChange, keep: string[] = []): Promise<{ paths: string[]; kept?: string[] }> {
+	const base = realish(root);
+	const own = (p: string) => path.dirname(p) === base && keep.some((k) => k.toLowerCase() === path.basename(p).toLowerCase());
+	const rel = (p: string) => path.relative(base, p).split(path.sep).join("/");
+	const run = async (script: string, args: string[], what: string) => {
+		const done = await inFolder(base, script, args);
+		if (done.code === TAKEN) throw new Error(`there is already something named ${what}`);
+		if (done.code !== 0) throw new Error(`${what}: ${done.err.trim().split("\n")[0] || `the helper ended with ${done.code}`}`);
+	};
+	const many = (paths: unknown) => {
+		if (!Array.isArray(paths) || !paths.length || paths.length > 1000) throw new Error("paths: the files and folders, from the top of the folder");
+		return [...new Set(paths.map((p) => nameIn(base, p, "paths")))];
+	};
+	switch (change?.op) {
+		case "folder":
+		case "file": {
+			const target = nameIn(base, change.path, "path");
+			await run(SCRIPTS[change.op], [target], rel(target));
+			return { paths: [rel(target)] };
+		}
+		case "rename": {
+			const from = nameIn(base, change.path, "path");
+			const to = nameIn(base, change.to, "to");
+			if (!exists(from)) throw new Error(`there is no ${rel(from)}`);
+			if (own(from)) throw new Error(`${rel(from)} is one of the agent's own files: it can be edited, not renamed`);
+			if (to === from) return { paths: [rel(to)] };
+			if (isInside(from, to)) throw new Error(`${rel(from)} cannot go inside itself`);
+			await run(SCRIPTS.rename, [from, to, to.toLowerCase() === from.toLowerCase() ? "case" : ""], rel(to));
+			return { paths: [rel(to)] };
+		}
+		case "copy":
+		case "move": {
+			const asked = many(change.paths);
+			const kept = change.op === "move" ? asked.filter(own) : [];
+			const sources = asked.filter((p) => !kept.includes(p));
+			const into = change.into === "" ? base : nameIn(base, change.into, "into");
+			let folder: fs.Stats | undefined;
+			try {
+				folder = fs.statSync(into);
+			} catch {
+				// said below
+			}
+			if (!folder?.isDirectory()) throw new Error(`${change.into || "the top"} is not a folder`);
+			const dir = realish(into);
+			if (dir !== base && !isInside(base, dir)) throw new Error(`${change.into} leads out of ${base}: it is a link to a folder elsewhere`);
+			const pairs: string[] = [];
+			const now: string[] = [];
+			for (const from of sources) {
+				if (!exists(from)) throw new Error(`there is no ${rel(from)}`);
+				if (isInside(from, dir)) throw new Error(`${rel(from)} cannot go inside itself`);
+				// Moved where it already is: nothing to do.
+				if (change.op === "move" && path.dirname(from) === dir) {
+					now.push(rel(from));
+					continue;
+				}
+				const to = path.join(dir, change.op === "copy" ? freeName(dir, path.basename(from)) : path.basename(from));
+				if (pairs.includes(to)) throw new Error(`two of these are named ${path.basename(from)}`);
+				pairs.push(from, to);
+				now.push(rel(to));
+			}
+			if (pairs.length) await run(SCRIPTS[change.op], pairs, change.op === "copy" ? "the copy" : now.join(", "));
+			return kept.length ? { paths: now, kept: kept.map(rel) } : { paths: now };
+		}
+		case "delete": {
+			const asked = many(change.paths);
+			const kept = asked.filter(own);
+			const targets = asked.filter((p) => !kept.includes(p));
+			if (targets.length) await run(SCRIPTS.delete, targets, targets.map(rel).join(", "));
+			return kept.length ? { paths: [], kept: kept.map(rel) } : { paths: [] };
+		}
+		default:
+			throw new Error('op: "folder", "file", "rename", "copy", "move" or "delete"');
+	}
 }

@@ -1074,10 +1074,9 @@ test("a file is opened from the panel's tree, its changes and its search with th
 	if (await page.$("[data-slot=code-panel] .cm-editor")) await page.click("[data-slot=code-panel] button[aria-label='Back to the files']");
 	await page.locator("[data-slot=code-panel]").getByRole("tab", { name: "Files" }).click();
 	await sees("[data-slot=code-panel] [role=tree] [role=treeitem]");
-	// From the find field, Tab reaches the tree after the refresh button: one stop.
+	// From the find field, Tab reaches the tree after the toggle for searching inside files and the refresh button: one stop.
 	await page.focus("[data-slot=code-panel] input[aria-label='Find a file']");
-	await page.keyboard.press("Tab");
-	await page.keyboard.press("Tab");
+	for (let i = 0; i < 3; i++) await page.keyboard.press("Tab");
 	assert.equal((await focused()).role, "treeitem");
 	// Typing finds the folder, the right arrow opens it and goes in, Enter opens the file.
 	await page.keyboard.type("src");
@@ -1098,8 +1097,7 @@ test("a file is opened from the panel's tree, its changes and its search with th
 	await page.fill("[data-slot=code-panel] input[aria-label='Find a file']", "index");
 	await sees("[data-slot=code-panel] [role=listbox] [role=option] >> text=src/index.ts");
 	await page.focus("[data-slot=code-panel] input[aria-label='Find a file']");
-	await page.keyboard.press("Tab");
-	await page.keyboard.press("Tab");
+	for (let i = 0; i < 3; i++) await page.keyboard.press("Tab");
 	assert.equal((await focused()).role, "option");
 	await page.keyboard.press("Enter");
 	await sees("[data-slot=code-panel] .cm-content");

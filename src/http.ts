@@ -7,7 +7,7 @@ import { mainAgentId, type PineConfig, purposeOf } from "./config.ts";
 import { type Approvals, timingSafeEqual } from "./security.ts";
 import type { Bus, State, TaskStore } from "./store.ts";
 import { addServer, listServers, removeServer } from "./mcp-config.ts";
-import { changes, diffOf, listDir, MAX_EDIT, readText, findFiles } from "./workspace-view.ts";
+import { changes, diffOf, listDir, MAX_EDIT, readText, findFiles, grepFiles } from "./workspace-view.ts";
 import { type LoginRunner, OwnerApi, Refusal, settleModel } from "./owner.ts";
 import type { Router } from "./router.ts";
 import type { SourceHost } from "./sources.ts";
@@ -246,7 +246,7 @@ export class HttpServer {
 					const root = this.manager.viewRoot(parts[1], q.get("session") ?? "main");
 					if (!root) throw new HttpError(404, "no such agent");
 					const rel = q.get("path") ?? "";
-					const found = parts[3] === "find" ? { files: await findFiles(root, (q.get("q") ?? "").slice(0, 200)) } : parts[3] === "changes" ? { root, ...(await changes(root)), worktree: await this.worktreeLine(parts[1], q.get("session") ?? "main") } : parts[3] === "diff" ? await diffOf(root, rel) : parts[3] === "tree" ? listDir(root, rel) : parts[3] === "file" ? readText(root, rel, q.has("max") ? Math.max(1, Math.min(MAX_EDIT, Math.floor(num("max") || 0))) : undefined) : undefined;
+					const found = parts[3] === "find" ? { files: await findFiles(root, (q.get("q") ?? "").slice(0, 200)) } : parts[3] === "grep" ? { files: await grepFiles(root, (q.get("q") ?? "").slice(0, 200)) } : parts[3] === "changes" ? { root, ...(await changes(root)), worktree: await this.worktreeLine(parts[1], q.get("session") ?? "main") } : parts[3] === "diff" ? await diffOf(root, rel) : parts[3] === "tree" ? listDir(root, rel) : parts[3] === "file" ? readText(root, rel, q.has("max") ? Math.max(1, Math.min(MAX_EDIT, Math.floor(num("max") || 0))) : undefined) : undefined;
 					if (!found) throw new HttpError(404, "nothing there");
 					return send(200, found);
 				}

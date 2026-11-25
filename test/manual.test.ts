@@ -124,6 +124,8 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["pull a tab out of the pine app into its own window, like in chrome", /^desktop#multiple-windows/],
 		["is there a settings panel where I can change pine's configuration by clicking", /^desktop#settings/],
 		["an editor to change a file myself beside the conversation", /^desktop#the-code-panel-and-the-editor/],
+		["how do I rename or delete several files in the side panel, can I select more than one", /^desktop#files/],
+		["search for a word inside the files of my project, not just file names", /^desktop#(files|the-code-panel-and-the-editor)/],
 		["can I run the commands the agent gives me with a play button", /^desktop#the-terminal/],
 		["where do I type shell commands myself in the Pine app", /^desktop#the-terminal/],
 		["does the mac app start pine or do I have to start it first", /^desktop#the-daemon-started-or-reused/],

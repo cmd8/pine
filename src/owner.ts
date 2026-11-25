@@ -13,7 +13,7 @@ import { addRoute, applyModelLimit, applySetting, checkModelLimit, checkRoute, c
 import { AGENT_TOOLS } from "./agent-admin.ts";
 import type { AgentManager } from "./agents.ts";
 import { browserReady } from "./browser-build.ts";
-import { type AgentConfig, loadConfig, mainAgentId, ownText, PINE_ROOT, type PineConfig, purposeOf, SHARED_FILES } from "./config.ts";
+import { type AgentConfig, loadConfig, mainAgentId, ownText, PINE_ROOT, type PineConfig, purposeOf, SHARED_FILES, WORKSPACE_FILES } from "./config.ts";
 import { login, logout, type Prompter } from "./login.ts";
 import { findServer, piMcp, serverStates } from "./mcp-config.ts";
 import { addModelServer, checkServerName, listModelServers, lookAt, modelKeys, modelServerUsers, removeModelServer, serverUrl } from "./models.ts";
@@ -25,7 +25,7 @@ import { localTime, type Scheduler } from "./timers.ts";
 import { errText, type Logger, parseDuration } from "./util.ts";
 import { listThemes, themeInForce } from "./themes.ts";
 import { listViews, viewCode, viewInForce } from "./views.ts";
-import { MAX_EDIT, writeText } from "./workspace-view.ts";
+import { changeFiles, type FileChange, MAX_EDIT, writeText } from "./workspace-view.ts";
 
 /** A request that is refused, with the status it is answered with and what a client needs besides the sentence. */
 export class Refusal extends Error {
@@ -337,7 +337,7 @@ export class OwnerApi {
 	/** A POST request. Undefined: not one of these. `long` is called by a request that takes as long as a person does. */
 	async post(parts: string[], body: any, long: () => void = () => {}): Promise<unknown | undefined> {
 		const at = parts.join("/");
-		const mine = ["settings", "shared", "skills", "skills/remove", "schedules", "schedules/remove", "routes", "routes/remove", "sources", "sources/propose", "sources/remove", "models/servers", "models/servers/remove", "models/servers/limit", "models/model", "models/model/set", "models/model/remove", "models/login", "models/logout", "mcp/login"].includes(at) || (parts[0] === "models" && parts[1] === "login" && parts.length === 3) || (parts[0] === "agents" && parts[2] === "view" && parts[3] === "write" && parts.length === 4);
+		const mine = ["settings", "shared", "skills", "skills/remove", "schedules", "schedules/remove", "routes", "routes/remove", "sources", "sources/propose", "sources/remove", "models/servers", "models/servers/remove", "models/servers/limit", "models/model", "models/model/set", "models/model/remove", "models/login", "models/logout", "mcp/login"].includes(at) || (parts[0] === "models" && parts[1] === "login" && parts.length === 3) || (parts[0] === "agents" && parts[2] === "view" && (parts[3] === "write" || parts[3] === "files") && parts.length === 4);
 		if (!mine) return undefined;
 		try {
 			return await this.change(at, parts, body ?? {}, long);
@@ -565,19 +565,24 @@ export class OwnerApi {
 			return { code: done.code, out: done.out };
 		}
 
-		if (parts[0] === "agents" && parts[2] === "view" && parts[3] === "write") {
+		if (parts[0] === "agents" && parts[2] === "view" && (parts[3] === "write" || parts[3] === "files")) {
 			this.agent(parts[1]);
 			const root = manager.viewRoot(parts[1], str(body.session) ?? "main");
 			if (!root) throw new Refusal(404, "no such agent");
-			if (typeof body.path !== "string" || typeof body.text !== "string") throw new Refusal(400, "path and text required: the file, from the top of the folder, and what it is to hold");
-			if (Buffer.byteLength(body.text, "utf8") > MAX_EDIT) throw new Refusal(413, `that is too much for one file here (at most ${MAX_EDIT} bytes)`);
+			if (parts[3] === "write") {
+				if (typeof body.path !== "string" || typeof body.text !== "string") throw new Refusal(400, "path and text required: the file, from the top of the folder, and what it is to hold");
+				if (Buffer.byteLength(body.text, "utf8") > MAX_EDIT) throw new Refusal(413, `that is too much for one file here (at most ${MAX_EDIT} bytes)`);
+			} else if (!["folder", "file", "rename", "copy", "move", "delete"].includes(String(body.op))) throw new Refusal(400, 'op: "folder", "file", "rename", "copy", "move" or "delete"');
 			// A conversation works in a folder of the owner's or in its agent's workspace. Neither is
-			// pine's home or pine's code, nor holds them: where one would be, nothing is written.
+			// pine's home or pine's code, nor holds them: where one would be, nothing is changed.
 			const base = realish(root);
-			for (const own of [realish(cfg.home), realish(PINE_ROOT)]) if (base === own || isInside(base, own)) throw new Refusal(403, "pine's own files are not written through a conversation's folder");
-			if (isInside(realish(PINE_ROOT), base)) throw new Refusal(403, "pine's own code is not written through a conversation's folder");
+			for (const own of [realish(cfg.home), realish(PINE_ROOT)]) if (base === own || isInside(base, own)) throw new Refusal(403, "pine's own files are not changed through a conversation's folder");
+			if (isInside(realish(PINE_ROOT), base)) throw new Refusal(403, "pine's own code is not changed through a conversation's folder");
 			try {
-				return await writeText(root, body.path, body.text);
+				if (parts[3] === "write") return await writeText(root, body.path as string, body.text as string);
+				// In the agent's workspace its own files stay where they are; they are edited, not deleted, moved or renamed.
+				const own = base === realish(cfg.agents[parts[1]].workspace) ? WORKSPACE_FILES : [];
+				return await changeFiles(root, body as unknown as FileChange, own);
 			} catch (e) {
 				throw new Refusal(409, errText(e));
 			}

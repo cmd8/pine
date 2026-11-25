@@ -24,7 +24,7 @@ export function newApp(p = platform()): { what: string; how: string } {
 }
 
 const HELD: Record<string, string> = { "⌃": "Ctrl", "⌘": "Ctrl", "⌥": "Alt", "⇧": "Shift" };
-const NAMED: Record<string, string> = { "↩": "Enter", "⇥": "Tab" };
+const NAMED: Record<string, string> = { "↩": "Enter", "⇥": "Tab", "⌫": "Backspace", "⌦": "Delete" };
 
 /**
  * A shortcut as this system writes it. Shortcuts are written the Mac's way, "⇧⌘T" or "⌘1 … ⌘9"

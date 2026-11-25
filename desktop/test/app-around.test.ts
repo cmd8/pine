@@ -930,7 +930,8 @@ test("what was typed in a file and not saved stays when the panel becomes a shee
 		await sees("[data-slot=code-panel]");
 		if (!(await page.$("[data-slot=code-panel] .cm-content"))) {
 			await page.fill("[data-slot=code-panel] input[aria-label='Find a file']", "README");
-			await page.locator("[data-slot=code-panel] [role=listbox] [role=option]").first().click();
+			// A click selects a file; a double click opens it.
+			await page.locator("[data-slot=code-panel] [role=listbox] [role=option]").first().dblclick();
 		}
 		await sees("[data-slot=code-panel] .cm-content");
 		await page.click("[data-slot=code-panel] .cm-content");

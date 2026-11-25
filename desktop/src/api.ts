@@ -258,6 +258,13 @@ export interface Change {
 	removed?: number;
 }
 
+/** What the owner does to files of a conversation's folder from the file tree (src/workspace-view.ts, `changeFiles`). Paths from the top of the folder; "" for `into` is the top. */
+export type FileChange =
+	| { op: "folder" | "file"; path: string }
+	| { op: "rename"; path: string; to: string }
+	| { op: "copy" | "move"; paths: string[]; into: string }
+	| { op: "delete"; paths: string[] };
+
 export interface UndoResult {
 	task: number;
 	prompt: string;
@@ -526,6 +533,10 @@ export const api = {
 	file: (agent: string, session: string, file: string) => get<{ text?: string; size: number; binary: boolean; truncated: boolean }>(`${a(agent)}/view/file${s(session)}&path=${e(file)}&max=2000000`),
 	writeFile: (agent: string, session: string, file: string, text: string) => post<{ size: number }>(`${a(agent)}/view/write`, { session, path: file, text }),
 	find: (agent: string, session: string, q: string) => get<{ files: string[] }>(`${a(agent)}/view/find${s(session)}&q=${e(q)}`),
+	/** Files whose text holds `q`, ignoring case, each with its first line that does. */
+	grep: (agent: string, session: string, q: string) => get<{ files: Array<{ path: string; line: number; text: string }> }>(`${a(agent)}/view/grep${s(session)}&q=${e(q)}`),
+	/** Makes, renames, copies, moves or deletes files of the conversation's folder; answers with the names as they are now. */
+	changeFiles: (agent: string, session: string, change: FileChange) => post<{ paths: string[]; kept?: string[] }>(`${a(agent)}/view/files`, { session, ...change }),
 	turn: (agent: string, session: string) => get<{ task?: number; prompt?: string; root?: string; files: Change[]; more: boolean; note?: string }>(`${a(agent)}/view/turn${s(session)}`),
 	turnDiff: (agent: string, session: string, file: string) => get<{ diff: string; truncated: boolean }>(`${a(agent)}/view/turndiff${s(session)}&path=${e(file)}`),
 	fetchImage: (url: string) => post<{ mime: string; base64: string }>("/images/fetch", { url }),

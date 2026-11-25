@@ -20,6 +20,9 @@ export const Failed: Story = { args: { text: "$ npm test\n\u001b[31m✖\u001b[0m
 
 export const Small: Story = { args: { text: lines, sm: true } };
 
+/** Capped at the stock block's own size, as in the panel beside a conversation. */
+export const Capped: Story = { args: { text: lines, capped: true } };
+
 function Printing() {
 	const [n, setN] = useState(5);
 	useEffect(() => {

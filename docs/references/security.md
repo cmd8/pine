@@ -249,6 +249,9 @@ itself. The text is put into place by a helper inside a sandbox that may write i
 and nowhere else, as a new file that then takes the place of the old one; what the old name
 pointed at is left as it was. Where there is no sandbox, nothing is written.
 
+The file tree's renames, copies, moves and deletions (`POST /agents/<id>/view/files`) go
+through the same helper and sandbox. A link is acted on as itself, never what it points at.
+
 Consequences worth knowing:
 
 - An agent cannot change its own `agent.json`, its extensions or `pine.json`.

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api } from "./api.ts";
+import { CODE_LINES } from "./lists.tsx";
 import { store, type Tab, useModel } from "./model.ts";
 import { childKind, MODES, oneLine, short } from "./text.ts";
 import { useLoad } from "./use-load.ts";
@@ -76,7 +77,7 @@ export function AgentView({ tab }: { tab: Tab }) {
 	const elsewhere = [...s.busy].filter(([key, tasks]) => tasks.size && key.startsWith(`${tab.agent}:`) && key !== tab.key).map(([key]) => key.slice(tab.agent.length + 1));
 	const memory = detail.data?.files.memory?.trim();
 	return (
-		<ScrollArea className="flex min-h-0 flex-1 cursor-auto flex-col text-xs select-text *:data-[slot=scroll-area-viewport]:scroll-fade">
+		<ScrollArea className="flex min-h-0 flex-1 cursor-auto flex-col select-text *:data-[slot=scroll-area-viewport]:scroll-fade">
 		<div className="flex flex-col gap-3 pb-2">
 			<Item className="px-3.5 pt-4 pb-0.5">
 				<ItemMedia>
@@ -201,7 +202,7 @@ export function AgentView({ tab }: { tab: Tab }) {
 			}
 			{detail.data && memory === undefined ? null : (
 				<AgentSection title="What it remembers" {...state(detail)}>
-					{memory ? <Printed sm text={short(memory, 6000)} className="mx-3.5 w-auto" /> : <div className={NONE}>MEMORY.md is empty.</div>}
+					{memory ? <Printed capped text={short(memory, 6000)} className="mx-3.5 w-auto" contentClassName={CODE_LINES} /> : <div className={NONE}>MEMORY.md is empty.</div>}
 				</AgentSection>
 			)}
 			{detail.data ? <div className={cn(NONE, "pb-4")}>The agent's workspace is {detail.data.workspace}; the Files view shows {tab.folder ? "the folder this conversation works in" : "it"}.</div> : null}
