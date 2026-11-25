@@ -4,7 +4,7 @@ import { loadConfig, type PineConfig, type RouteConfig, type ScheduleConfig } fr
 import { editJson } from "./mcp-config.ts";
 import type { Router } from "./router.ts";
 import type { Bus, Kv } from "./store.ts";
-import { errText, type Logger } from "./util.ts";
+import { errText, type Logger, parseDuration } from "./util.ts";
 
 type Field = Set<number> | null; // null: any value
 
@@ -114,6 +114,10 @@ export class Scheduler {
 	}
 
 	start(): void {
+		// The routes before the catching up: a catch-up publishes the wake-up of a schedule with a task, and a
+		// wake-up sent before its route is there reaches nobody while the time itself has been written down
+		// already, so the run would never come again.
+		this.wire();
 		const now = minuteOf(Date.now());
 		for (const e of this.all()) {
 			const last = this.kv.get<number>(`timer:${e.key}`);
@@ -125,7 +129,6 @@ export class Scheduler {
 				break;
 			}
 		}
-		this.wire();
 		this.arm();
 	}
 
@@ -177,7 +180,28 @@ export class Scheduler {
 			tick();
 			this.handles.push(setInterval(tick, 15_000));
 		}
-		for (const e of entries.filter((x) => x.s.every)) this.handles.push(setInterval(() => this.fire(e, Date.now(), false), e.s.every));
+		for (const e of entries.filter((x) => x.s.every)) {
+			const period = e.s.every!;
+			// One handle for this clock, and each wait writes over the one before: an interval of a minute is re-armed from
+			// inside itself, and a handle kept for every run would be a handle for every minute pine runs.
+			const slot = this.handles.length;
+			const due = (at: number) => {
+				const wait = at - Date.now();
+				// A timeout cannot be longer than about 24 days, and a delay longer than that is 1 ms to Node, which is how an
+				// interval of a month came to fire a thousand times a second: one further away is looked at again then.
+				if (wait > 2 ** 31 - 1) return void (this.handles[slot] = setTimeout(() => due(at), 2 ** 31 - 1).unref());
+				this.handles[slot] = setTimeout(() => {
+					// The schedule may be gone by now: taking one away re-arms every clock, and this wait is not among them then.
+					if (!this.all().some((x) => x.key === e.key && x.s === e.s)) return;
+					this.fire(e, at, false);
+					// One that came late fires once and is not made up for: the next is counted on the same cadence, ahead of now.
+					let next = at + period;
+					while (next <= Date.now()) next += period;
+					due(next);
+				}, Math.max(0, wait)).unref();
+			};
+			due(Date.now() + period);
+		}
 		for (const e of entries.filter((x) => x.s.at !== undefined)) {
 			const due = () => {
 				const wait = e.s.at! - Date.now();
@@ -229,7 +253,7 @@ export class Scheduler {
 		return this.all().filter((e) => e.scope === agentId || (e.scope === "global" && e.s.task)).map((e) => this.info(e));
 	}
 
-	/** Check a schedule that is to be added, before anybody is asked: its name, and that its times can be read. Returns it as it goes into the file. */
+	/** Check a schedule that is to be added, before anybody is asked: its name, and that its times can be read and can be timed. Returns it as it goes into the file. */
 	check(raw: { name: string; task: string; cron?: string; every?: string; at?: string | number; session?: string }): Record<string, unknown> {
 		const name = String(raw.name ?? "").trim();
 		if (!/^[a-z][a-z0-9_-]{0,39}$/.test(name)) throw new Error(`"${name}" is not a usable name: lowercase letters, digits, - and _, starting with a letter (for example morning, dentist)`);
@@ -238,6 +262,13 @@ export class Scheduler {
 		if (!task) throw new Error(`a schedule needs a "task": what you are to do when it is time, written so that it is self-contained`);
 		if (task.length > 4000) throw new Error("that task is too long for a schedule (4000 characters at most). Write the procedure down as a skill and name it in the task");
 		if (raw.cron) parseCron(raw.cron);
+		// An interval shorter than a second is a burst of runs, and one of about 24 days or more cannot be timed at
+		// all: Node takes a delay as a 32-bit int and turns anything longer into 1 ms. Neither is a schedule.
+		if (raw.every) {
+			const every = parseDuration(raw.every);
+			if (every < 1000) throw new Error(`"every" must be at least "1s": a shorter interval is a run every moment, which is what an event source is for`);
+			if (every >= 2 ** 31 - 1) throw new Error(`"every" must be under ${2 ** 31 - 1} ms (about 24 days): that is as long as one wait can be, so a longer one fires at once and then every millisecond; for something monthly write a "cron" line`);
+		}
 		return { name, ...(raw.cron ? { cron: raw.cron.trim() } : {}), ...(raw.every ? { every: raw.every } : {}), ...(raw.at !== undefined ? { at: typeof raw.at === "number" ? localTime(raw.at) : raw.at } : {}), task, ...(raw.session && raw.session !== "main" ? { session: raw.session } : {}) };
 	}
 
