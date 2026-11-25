@@ -34,7 +34,6 @@ import { type Holdings, happeningsOf, knownTarget, talkHappenings, viewStateOf }
 import { colorFor, ENDED, type From, fromText, type Job, World } from "./view-world.ts";
 import { shortcut } from "./text.ts";
 
-export const VIEW_KEY = "pine.view.width";
 
 const NARROW_TO_WIDE = ["manual", "plan", "safe", "auto", "bypass"];
 /** Whether mode `a` is stricter than `b`. */
@@ -321,21 +320,17 @@ export function ViewAside() {
 	const id = s.view ?? "";
 	return (
 		<SideSheet
-			id="view-panel"
 			slot="view-aside"
 			title="View"
 			sheet={sheet}
-			widthKey={VIEW_KEY}
-			savedWidth={s.widthOf("view")}
-			defaultWidth={560}
 			barClassName="pl-3 text-sm font-medium"
-			onClose={() => void store.command("view")}
+			onClose={() => store.close("view")}
 			bar={
 				<>
 					<RadarIcon className="size-3.5 shrink-0 text-muted-foreground" />
 					<ViewSelect id={id} />
 					<span className="min-w-0 flex-1" />
-					<HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" onClick={() => void store.command("view")} aria-label="Close the view"><XIcon /></Button>} /><TooltipContent>Close the view<Kbd>{shortcut("⇧⌘O")}</Kbd></TooltipContent></HoverTooltip>
+					{sheet ? <HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" onClick={() => store.close("view")} aria-label="Close the view"><XIcon /></Button>} /><TooltipContent>Close the view<Kbd>{shortcut("⇧⌘O")}</Kbd></TooltipContent></HoverTooltip> : null}
 				</>
 			}
 		>

@@ -1,20 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { GlobeIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { SideSheet } from "./side-sheet.tsx";
 
-// Something beside a conversation: a resizable column where the window has room, a sheet over it where it has none.
+// A pane of the window: a card in a group of the layout where the window has room, a sheet over the tab in front where it has none.
 const meta = {
 	title: "Components/SideSheet",
 	component: SideSheet,
 	args: {
-		id: "story-panel",
 		slot: "story-panel",
 		title: "Browser",
 		sheet: false,
-		widthKey: "pine.story.width",
-		defaultWidth: 360,
 		barClassName: "pl-3 text-sm font-medium",
 		onClose: () => {},
 		bar: (
@@ -31,16 +27,11 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Beside the conversation, in a window with room: its edge drags it wider or narrower. */
-export const Column: Story = {
+/** In a group of the layout, in a window with room: the group says where it lies and how large it is. */
+export const Card: Story = {
 	render: (args) => (
-		<div className="flex h-96 p-1.5">
-			<ResizablePanelGroup orientation="horizontal">
-				<ResizablePanel id="view" className="flex" minSize={200}>
-					<p className="p-3 text-sm">The conversation.</p>
-				</ResizablePanel>
-				<SideSheet {...args} />
-			</ResizablePanelGroup>
+		<div className="flex h-96 w-120 p-1.5">
+			<SideSheet {...args} />
 		</div>
 	),
 };

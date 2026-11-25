@@ -1,6 +1,7 @@
 // Shared per-window layout, persistence snapshot, and cascading geometry helpers.
 // Pure TypeScript with no Electron or DOM runtime dependency so main, preload, renderer, and tests can share it.
 import type { SentQuote } from "../../src/quotes.ts";
+import { cleanSaved, type Saved } from "../src/dock.ts";
 
 /** An attachment carried in an unsent draft when moving a tab to a new window. */
 export interface WindowAttachment {
@@ -45,11 +46,24 @@ export interface WindowLayout {
 	noTab?: boolean;
 	sidebar: boolean;
 	code: boolean;
+	/** Whether the browser's aside was open: a window of an app before the browser went into the side panel. Read, never written. */
 	aside: boolean;
 	view: boolean;
 	order?: string[];
+	/** How the tabs and panes are arranged (desktop/src/dock.ts), conversations by name. */
+	dock?: Saved<DockItem>;
 	widths: WindowWidths;
 	folded: string[];
+}
+
+/** An item of a kept arrangement: a conversation, or one of the two panes. */
+export type DockItem = WindowTabRef | "code" | "view";
+
+/** Sanitizes an item of a kept arrangement. */
+export function cleanDockItem(raw: unknown): DockItem | undefined {
+	if (raw === "code" || raw === "view") return raw;
+	const [tab] = cleanTabs([raw]);
+	return tab;
 }
 
 /** Chrome-only layout preserved as the fallback when reopening after all windows are closed. */
@@ -153,6 +167,7 @@ export function cleanWindowLayout(raw: unknown): WindowLayout | undefined {
 	const active = Number.isInteger(activeNum) && activeNum >= 0 ? Math.min(activeNum, Math.max(0, tabs.length - 1)) : 0;
 	const host = typeof r.host === "string" && r.host ? r.host : undefined;
 	const order = cleanOrder(r.order);
+	const dock = cleanSaved(r.dock, cleanDockItem);
 	return {
 		...(host ? { host } : {}),
 		tabs,
@@ -163,6 +178,7 @@ export function cleanWindowLayout(raw: unknown): WindowLayout | undefined {
 		aside: r.aside === true,
 		view: r.view === true,
 		...(order ? { order } : {}),
+		...(dock ? { dock } : {}),
 		widths: cleanWidths(r.widths),
 		folded: cleanFolded(r.folded),
 	};

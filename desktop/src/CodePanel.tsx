@@ -43,6 +43,7 @@ import { Tree, TreeGroup, TreeItem, TreeItemLabel } from "@ui-sdk/react/tree";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { useLoad } from "./use-load.ts";
 import { TerminalView } from "./Terminal.tsx";
+import { BrowserView } from "./Browser.tsx";
 import { Pulse } from "@/components/pulse";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HoverTooltip } from "@/components/hover-tooltip";
@@ -603,8 +604,6 @@ function Running({ tab }: { tab: Tab }) {
 	);
 }
 
-export const CODE_KEY = "pine.code.width";
-
 export function CodePanel({ tab }: { tab: Tab }) {
 	useModel(tab);
 	useModel(store);
@@ -621,18 +620,14 @@ export function CodePanel({ tab }: { tab: Tab }) {
 	const sheet = !useMediaQuery(ROOM);
 	return (
 		<SideSheet
-			id="code-panel"
 			slot="code-panel"
 			title="Side panel"
 			sheet={sheet}
-			widthKey={CODE_KEY}
-			savedWidth={store.widthOf("code")}
-			defaultWidth={520}
-			onClose={() => void store.command("code")}
+			onClose={() => store.close("code")}
 			bar={
 				<>
 					{/* What is always there first, in the order it is used: the folder (Files, Changes), what ran (Output, the
-					    owner's Terminal), then the agent. After them the two that are there only while they hold something,
+					    owner's Terminal, the agent's Browser), then the agent. After them the two that are there only while they hold something,
 					    with their number, so that the others never move. In a narrow panel the row scrolls sideways, and fades
 					    where it is cut. The padding is the room for the line under the tab in front, which stock draws below the list. */}
 					<ScrollArea className="flex min-w-0 flex-initial flex-col *:data-[slot=scroll-area-viewport]:scroll-fade-x">
@@ -645,6 +640,7 @@ export function CodePanel({ tab }: { tab: Tab }) {
 							<TabsTrigger value="output">Output</TabsTrigger>
 							{/* A shell of this computer: a conversation of another machine's pine does not work here. */}
 							{store.remote ? null : <TabsTrigger value="terminal">Terminal</TabsTrigger>}
+							<TabsTrigger value="browser">Browser</TabsTrigger>
 							<TabsTrigger value="agent">Agent</TabsTrigger>
 							{/* Only while a command of the conversation's is still running, or the owner asked for the tab. */}
 							{tab.programs.length || view === "running" ? (
@@ -665,7 +661,8 @@ export function CodePanel({ tab }: { tab: Tab }) {
 					</div>
 					</ScrollArea>
 					<span className="min-w-0 flex-1" />
-					<HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" onClick={() => void store.command("code")} aria-label="Close the panel"><XIcon /></Button>} /><TooltipContent>Close the panel</TooltipContent></HoverTooltip>
+					{/* In a group the panel's own tab closes it; a sheet has no tab. */}
+					{sheet ? <HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" onClick={() => store.close("code")} aria-label="Close the panel"><XIcon /></Button>} /><TooltipContent>Close the panel</TooltipContent></HoverTooltip> : null}
 				</>
 			}
 		>
@@ -689,6 +686,8 @@ export function CodePanel({ tab }: { tab: Tab }) {
 				<Output tab={tab} />
 			) : view === "board" ? (
 				<BoardTab tab={tab} />
+			) : view === "browser" ? (
+				<BrowserView tab={tab} />
 			) : view === "terminal" ? (
 				store.remote ? <Empty><EmptyHeader><EmptyMedia variant="icon"><SquareTerminalIcon /></EmptyMedia><EmptyTitle>No terminal here</EmptyTitle><EmptyDescription>The terminal is a shell on this computer, and this conversation works on {store.remote}. Open a terminal there with ssh.</EmptyDescription></EmptyHeader></Empty> : <TerminalView tab={tab} />
 			) : (

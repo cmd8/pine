@@ -15,6 +15,7 @@ import { type QuoteSource, type SentQuote, withQuotes } from "../../src/quotes.t
 import type { Bookmark, NewBookmark } from "../../src/bookmarks.ts";
 import { computerWord, deviceWord, homeScreenKeeps, httpService, isPaired, machineName, machinesView, pairingEnded, readPairLink, type MachinesViewName, type NearbyComputer, type PairLink } from "./machines.ts";
 import { applyLook, cleanLook, type ThemeEntry } from "./theme.ts";
+import * as dock from "./dock.ts";
 
 /** The reasoning levels, each with what it means for the answer. */
 export const REASONING_ABOUT: Record<string, string> = { off: "answers at once", minimal: "a moment of thought", low: "thinks briefly", medium: "thinks it through", high: "thinks long", xhigh: "thinks very long", max: "as long as the model can" };
@@ -121,23 +122,34 @@ const ownerText = (p: { prompt?: unknown; quotes?: unknown; body?: unknown }): {
 /** The same as one text, quotes as markdown: for a title, a search, an export. */
 const ownerSaid = (t: Task) => (t.meta?.quotes?.length ? t.prompt : (t.meta?.body ?? t.prompt));
 
-export type CodeView = "agent" | "files" | "changes" | "turn" | "output" | "running" | "board" | "terminal";
+export type CodeView = "agent" | "files" | "changes" | "turn" | "output" | "running" | "board" | "terminal" | "browser";
 
-/** What can be shown beside a conversation: the side panel, the browser's aside, and the view of all of pine
- *  (which needs no conversation). */
-export type Beside = "code" | "aside" | "view";
+/** The two panes a window has besides its tabs: the side panel (of the conversation last in front, the browser among
+ *  its parts) and the view of all of pine (which needs no conversation). */
+export type Beside = "code" | "view";
 
-/** Tailwind's `lg`: below it a conversation and the side panel beside it do not both fit, with the side bar as a column too.
- *  There the side panel (CodePanel.tsx) and the browser's aside (Browser.tsx) are sheets over the conversation, one at a time. */
+/** The items of the layout (dock.ts) that are those panes; every other item is a tab's id. */
+export const PANE: Record<Beside, string> = { code: "@code", view: "@view" };
+export const paneOf = (item: string): Beside | undefined => (item === PANE.code ? "code" : item === PANE.view ? "view" : undefined);
+/** An item of the layout as it is kept with the window: a conversation by its name, or a pane. */
+export type DockItem = { agent: string; session: string } | Beside;
+/** The share of the window a pane takes when it opens at the right. */
+const CODE_SHARE = 0.36;
+const VIEW_SHARE = 0.3;
+/** Where a page without the desktop app's main process keeps its arrangement. */
+const DOCK_KEY = "pine.dock";
+const localDock = (): unknown => {
+	try {
+		const raw = localStorage.getItem(DOCK_KEY);
+		return raw ? JSON.parse(raw) : undefined;
+	} catch {
+		return undefined;
+	}
+};
+
+/** Tailwind's `lg`: below it there is no room for groups side by side. There the window shows one tab at a time, and
+ *  the side panel (CodePanel.tsx) and the view are sheets over it, one at a time. */
 export const ROOM = "(min-width: 64rem)";
-
-/** The room beside the side bar, in pixels, below which the side panel and the aside are not both drawn as columns: the
- *  conversation, the panel and the aside at their least (320 each) with the edges between them, and a little more so
- *  that none of the three is squeezed to its minimum. There only the one opened last is drawn; the other comes back
- *  by itself when there is room again. */
-export const BOTH = 1100;
-/** The same for all three: the conversation and three panels side by side. */
-export const THREE = 1500;
 
 const MEDIA_KIND = (name: string): "image" | "video" | "audio" | undefined => (/\.(png|jpe?g|gif|webp)$/i.test(name) ? "image" : /\.(mp4|mov|webm|m4v)$/i.test(name) ? "video" : /\.(wav|mp3|m4a|ogg|flac|aiff?)$/i.test(name) ? "audio" : undefined);
 export const mediaKind = MEDIA_KIND;
@@ -222,6 +234,11 @@ export class Tab extends Model {
 		this.kind = kind;
 		this.agent = agent;
 		this.session = session;
+	}
+
+	/** What the tab is in the window's layout (dock.ts): an id that a rename does not change. */
+	get item(): string {
+		return `t${this.id}`;
 	}
 
 	get key(): string {
@@ -380,13 +397,22 @@ export class Store extends Model {
 	folded = new Set<string>(JSON.parse(localStorage.getItem("pine.folded") ?? "[]"));
 	/** Whether the side bar shows as a column in a wide window. Kept like its width, so that it is after a restart as it was left. */
 	sidebar = localStorage.getItem("pine.sidebar") !== "hidden";
-	/** Whether the side panel is open. Kept by the daemon with the tabs, for the next start. */
-	code = false;
+	/** Which part of the side panel is in front (its files, the browser, the terminal...). */
 	codeView: CodeView = "files";
-	/** Whether the browser's aside is open: a matter of this window alone, kept like the side bar. */
-	aside = localStorage.getItem("pine.aside") === "shown";
-	/** Whether the view's panel is open: kept like the aside. */
-	view_ = localStorage.getItem("pine.view") === "shown";
+	/**
+	 * How the window's tabs and panes are arranged in a wide window: groups of tabs side by side and one above another
+	 * (dock.ts). Its items are tabs' ids and the panes (`PANE`). Kept with the window, for the next start.
+	 */
+	dock: dock.Node = dock.group();
+	/** The group last clicked into or brought to the front: where a new tab goes. */
+	focus?: string;
+	/** The conversation the side panel showed last: it follows the conversation in front, and stays when a tab that is none comes to the front. */
+	private chatLast?: Tab;
+	/** In a narrow window, which pane lies over the tab as a sheet, if one does: a matter of the moment, never kept. */
+	sheet?: Beside;
+	/** A tab is being dragged over this window (one of its own, or one of another window's): the app's own browser page,
+	 *  laid over the window, steps aside while it lasts so that where a tab would land is seen (Browser.tsx). */
+	dragging?: string;
 	/** Whether this page can run a view at all (`AppState.views`): the desktop app's can, the others' cannot. */
 	viewsHere = false;
 	/** The view pine has in force (`ui.view`), the ones in its folder, and the one pine.json names; no view in force: no panel, no button. */
@@ -395,30 +421,9 @@ export class Store extends Model {
 	viewChosen: string | null = null;
 	/** Who else reads the daemon's live events, batch by batch (the view's world). */
 	readonly taps = new Set<(batch: PineEvent[]) => void>();
-	/** The panels beside a conversation, the one opened last at the end: where there is room for fewer than are open,
-	 *  the ones opened last are drawn. */
-	order: Beside[] = ["view", "aside", "code"];
-	/** In a window with sheets, the sheet in front was put away while the other was open: that one stays open behind,
-	 *  and comes forward by its own toggle, or as a column once the window is wide. */
-	tucked = false;
-	/** Whether the side panel and the aside lie over the conversation as sheets, one at a time: a window narrower than `ROOM`. */
+	/** Whether the window is too narrow for groups side by side: one tab at a time, and the panes as sheets over it. */
 	get sheets(): boolean {
 		return !window.matchMedia(ROOM).matches;
-	}
-	/** The width of the room beside the side bar, as the window last measured it (`App.tsx`). */
-	room = Infinity;
-	/** How many of the panels beside a conversation are drawn at a time: one as sheets or with less room than `BOTH`,
-	 *  two with less than `THREE`. */
-	get fits(): number {
-		return this.sheets || this.room < BOTH ? 1 : this.room < THREE ? 2 : 3;
-	}
-	/** Called as the room beside the side bar changes size; the page is drawn again only when that changes what shows. */
-	measure(room: number): void {
-		const was = this.fits;
-		this.room = room;
-		// Once the window has room for columns, the one left behind has shown as one: a sheet is no longer held back.
-		if (!this.sheets) this.tucked = false;
-		if (this.fits !== was) this.touch();
 	}
 	palette = false;
 	picker?: Picker;
@@ -456,6 +461,8 @@ export class Store extends Model {
 	widths: WindowWidths = {};
 
 	private initialLayout?: WindowLayout;
+	/** The view was open in the window this one's chrome comes from (a window opened again after the last one closed). */
+	private chromeView = false;
 	private startNoTab = false;
 	private initialTab?: WindowTabRef;
 	private initialDraft?: WindowDraft;
@@ -537,18 +544,12 @@ export class Store extends Model {
 		this.initialTab = first.initialTab;
 		this.initialDraft = first.initialDraft;
 		const chrome: ChromeLayout | undefined = first.windowLayout ?? first.chromeLayout;
+		this.chromeView = chrome?.view === true;
 		if (chrome) {
 			this.sidebar = chrome.sidebar !== false;
-			this.aside = chrome.aside === true;
-			this.view_ = chrome.view === true;
-			if (chrome.order?.length) {
-				const valid = chrome.order.filter((w): w is Beside => w === "code" || w === "aside" || w === "view");
-				if (valid.length) this.order = valid;
-			}
 			this.widths = { ...chrome.widths };
 			this.folded = new Set(chrome.folded);
 		}
-		if (first.windowLayout) this.code = first.windowLayout.code === true;
 		// Whether the event stream is up: a page loaded anew is not told it by an event.
 		this.connected = first.connected === true;
 		this.prefs = first.prefs;
@@ -588,8 +589,9 @@ export class Store extends Model {
 	 * conversation has no browser at all, the address goes to the owner's own browser.
 	 */
 	async showInBrowser(tab: Tab, url: string): Promise<void> {
-		const before = { aside: this.aside, order: [...this.order], tucked: this.tucked };
-		this.open("aside");
+		const before = { open: this.isOpen("code"), view: this.codeView };
+		this.codeView = "browser";
+		this.open("code");
 		this.touch();
 		const state = await api.browserOpen(tab.agent, tab.session, url).catch(() => undefined);
 		if (state?.open) {
@@ -598,10 +600,9 @@ export class Store extends Model {
 			this.saveTabs();
 			return this.touch();
 		}
-		// Put back as it was: closed if it was, and the side panel in front again if it was.
-		if (!before.aside) this.close("aside");
-		this.order = before.order;
-		this.tucked = before.tucked;
+		// Put back as it was: the side panel closed if it was, and on the part it showed.
+		this.codeView = before.view;
+		if (!before.open) this.close("code");
 		this.flash("This conversation has no browser, so the address was opened in your own.", "muted", 6000);
 		this.touch();
 		void bridge.open(url);
@@ -650,6 +651,7 @@ export class Store extends Model {
 		this.agents = await this.askAgents().catch(() => this.agents);
 		this.tabs = this.tabs.filter((t) => t.agent !== id || t.kind === "events");
 		if (this.active?.agent === id) this.active = this.tabs[0];
+		this.syncDock();
 		if (!this.tabs.length && this.agents[0]) await this.openTab((this.agents.find((a) => a.main) ?? this.agents[0]).id, "main", false);
 		this.conversations.delete(id);
 		this.touch();
@@ -965,6 +967,9 @@ export class Store extends Model {
 		this.agents = [];
 		this.tabs = [];
 		this.active = undefined;
+		this.dock = dock.group();
+		this.focus = undefined;
+		this.chatLast = undefined;
 		this.conversations = new Map();
 		this.taints = new Map();
 		this.sessionModes = new Map();
@@ -1107,8 +1112,13 @@ export class Store extends Model {
 		// A daemon that was started again: what the tabs showed is asked for anew.
 		this.tabs = [];
 		this.active = undefined;
+		this.dock = dock.group();
+		this.focus = undefined;
+		this.chatLast = undefined;
 		this.opened = false;
-		let nextCode = this.code;
+		/** How the tabs were arranged, where that was kept; else which panes were open. */
+		let kept: unknown;
+		let panes = { code: false, view: this.chromeView };
 		// The window shows once the agents and the tabs are known: the tabs are filled behind it, the one in front first.
 		// Each fill reads its own conversation and writes its own tab only, so the others are filled side by side.
 		this.restoring = true;
@@ -1127,7 +1137,7 @@ export class Store extends Model {
 					await this.openTab(first.id, "main", false, false);
 				}
 				this.activate(this.tabs[0]);
-				nextCode = false;
+				panes = { code: false, view: false };
 			} else if (initialLayout) {
 				const again = initialLayout.tabs.filter((t) => this.agents.some((a) => a.id === t.agent));
 				if (again.length) {
@@ -1138,10 +1148,11 @@ export class Store extends Model {
 					await this.openTab(first.id, "main", false, false);
 					this.activate(this.tabs[0]);
 				}
-				nextCode = initialLayout.code === true;
+				kept = initialLayout.dock;
+				panes = { code: initialLayout.code === true, view: initialLayout.view === true };
 			} else if (startNoTab) {
 				// Generic New Window on an environment already viewed by another window starts on NoTab.
-				nextCode = false;
+				panes = { code: false, view: false };
 			} else {
 				const saved = await api.tabs().catch(() => ({ tabs: [] as Array<{ agent: string; session: string }>, active: 0, code: false }));
 				const again = saved.tabs.filter((t) => this.agents.some((a) => a.id === t.agent));
@@ -1149,13 +1160,15 @@ export class Store extends Model {
 				for (const t of again) await this.openTab(t.agent, t.session, false, false);
 				const chats = this.tabs.filter((t) => t.kind === "chat");
 				this.activate(chats[again.length ? Math.min(saved.active, chats.length - 1) : 0] ?? this.tabs[0]);
-				nextCode = saved.code === true;
+				panes.code = saved.code === true;
+				// The page of the web client and the mobile app keeps its arrangement itself: the daemon keeps the tabs.
+				if (typeof bridge.windowLayout !== "function") kept = localDock();
 			}
 		} finally {
 			this.restoring = false;
 			this.opened = true;
 		}
-		this.code = nextCode;
+		this.arrange(kept, panes);
 		this.saveTabs();
 		const front = this.active as Tab | undefined;
 		const rest = this.tabs.filter((t) => t !== front && t.kind === "chat");
@@ -1596,6 +1609,10 @@ export class Store extends Model {
 		if (!tab) return;
 		this.active = tab;
 		tab.unread = false;
+		if (tab.kind === "chat") this.chatLast = tab;
+		this.place(tab);
+		this.dock = dock.setFront(this.dock, tab.item);
+		this.focus = dock.groupHolding(this.dock, tab.item)?.id ?? this.focus;
 		this.saveTabs();
 		this.touch();
 		this.badge();
@@ -1608,6 +1625,7 @@ export class Store extends Model {
 	private tabsSaved: Promise<unknown> = Promise.resolve();
 
 	private saveTabs(): void {
+		this.syncDock();
 		if (this.restoring) return;
 		this.reportLayout();
 	}
@@ -1615,8 +1633,9 @@ export class Store extends Model {
 	/** Reports this window's tabs and panel layout to the main process (desktop) or directly to the daemon (web/mobile/preview). */
 	private reportLayout(): void {
 		if (this.restoring || !this.opened || this.service.status !== "ready") return;
-		const chats = this.tabs.filter((t) => t.kind === "chat");
+		const chats = this.ordered.filter((t) => t.kind === "chat");
 		const activeIndex = Math.max(0, chats.indexOf(this.active!));
+		const arranged = dock.save(this.dock, (item) => this.keepItem(item));
 		if (typeof bridge.windowLayout === "function") {
 			const snapshot: WindowLayout = {
 				...(this.service.host ? { host: this.service.host } : {}),
@@ -1624,17 +1643,158 @@ export class Store extends Model {
 				active: activeIndex,
 				...(chats.length === 0 ? { noTab: true } : {}),
 				sidebar: this.sidebar,
-				code: this.code,
-				aside: this.aside,
-				view: this.view_,
-				order: [...this.order],
+				code: this.hasPane("code"),
+				aside: false,
+				view: this.hasPane("view"),
+				dock: arranged,
 				widths: { ...this.widths },
 				folded: [...this.folded],
 			};
 			this.tabsSaved = bridge.windowLayout(snapshot).catch(() => {});
 		} else {
-			this.tabsSaved = api.saveTabs(chats.map((t) => ({ agent: t.agent, session: t.session })), activeIndex, this.code).catch(() => {});
+			this.tabsSaved = api.saveTabs(chats.map((t) => ({ agent: t.agent, session: t.session })), activeIndex, this.hasPane("code")).catch(() => {});
+			try {
+				localStorage.setItem(DOCK_KEY, JSON.stringify(arranged));
+			} catch {
+				// no storage here (a private window): the arrangement is not kept
+			}
 		}
+	}
+
+	// ---- the layout: groups of tabs, and the panes among them ------------------------------------------
+
+	/** The tab an item of the layout is, if it is one (not a pane, not a tab that closed). */
+	tabOf(item: string | undefined): Tab | undefined {
+		return item === undefined ? undefined : this.tabs.find((t) => t.item === item);
+	}
+
+	/** The window's tabs in the order they are drawn: group after group, and any the layout does not hold yet at the end. */
+	get ordered(): Tab[] {
+		const placed = dock.itemsOf(this.dock).map((i) => this.tabOf(i)).filter((t): t is Tab => Boolean(t));
+		return [...placed, ...this.tabs.filter((t) => !placed.includes(t))];
+	}
+
+	/** The tabs of the group a tab is in, in their order: what the tab's menu, ⌃Tab and ⌘1… go through. A narrow window has one row of all. */
+	siblings(tab: Tab | undefined): Tab[] {
+		const holder = tab && !this.sheets ? dock.groupHolding(this.dock, tab.item) : undefined;
+		return holder ? holder.items.map((i) => this.tabOf(i)).filter((t): t is Tab => Boolean(t)) : this.ordered;
+	}
+
+	/** The conversation the side panel shows: the one last in front, else one that is in front of a group, else any. */
+	get codeTab(): Tab | undefined {
+		if (this.chatLast && this.tabs.includes(this.chatLast)) return this.chatLast;
+		const fronts = dock.groupsOf(this.dock).map((g) => this.tabOf(g.front)).filter((t) => t?.kind === "chat");
+		return fronts[0] ?? this.tabs.find((t) => t.kind === "chat");
+	}
+
+	private hasPane(which: Beside): boolean {
+		return Boolean(dock.groupHolding(this.dock, PANE[which]));
+	}
+
+	/** An item as it is kept: a conversation by its name, a pane by its; a tab of another kind is not kept (it is not opened again at the start). */
+	private keepItem(item: string): DockItem | undefined {
+		const pane = paneOf(item);
+		if (pane) return pane;
+		const tab = this.tabOf(item);
+		return tab?.kind === "chat" ? { agent: tab.agent, session: tab.session } : undefined;
+	}
+
+	/** A kept item read back: the open tab of that conversation, or the pane. */
+	private readItem(raw: unknown): string | undefined {
+		if (raw === "code" || raw === "view") return PANE[raw];
+		if (!raw || typeof raw !== "object") return undefined;
+		const { agent, session } = raw as Record<string, unknown>;
+		return this.tabs.find((t) => t.kind === "chat" && t.agent === agent && t.session === session)?.item;
+	}
+
+	/**
+	 * The tabs opened at the start, arranged as they were kept. Where nothing was kept (a window of an earlier app, the
+	 * first start), they are one group, and the panes that were open lie at the right of it.
+	 */
+	private arrange(kept: unknown, panes: { code: boolean; view: boolean }): void {
+		const restored = kept === undefined ? undefined : dock.restore(kept, (x) => this.readItem(x));
+		let tree: dock.Node = restored && dock.itemsOf(restored).length ? restored : dock.group(this.tabs.map((t) => t.item));
+		if (tree !== restored) {
+			if (panes.code) tree = dock.splitWindow(tree, "right", PANE.code, CODE_SHARE);
+			if (panes.view) tree = dock.splitWindow(tree, "right", PANE.view, VIEW_SHARE);
+		}
+		this.dock = tree;
+		this.syncDock();
+		if (this.active) this.dock = dock.setFront(this.dock, this.active.item);
+		this.focus = (this.active && dock.groupHolding(this.dock, this.active.item)?.id) ?? dock.groupsOf(this.dock)[0]?.id;
+	}
+
+	/** The layout made to hold exactly the window's tabs: what closed goes, a tab it does not hold yet is placed. */
+	private syncDock(): void {
+		const ids = new Set(this.tabs.map((t) => t.item));
+		for (const item of dock.itemsOf(this.dock)) if (!paneOf(item) && !ids.has(item)) this.dock = dock.remove(this.dock, item);
+		for (const t of this.tabs) this.place(t);
+		if (!this.focus || !dock.findGroup(this.dock, this.focus)) this.focus = (this.active && dock.groupHolding(this.dock, this.active.item)?.id) ?? dock.groupsOf(this.dock)[0]?.id;
+	}
+
+	/**
+	 * A tab the layout does not hold yet goes at the end of the group the tab in front is in (else the group last
+	 * clicked into, else the first that holds a tab), behind what is in front there. Where every group holds only
+	 * panes, it gets a group of its own at the left.
+	 */
+	private place(tab: Tab): void {
+		if (dock.groupHolding(this.dock, tab.item)) return;
+		const groups = dock.groupsOf(this.dock);
+		const holdsTab = (g: dock.Group) => !g.items.length || g.items.some((i) => !paneOf(i));
+		const ofActive = this.active && this.active !== tab ? dock.groupHolding(this.dock, this.active.item) : undefined;
+		const focused = this.focus ? dock.findGroup(this.dock, this.focus) : undefined;
+		const target = ofActive ?? (focused && holdsTab(focused) ? focused : undefined) ?? groups.find(holdsTab);
+		if (!target) return void (this.dock = dock.splitWindow(this.dock, "left", tab.item, 1 - CODE_SHARE));
+		const front = target.front;
+		this.dock = dock.insert(this.dock, target.id, tab.item);
+		if (front) this.dock = dock.setFront(this.dock, front);
+	}
+
+	/** A group clicked into: new tabs go there, and its tab in front is the one in front of the window. */
+	focusGroup(id: string): void {
+		const g = dock.findGroup(this.dock, id);
+		if (!g) return;
+		const tab = this.tabOf(g.front);
+		if (tab && tab !== this.active) return this.activate(tab);
+		if (this.focus !== id) ((this.focus = id), this.touch());
+	}
+
+	/** A tab or a pane brought to the front of its group, by a click on it. */
+	front(item: string): void {
+		const tab = this.tabOf(item);
+		if (tab) return this.activate(tab);
+		this.dock = dock.setFront(this.dock, item);
+		this.focus = dock.groupHolding(this.dock, item)?.id ?? this.focus;
+		this.saveTabs();
+		this.touch();
+	}
+
+	/** A tab or a pane put into a group, before another of its items (at its end without one), in front there. */
+	putInGroup(item: string, groupId: string, before?: string): void {
+		if (before === item) return;
+		this.dock = dock.insert(this.dock, groupId, item, before);
+		this.front(item);
+	}
+
+	/** A tab or a pane put into a new group at one edge of a group, which gives it half its room. */
+	splitGroup(item: string, groupId: string, edge: dock.Edge): void {
+		this.dock = dock.split(this.dock, groupId, edge, item);
+		this.front(item);
+	}
+
+	/** The edge between two groups dragged: their shares of the split they are in. */
+	resizeSplit(splitId: string, sizes: number[], done: boolean): void {
+		this.dock = dock.resize(this.dock, splitId, sizes);
+		if (done) this.saveTabs();
+		this.touch();
+	}
+
+	/** Closes what an item is: a tab, or a pane. */
+	closeItem(item: string): void {
+		const pane = paneOf(item);
+		if (pane) return this.close(pane);
+		const tab = this.tabOf(item);
+		if (tab) this.closeTab(tab);
 	}
 
 	/** Opens a tab on a conversation; `filled` false leaves what it holds to be asked for by the caller (the start). */
@@ -1842,9 +2002,11 @@ export class Store extends Model {
 	 * stays open, and the owner is told why: what is asked keeps its place.
 	 */
 	closeTabs(which: "others" | "right" | "all", from: Tab | undefined = this.active): void {
-		const at = from ? this.tabs.indexOf(from) : -1;
+		// Of the tab's group, as in VS Code: the other groups keep theirs.
+		const row = this.siblings(from);
+		const at = from ? row.indexOf(from) : -1;
 		if ((which === "others" || which === "right") && at < 0) return;
-		const chosen = this.tabs.filter((t, i) => (which === "others" ? t !== from : which === "right" ? i > at : true));
+		const chosen = row.filter((t, i) => (which === "others" ? t !== from : which === "right" ? i > at : true));
 		const shut = chosen.filter((t) => !t.approvals.size);
 		const kept = chosen.length - shut.length;
 		// The tab the menu was opened on comes to the front when the one in front closes, as in VS Code.
@@ -1875,6 +2037,7 @@ export class Store extends Model {
 	 * window can take it or it can be torn off into a window of its own; the drag itself carries nothing of it.
 	 */
 	startTabDrag(tab: Tab): void {
+		this.startDrag(tab.item);
 		if (tab.kind !== "chat" || typeof bridge.tabDrag !== "function") return;
 		const draft = draftOf(tab);
 		void bridge.tabDrag({ tab: { agent: tab.agent, session: tab.session }, ...(draft ? { draft } : {}) }).catch(() => {});
@@ -1885,14 +2048,34 @@ export class Store extends Model {
 	 * outside every window: the tab then lives in a window of its own, and goes from this one. `x` and `y` are where it ended on the screen.
 	 */
 	async endTabDrag(tab: Tab, outside: boolean, x: number, y: number): Promise<void> {
+		this.endDrag();
 		if (typeof bridge.tabDragEnd !== "function") return;
 		const alone = this.tabs.length === 1;
 		const torn = await bridge.tabDragEnd({ outside: outside && tab.kind === "chat", alone, x, y }).catch(() => false);
 		if (torn && this.tabs.includes(tab)) this.shut([tab], undefined, { detach: true });
 	}
 
-	/** A tab of another window was let go on this one's tab row, to stand at `at`: it is asked for, and opened here with its draft. */
-	async dropTab(at: number): Promise<void> {
+	/** A tab or a pane of this window is picked up: the groups show where it can go, and the app's browser page steps aside. */
+	startDrag(item: string): void {
+		// After the drag has begun: what is drawn over the window for it must not be there while the page starts the drag.
+		window.clearTimeout(this.dragTimer);
+		this.dragTimer = window.setTimeout(() => ((this.dragging = item), this.touch()));
+	}
+
+	endDrag(): void {
+		window.clearTimeout(this.dragTimer);
+		if (this.dragging === undefined) return;
+		this.dragging = undefined;
+		this.touch();
+	}
+
+	private dragTimer?: number;
+
+	/**
+	 * A tab of another window was let go on this one: before a tab of a group, at the end of one, or at one of its edges.
+	 * It is asked for, and opened here with its draft.
+	 */
+	async dropTab(to: { group: string; before?: string; edge?: dock.Edge }): Promise<void> {
 		this.tabDragIn = false;
 		this.touch();
 		if (typeof bridge.tabDrop !== "function") return;
@@ -1912,9 +2095,9 @@ export class Store extends Model {
 			if (!tab) return;
 			void this.fill(tab).then(() => this.refreshConversations(agent));
 		}
-		const from = this.tabs.indexOf(tab);
-		this.moveTab(from, from < at ? at - 1 : at);
-		this.activate(tab);
+		if (!dock.findGroup(this.dock, to.group)) this.activate(tab);
+		else if (to.edge) this.splitGroup(tab.item, to.group, to.edge);
+		else this.putInGroup(tab.item, to.group, to.before);
 		// What it was asked and nobody answered yet is shown here now.
 		const asks = await api.approvals().catch(() => [] as Approval[]);
 		for (const req of asks) if (this.tabFor(req) === tab && this.tabs.includes(tab)) this.takeAsk(tab, req, false);
@@ -1943,7 +2126,9 @@ export class Store extends Model {
 		if (!tabs.length) return;
 		const detach = options?.detach === true;
 		const before = this.tabs;
+		const holder = this.active && tabs.includes(this.active) ? dock.groupHolding(this.dock, this.active.item) : undefined;
 		this.tabs = before.filter((t) => !tabs.includes(t));
+		for (const tab of tabs) this.dock = dock.remove(this.dock, tab.item);
 		for (const tab of tabs) {
 			if (tab.kind !== "chat") continue;
 			if (!detach) {
@@ -1961,9 +2146,10 @@ export class Store extends Model {
 		}
 		if (front && this.tabs.includes(front) && this.active !== front) this.activate(front);
 		else if (this.active && tabs.includes(this.active)) {
-			// The nearest tab to the left of the one that was in front, else the first.
-			const was = before.indexOf(this.active);
-			const next = before.slice(0, was).reverse().find((t) => this.tabs.includes(t)) ?? this.tabs[0];
+			// The tab beside it in its group (the one to its left, else to its right), else the tab in front of another group, else any.
+			const same = holder ? dock.findGroup(this.dock, holder.id) : undefined;
+			const fronts = dock.groupsOf(this.dock).map((g) => this.tabOf(g.front)).filter((t): t is Tab => Boolean(t));
+			const next = this.tabOf(same?.front) ?? same?.items.map((i) => this.tabOf(i)).find(Boolean) ?? fronts[0] ?? this.tabs[0];
 			if (next) this.activate(next);
 			else ((this.active = undefined), this.saveTabs(), this.touch(), this.badge());
 		} else {
@@ -2004,17 +2190,10 @@ export class Store extends Model {
 		else if (tab === this.active) this.askNext();
 	}
 
-	moveTab(from: number, to: number): void {
-		if (from === to || from < 0 || to < 0 || from >= this.tabs.length || to >= this.tabs.length) return;
-		const [tab] = this.tabs.splice(from, 1);
-		this.tabs.splice(to, 0, tab);
-		this.saveTabs();
-		this.touch();
-	}
-
 	cycle(by: number): void {
-		if (this.tabs.length < 2 || !this.active) return;
-		this.activate(this.tabs[(this.tabs.indexOf(this.active) + by + this.tabs.length) % this.tabs.length]);
+		const row = this.siblings(this.active);
+		if (row.length < 2 || !this.active) return;
+		this.activate(row[(row.indexOf(this.active) + by + row.length) % row.length]);
 	}
 
 	/** The agent something new is meant for when nobody said: the one of the tab in front, if that tab is an agent's. */
@@ -2710,55 +2889,48 @@ export class Store extends Model {
 		this.touch();
 	}
 
-	/** Whether the side panel, the aside or the view is open. */
+	/** Whether a pane can be drawn at all: the side panel needs a conversation, the view a view. */
+	private available(which: Beside): boolean {
+		return which === "code" ? Boolean(this.codeTab) : this.hasView;
+	}
+
+	/** Whether a pane is open: in the layout of a wide window, or as the sheet of a narrow one. */
 	isOpen(which: Beside): boolean {
-		return which === "code" ? this.code : which === "aside" ? this.aside : this.view_ && this.hasView;
+		if (!this.available(which)) return false;
+		return this.sheets ? this.sheet === which : this.hasPane(which);
 	}
 
-	/** The side panel and the browser belong to a conversation; the view is drawn beside any tab. */
-	private drawable(which: Beside): boolean {
-		return which === "view" || this.active?.kind === "chat";
-	}
-
-	/** Whether a panel is open, and drawn: where there is room for fewer than are open (`fits`), the ones opened last are. */
+	/** Whether a pane is open and drawn: in front of its group (the sheet in a narrow window). */
 	shown(which: Beside): boolean {
-		if (!this.isOpen(which) || !this.drawable(which) || (this.sheets && this.tucked)) return false;
-		const open = this.order.filter((w) => this.isOpen(w) && this.drawable(w));
-		return open.slice(-this.fits).includes(which);
+		if (!this.isOpen(which)) return false;
+		return this.sheets || dock.groupHolding(this.dock, PANE[which])?.front === PANE[which];
 	}
 
-	/** Open but not drawn: there is no room for it, and others were opened after it. */
+	/** Open but not drawn: another tab of its group is in front of it. */
 	behind(which: Beside): boolean {
-		return this.isOpen(which) && this.drawable(which) && !this.shown(which);
+		return this.isOpen(which) && !this.shown(which);
 	}
 
-	/** Opens a panel, in front of the others. */
+	/** Opens a pane, in front of its group; one that was not open gets a group of its own at the right of the window. */
 	open(which: Beside): void {
-		this.order = [...this.order.filter((w) => w !== which), which];
-		this.tucked = false;
-		if (which === "code") {
-			this.code = true;
-			this.saveTabs();
-		} else {
-			if (which === "view") this.view_ = true;
-			else this.aside = true;
-			if (typeof bridge.windowLayout !== "function") localStorage.setItem(`pine.${which}`, "shown");
-			this.reportLayout();
+		if (this.sheets) {
+			this.sheet = which;
+			return this.touch();
 		}
+		const item = PANE[which];
+		this.dock = this.hasPane(which) ? dock.setFront(this.dock, item) : dock.splitWindow(this.dock, "right", item, which === "code" ? CODE_SHARE : VIEW_SHARE);
+		this.saveTabs();
+		this.touch();
 	}
 
 	close(which: Beside): void {
-		// A sheet put away does not bring up another in its place: that one stays open, behind. (Columns do show it.)
-		if (this.sheets && this.shown(which) && this.order.some((w) => w !== which && this.isOpen(w) && this.drawable(w))) this.tucked = true;
-		if (which === "code") {
-			this.code = false;
-			this.saveTabs();
-		} else {
-			if (which === "view") this.view_ = false;
-			else this.aside = false;
-			if (typeof bridge.windowLayout !== "function") localStorage.setItem(`pine.${which}`, "hidden");
-			this.reportLayout();
+		if (this.sheets) {
+			if (this.sheet === which) this.sheet = undefined;
+			return this.touch();
 		}
+		this.dock = dock.remove(this.dock, PANE[which]);
+		this.saveTabs();
+		this.touch();
 	}
 
 	/** What the icon of each does: a closed one opens, one that is behind comes to the front, the one in front closes. */
@@ -2830,7 +3002,7 @@ export class Store extends Model {
 		// A folder opened with the app from the Finder is this computer's.
 		if (name.startsWith("folder:")) return this.remote ? this.flash(`That folder is on this computer, and the app uses the pine on ${this.remote}. Use this ${computerWord(this.platform)}'s pine to open it.`, "warn", 7000) : this.openFolder(name.slice(7));
 		if (name.startsWith("focus:")) return this.activate(this.tabs.find((t) => t.key === name.slice(6)));
-		if (name.startsWith("tab-")) return this.activate(this.tabs[Number(name.slice(4)) - 1]);
+		if (name.startsWith("tab-")) return this.activate(this.siblings(this.active)[Number(name.slice(4)) - 1]);
 		if (name.startsWith("code-")) {
 			this.codeView = name.slice(5) as CodeView;
 			this.open("code");
@@ -2852,7 +3024,11 @@ export class Store extends Model {
 			case "code":
 				return this.toggle("code");
 			case "browser":
-				return this.toggle("aside");
+				// The browser is a part of the side panel: the key shows it there, and puts the panel away when it is in front.
+				if (this.shown("code") && this.codeView === "browser") return this.toggle("code");
+				this.codeView = "browser";
+				this.open("code");
+				return this.touch();
 			case "view":
 				if (!this.hasView) return this.flash(this.viewsHere ? "There is no view: put one into the views folder of pine's home, or choose one in Settings." : "Views are shown in the Pine app on your computer.", "muted", 6000);
 				return this.toggle("view");
@@ -3324,8 +3500,8 @@ export class Store extends Model {
 				tab.streamed.delete(p.task);
 				const key = `${p.task}:${p.call}`;
 				if (p.phase === "start") {
-					// The agent wants its owner to see the browser: it is in the aside at the right of the window.
-					if (/(^|_)browser_show$/.test(String(p.tool)) && tab === this.active && depth === 0) this.open("aside");
+					// The agent wants its owner to see the browser: it is a part of the side panel.
+					if (/(^|_)browser_show$/.test(String(p.tool)) && tab === this.active && depth === 0) ((this.codeView = "browser"), this.open("code"));
 					tab.toolCalls++;
 					if (depth === 0) this.foldWords(tab, p.task);
 					const part: Extract<Part, { p: "tool" }> = { p: "tool", key, tool: p.tool, subject: p.subject ? short(oneLine(String(p.subject)), 200) : undefined, status: "run", depth };

@@ -1,20 +1,17 @@
-// The browser of a conversation, in an aside of its own at the right of the window. It is the browser the agent works in:
+// The browser of a conversation, a part of the side panel (CodePanel.tsx). It is the browser the agent works in:
 // another process, behind pine's guard, without a window. What is shown here is a picture of its
 // page that the daemon hands over again and again, and what is done in the picture (a click, the
 // wheel, keys, an address) goes back to it through the daemon. Nothing of a web page is loaded
 // into this window: the picture is drawn, and its address and title are text.
-import { ChevronLeftIcon, ChevronRightIcon, EyeIcon, GlobeIcon, PlusIcon, RotateCwIcon, ShieldIcon, XIcon } from "lucide-react";
-import { useMediaQuery } from "usehooks-ts";
+import { ChevronLeftIcon, ChevronRightIcon, EyeIcon, PlusIcon, RotateCwIcon, ShieldIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Kbd } from "@/components/ui/kbd";
-import { SideSheet } from "@/components/side-sheet";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect, useRef, useState } from "react";
 import { api, type BrowserState, media } from "./api.ts";
 import { bridge } from "./bridge.ts";
-import { ROOM, store, type Tab, useModel } from "./model.ts";
+import { store, type Tab, useModel } from "./model.ts";
 import { errText, macKeys, shortcut } from "./text.ts";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { HoverTooltip } from "@/components/hover-tooltip";
@@ -375,6 +372,8 @@ const OVER = ["popover-content", "dropdown-menu-content", "dropdown-menu-sub-con
 
 /** Whether something of the app's own lies over the place of the page: the page, a window of its own above the app's, would hide it. */
 function covered(el: HTMLElement, r: DOMRect): boolean {
+	// A tab dragged over the window: where it would land is drawn over the groups, the page's among them (App.tsx).
+	if (document.querySelector("[data-slot=dock][data-dropping]")) return true;
 	for (const o of document.querySelectorAll(COVERS)) if (!o.contains(el) && o.getClientRects().length) return true;
 	for (const o of document.querySelectorAll(OVER)) {
 		const b = o.getBoundingClientRect();
@@ -470,38 +469,5 @@ export function BrowserSkeleton({ className }: { className?: string }) {
 			<Skeleton className="h-4 w-3/4" />
 			<Skeleton className="mt-2 h-32 w-full" />
 		</div>
-	);
-}
-
-export const ASIDE_KEY = "pine.aside.width";
-
-/**
- * The browser's aside, at the right of the window after the side panel: a bar with its name and
- * its close button, and the browser under it. Where the window has no room for columns it is a
- * sheet over the conversation, like the side panel, and putting the sheet away closes it.
- */
-export function BrowserAside({ tab }: { tab: Tab }) {
-	const sheet = !useMediaQuery(ROOM);
-	return (
-		<SideSheet
-			id="browser-panel"
-			slot="browser-aside"
-			title="Browser"
-			sheet={sheet}
-			widthKey={ASIDE_KEY}
-			savedWidth={store.widthOf("aside")}
-			defaultWidth={560}
-			barClassName="pl-3 text-sm font-medium"
-			onClose={() => void store.command("browser")}
-			bar={
-				<>
-					<GlobeIcon className="size-3.5 shrink-0 text-muted-foreground" />
-					<span className="min-w-0 flex-1 truncate">Browser</span>
-					<HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" onClick={() => void store.command("browser")} aria-label="Close the browser"><XIcon /></Button>} /><TooltipContent>Close the browser<Kbd>{shortcut("⇧⌘B")}</Kbd></TooltipContent></HoverTooltip>
-				</>
-			}
-		>
-			<BrowserView tab={tab} />
-		</SideSheet>
 	);
 }
