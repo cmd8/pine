@@ -39,7 +39,7 @@ export function PickDialog({ p }: { p: Picker }) {
 							))
 						: shown.map((i) => (
 								<CommandItem key={i.value} value={i.value} data-checked={i.value === p.current} onSelect={() => p.done(i.value)}>
-									<span className={cn("max-w-3/5 flex-none truncate", i.tone === "bad" && "text-destructive")}>{i.label}</span>
+									<span title={i.label} className={cn("max-w-3/5 flex-none truncate", i.tone === "bad" && "text-destructive")}>{i.label}</span>
 									{i.about ? <span className="min-w-0 truncate text-xs text-muted-foreground">{i.about}</span> : null}
 								</CommandItem>
 							))}
