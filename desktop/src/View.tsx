@@ -13,10 +13,11 @@ import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Item, ItemActions, ItemContent, ItemTitle } from "@/components/ui/item";
 import { Kbd } from "@/components/ui/kbd";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { type Layout, usePanelRef } from "react-resizable-panels";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Separator } from "@/components/ui/separator";
 import { TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgentAvatar } from "@/components/agent-avatar";
 import { HoverTooltip } from "@/components/hover-tooltip";
@@ -367,6 +368,33 @@ function ViewSelect({ id }: { id: string }) {
 	);
 }
 
+/** How tall what happened is, in pixels, until the owner drags the line above it: remembered in this browser alone. */
+const INSPECTOR_KEY = "pine.view.inspector";
+const INSPECTOR_HEIGHT = 208;
+const kept = () => {
+	try {
+		const px = Number(localStorage.getItem(INSPECTOR_KEY));
+		return px >= 96 ? px : undefined;
+	} catch {
+		return undefined;
+	}
+};
+const keep = (px: number) => {
+	try {
+		localStorage.setItem(INSPECTOR_KEY, String(Math.round(px)));
+	} catch {
+		// Storage can be closed (a private window): the line then starts where it always does.
+	}
+};
+/** Keeps what the owner dragged to. The layout is told in shares of the room both panels have, before they are drawn anew. */
+const keepHeight = (layout: Layout) => {
+	const panel = document.getElementById("view-inspector-panel");
+	const share = layout["view-inspector-panel"];
+	if (!panel?.parentElement || share === undefined) return;
+	const room = [...panel.parentElement.children].filter((el) => el.hasAttribute("data-panel")).reduce((sum, el) => sum + el.getBoundingClientRect().height, 0);
+	keep((share * room) / 100);
+};
+
 export function ViewPanel({ id }: { id: string }) {
 	useSeed();
 	const w = useWorld();
@@ -374,15 +402,21 @@ export function ViewPanel({ id }: { id: string }) {
 	// What was chosen and is gone (an agent removed, work forgotten) is no longer chosen.
 	const gone = sel && (sel.k === "agent" ? !w.places.has(sel.id) : sel.k === "job" ? !w.jobs.has(sel.id) : !w.boards.some((b) => b.id === sel.id));
 	const chosen = gone ? undefined : sel;
+	const inspector = usePanelRef();
 	const pick = (next: Sel) => setSel((was) => (was && next && was.k === next.k && was.id === next.id && (was.k !== "board" || next.k !== "board" || was.task === next.task) ? undefined : next));
 	return (
 		<div data-slot="view" data-view={id} className="flex min-h-0 flex-1 flex-col text-sm">
 			<NeedsYou pick={pick} />
-			<div className="relative min-h-0 flex-1">
-				<ViewFrame key={id} id={id} sel={chosen} pick={(t) => setSel(t)} />
-			</div>
-			<Separator />
-			<Inspector sel={chosen} pick={pick} />
+			{/* While the line is dragged, the view's frame lets the pointer through: a frame keeps every move over it to itself, and the drag would stop at its edge. */}
+			<ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 [&:has([data-separator=active])_iframe]:pointer-events-none" onLayoutChanged={(layout, meta) => meta.isUserInteraction && keepHeight(layout)}>
+				<ResizablePanel id="view-stage" className="relative" minSize={120}>
+					<ViewFrame key={id} id={id} sel={chosen} pick={(t) => setSel(t)} />
+				</ResizablePanel>
+				<ResizableHandle disableDoubleClick onDoubleClick={() => (inspector.current?.resize(INSPECTOR_HEIGHT), keep(INSPECTOR_HEIGHT))} title="Drag to give the view or what happened more room" />
+				<ResizablePanel id="view-inspector-panel" panelRef={inspector} defaultSize={kept() ?? INSPECTOR_HEIGHT} minSize={96} groupResizeBehavior="preserve-pixel-size">
+					<Inspector sel={chosen} pick={pick} />
+				</ResizablePanel>
+			</ResizablePanelGroup>
 		</div>
 	);
 }
@@ -542,7 +576,7 @@ function Inspector({ sel, pick }: { sel: Sel; pick: (s: Sel) => void }) {
 	const w = useWorld();
 	const now = useNow(1000);
 	return (
-		<ScrollArea data-slot="view-inspector" className="h-44 flex-none sm:h-52 *:data-[slot=scroll-area-viewport]:scroll-fade">
+		<ScrollArea data-slot="view-inspector" className="h-full *:data-[slot=scroll-area-viewport]:scroll-fade">
 			<div className="flex flex-col gap-1.5 p-3 text-xs">
 				{sel?.k === "board" ? <BoardDetail key={`${sel.id}:${sel.task ?? ""}`} id={sel.id} task={sel.task} pick={pick} /> : sel?.k === "job" && w.jobs.get(sel.id) ? <JobDetail j={w.jobs.get(sel.id)!} now={now} pick={pick} /> : sel?.k === "agent" && w.places.get(sel.id) ? (isSeeded() ? <AgentDetail id={sel.id} now={now} pick={pick} /> : <AgentDetail skeleton />) : <Feed now={now} pick={pick} />}
 			</div>

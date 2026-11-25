@@ -930,7 +930,7 @@ one, and what a view is told, is in [views.md](views.md). With no view in the fo
 |---|---|
 | Needs you | On top, whatever the view: what an agent asks you right now, each with **Answer** |
 | The view | In the middle, in a frame of its own: it draws pine as it likes, and a click in it can show an agent or a piece of work below, or open it |
-| What happened | Below the view, newest first, in plain words: what woke whom, what was handed on, who answered, what you were asked and what you said |
+| What happened | Below the view, newest first, in plain words: what woke whom, what was handed on, who answered, what you were asked and what you said. Drag the line above it to give the view or this list more room (the arrow keys move it too); a double click puts it back |
 | Looking closer | An agent or a piece of work chosen in the view, or in what happened, is shown below the view instead: for an agent its mode, its work, the conversations pine has open and what it did lately; for a piece of work where it came from, what it does now, the mode it runs in, whether its conversation read outside content, the time, what it handed on, and what it asks you. **Open** opens the conversation, or the task by itself; for a board or one of its tasks, what the task says, how it stands, its result or question and its notes, drawn by the app as text |
 
 The words below the view are the app's own, and say everything. The view is told only the shape of

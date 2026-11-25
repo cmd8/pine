@@ -106,6 +106,24 @@ test("work main hands books shows at books, held to main's safe mode; what happe
 	await frame().locator("[data-slot=office-words] > li[data-agent=books] li[data-work]").waitFor({ state: "detached", timeout: 15_000 });
 });
 
+test("the line between the view and what happened is dragged to give either more room, and a double-click puts it back", async () => {
+	const tall = () => page.$eval("[data-slot=view-inspector]", (el: Element) => Math.round(el.getBoundingClientRect().height));
+	const before = await tall();
+	assert.ok(Math.abs(before - 208) <= 2, `what happened starts 208 pixels tall, not ${before}`);
+	const line = await page.$("[data-slot=view] [data-slot=resizable-handle]");
+	const box = await line.boundingBox();
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(box.x + box.width / 2, box.y - 150, { steps: 10 });
+	await page.mouse.up();
+	const after = await tall();
+	assert.ok(after > before + 120, `dragged up 150 pixels, what happened is ${after} tall`);
+	assert.equal(await page.evaluate(() => localStorage.getItem("pine.view.inspector")), String(after), "and its height is kept for the next time");
+	await shoot("taller-inspector");
+	await line.dblclick();
+	await page.waitForFunction(() => Math.abs((document.querySelector("[data-slot=view-inspector]")?.getBoundingClientRect().height ?? 0) - 208) <= 2, null, { timeout: 3000 });
+});
+
 test("a piece of work opens from under the view, and the browser opens in the side panel beside the view", async () => {
 	await page.locator("[data-slot=view-inspector] button", { hasText: "you asked main" }).click();
 	await page.locator("[data-slot=view-inspector]").getByRole("button", { name: "Open" }).click();
