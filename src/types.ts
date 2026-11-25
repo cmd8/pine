@@ -56,7 +56,8 @@ export interface TaskMeta {
 	quotes?: SentQuote[];
 	/**
 	 * What a UI shows of the message instead of `prompt`: with `quotes`, what was typed after them; without,
-	 * the owner's own words where pine wrote its own around them (the first message of a goal or a swarm).
+	 * the owner's own words where pine wrote its own around them (the first message of a goal or a swarm),
+	 * and of a note of pine's (`notify`), what it reports without its instructions to the agent.
 	 */
 	body?: string;
 	images?: ImageRef[];

@@ -735,6 +735,14 @@ test("a shell block of an answer runs in the conversation's terminal with its bu
 	assert.match(told, /Command: echo pine-ran-\$\(\(6\*7\)\)/);
 	assert.match(told, /finished without an error/);
 	assert.match(told, /\| pine-ran-42/);
+	// In the conversation it is pine's note, with its line and what it reports: no message of the owner's, no words of pine's to the agent.
+	const pineNote = async () => {
+		await sees("[data-pine] >> text=terminal: ended");
+		assert.match(await page.textContent("[data-pine] >> nth=-1"), /Command: echo pine-ran-\$\(\(6\*7\)\)/);
+		assert.equal(await page.locator("[data-item=user]", { hasText: "This message is from pine" }).count(), 0);
+		assert.equal(await page.locator("[data-pine]", { hasText: "This message is from pine" }).count(), 0);
+	};
+	await pineNote();
 	// The terminal is the owner's: what is typed into it runs too.
 	await page.click("[data-slot=terminal]");
 	await page.keyboard.type("echo typed-$((1+1))");
@@ -763,6 +771,9 @@ test("a shell block of an answer runs in the conversation's terminal with its bu
 	await shot("02c-terminal");
 	await menu("code");
 	await page.waitForSelector("[data-slot=code-panel]", { state: "detached" });
+	// Loaded again from the daemon's history, the note looks as it did.
+	await page.reload();
+	await pineNote();
 });
 
 test("while the model thinks, its thinking is open and shows its end; once done, it folds", async () => {

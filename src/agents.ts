@@ -45,7 +45,7 @@ import { type BrowserState, BrowserViews, keptAddress, VISITED } from "./browser
 import { Goals } from "./goals.ts";
 import { Swarms } from "./swarm.ts";
 import { INTRODUCE, introducedKey } from "./hatch.ts";
-import { BACKGROUND_HELP, BACKGROUND_NOT_HERE, BACKGROUND_PARAM, backgroundRefused, endedNotice, startedText, tailOf, terminalNotice, type TerminalRun, TIMEOUT_HINT } from "./background.ts";
+import { BACKGROUND_HELP, BACKGROUND_NOT_HERE, BACKGROUND_PARAM, backgroundRefused, endedLabel, endedNotice, endedReport, startedText, tailOf, terminalNotice, terminalReport, type TerminalRun, TIMEOUT_HINT } from "./background.ts";
 import { Snapshots } from "./snapshots.ts";
 import * as worktrees from "./worktrees.ts";
 import { branchFile, onBranch, ownerMessage, redoMessage, sessionFile, standingBefore, Turns, type TurnView, type UndoHost, undoMessage, type UndoResult } from "./undo.ts";
@@ -235,8 +235,9 @@ export interface SubmitOptions {
 	mentions?: string[];
 	quotes?: SentQuote[];
 	/**
-	 * The owner's own words, where pine wrote words of its own around them in `prompt` (the first
-	 * message of a goal or a swarm): what a UI shows of the message. Kept as `TaskMeta.body`.
+	 * What a UI shows of the message, where `prompt` holds words of pine's for the agent: the owner's
+	 * own words in the first message of a goal or a swarm, and of a note of pine's (`notify`) what it
+	 * reports, without its instructions. Kept as `TaskMeta.body`.
 	 */
 	shown?: string;
 	/** See TaskMeta.compact. */
@@ -663,7 +664,7 @@ export class AgentManager {
 			// A command that is over may have left a program behind: that is listed under the same id.
 			const left = new Set(this.programs.list(conversation).map((p) => p.id));
 			// `tainted`: a command of a conversation that had read outside content may print what that content made it print.
-			this.submit({ agent: agent.id, session: conversation.slice(agent.id.length + 1), kind: "notify", trust: "owner", reply: ended.at(-1)!.reply, tainted: ended.find((j) => j.tainted)?.tainted, prompt: endedNotice(ended, tails, left) });
+			this.submit({ agent: agent.id, session: conversation.slice(agent.id.length + 1), kind: "notify", trust: "owner", reply: ended.at(-1)!.reply, tainted: ended.find((j) => j.tainted)?.tainted, prompt: endedNotice(ended, tails, left), shown: endedReport(ended, tails, left), label: endedLabel(ended) });
 			this.programs.told(ended);
 		} catch (e) {
 			// A full queue, for one: they are told when the conversation is next without work.
@@ -868,7 +869,7 @@ export class AgentManager {
 			prompt += `\n\n[your owner points at ${named.length === 1 ? "this file" : "these files"} in your working folder: ${named.join(", ")}. Read ${named.length === 1 ? "it" : "them"} before you answer.]`;
 		}
 		const head = quotes ? withQuotes(quotes, "") : "";
-		const body = quotes ? (prompt.startsWith(head) ? prompt.slice(head.length).replace(/^\n\n/, "") : "") : trust === "owner" && typeof o.shown === "string" ? truncate(o.shown, limit) : undefined;
+		const body = quotes ? (prompt.startsWith(head) ? prompt.slice(head.length).replace(/^\n\n/, "") : "") : (trust === "owner" || o.kind === "notify") && typeof o.shown === "string" ? truncate(o.shown, limit) : undefined;
 
 		if (o.whenBusy === "steer" && !ephemeral) {
 			const live = this.lives.get(`${agent.id}:${session}`);
@@ -1805,7 +1806,7 @@ export class AgentManager {
 	terminalReport(agentId: string, session: string, run: TerminalRun): Task {
 		if (!this.cfg.agents[agentId]) throw new Error(`no agent called ${agentId}`);
 		if (session.endsWith("~u")) throw new Error("that conversation was started by outside content");
-		return this.submit({ agent: agentId, session, kind: "notify", trust: "owner", tainted: this.outsideMark(agentId, session), prompt: terminalNotice(run), label: run.state === "running" ? "terminal: still running" : "terminal: ended" });
+		return this.submit({ agent: agentId, session, kind: "notify", trust: "owner", tainted: this.outsideMark(agentId, session), prompt: terminalNotice(run), shown: terminalReport(run), label: run.state === "running" ? "terminal: still running" : "terminal: ended" });
 	}
 
 	/** Why a conversation counts as holding outside content, if it does. */
@@ -2629,6 +2630,8 @@ export class AgentManager {
 					session: n.session.startsWith("_t") ? "main" : n.session.replace(/~u$/, ""),
 					kind: "notify",
 					prompt: `[answer to task #${task.id} that you handed to agent ${task.agent}]\n${status === "done" ? text : `It failed: ${error ?? status}`}`,
+					shown: status === "done" ? text : `It failed: ${error ?? status}`,
+					label: status === "done" ? `${task.agent} answered task #${task.id}` : `${task.agent} could not finish task #${task.id}`,
 					trust: task.meta.trust,
 					tainted: this.resultOf(done).tainted,
 					event: { id: task.event ?? 0, hops: task.hops + 1, trust: task.meta.trust ?? "untrusted" } as PineEvent,

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
-import { endedNotice, howEnded, quoted } from "../src/background.ts";
+import { endedLabel, endedNotice, endedReport, howEnded, quoted } from "../src/background.ts";
 import { type Background, Programs } from "../src/programs.ts";
 import { sandboxAvailable } from "../src/security.ts";
 import { PineTui } from "../src/tui/app.ts";
@@ -66,6 +66,11 @@ test("background: what a conversation is told is pine's frame around output that
 	assert.equal(second, "Command 42: true\nHow it ended: it finished without an error after 0 s (exit code 0).\nA program that it started is still running. stop_program with the id 42 ends it.\nIt printed nothing.");
 	// Nothing the command printed stands at the start of a line.
 	for (const line of text.split("\n")) assert.ok(!hostile.split("\n").includes(line), line);
+	// What a UI shows of it is the report without pine's frame, under a line of its own.
+	const both = [job({ ended: { code: 1, seconds: 2 } }), job({ id: 42, token: "b", command: "true", output: "/tmp/b.log", ended: { code: 0, seconds: 0 } })];
+	assert.equal(endedReport(both, new Map([["a", hostile]]), new Set([42])), [first, second].join("\n\n"));
+	assert.equal(endedLabel(both), "background: 2 commands ended");
+	assert.equal(endedLabel(both.slice(1)), "background: command 42 ended");
 });
 
 test("background: the call returns at once, the output can be read meanwhile, and the conversation is told how each command ended", mac, async (t) => {

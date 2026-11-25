@@ -1275,6 +1275,8 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 								kind: "notify",
 								trust: "owner",
 								reply: r.task.reply,
+								label: `MCP server ${p.name} connected`,
+								shown: "",
 								prompt: `[pine: the MCP server "${p.name}" that you added is connected now. Your tool list has changed since your last answer: it has the tool "${serverTool(mcpNamespace(p.name))}" now, whose actions are the server's tools. What you said before about the server's tools not being there is out of date. Go on with what your owner asked for. If there is no tool "${serverTool(mcpNamespace(p.name))}" in your list, the server did not start or still needs a sign-in: say that plainly${p.command ? ", and run the server's command in your shell to see what it prints" : ""}.]`,
 							});
 							goesOn = true;

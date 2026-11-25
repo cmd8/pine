@@ -1984,6 +1984,15 @@ export class PineTui {
 		this.say(tab, `${c.yellow("⚡")} ${c.bold(label)}\n${c.gray(`  ${short(oneLine(body).replaceAll(os.homedir(), "~"), 300)}`)}`);
 	}
 
+	/**
+	 * A note pine gave the agent (`notify`: a background command or a command run with a Run button has
+	 * ended, a delegated task was answered): its line and what it reports, never shown as the owner's message.
+	 */
+	private pineLine(tab: Tab, label: unknown, body: unknown): void {
+		const said = typeof body === "string" ? oneLine(body).replaceAll(os.homedir(), "~") : "";
+		this.say(tab, `${c.gray("·")} ${c.bold(typeof label === "string" && label ? label : "pine")}${said ? `\n${c.gray(`  ${short(said, 300)}`)}` : ""}`);
+	}
+
 	private user(tab: Tab, text: string, from?: string): void {
 		this.add(tab, new Text(`${from ? c.gray(`[${from}] `) : ""}${text}`, 1, 0, c.bgUser));
 	}
@@ -2030,6 +2039,7 @@ export class PineTui {
 		if (t.meta?.compact) return void this.say(tab, c.gray(`⟲ ${t.status === "done" ? t.result : `shortening the conversation: ${t.status}${t.error ? ` (${t.error})` : ""}`}`));
 		if (t.kind === "event" && t.meta?.label) this.eventLine(tab, t.meta.label, t.prompt);
 		else if (isGoalRound(t.kind, t.meta?.label)) this.say(tab, c.gray(`↻ ${t.meta.label}`));
+		else if (t.kind === "notify") this.pineLine(tab, t.meta?.label, t.meta?.body);
 		else this.user(tab, ownerWords(t.prompt, t.meta), t.kind === "prompt" ? undefined : t.kind);
 		(t.meta?.images ?? []).forEach((_, i) => this.picture(tab, `attached picture ${i + 1}`, () => this.client.taskImage(t.id, i)));
 		// It was read by work that was already running; the answer is that work's.
@@ -2523,7 +2533,7 @@ export class PineTui {
 				out.push("", "---", "", `*${t.result || "The earlier part of the conversation was summarised here."}*`);
 				continue;
 			}
-			out.push("", t.kind === "prompt" ? (t.meta?.steered !== undefined ? "## You, while the agent worked" : "## You") : `## ${t.kind === "event" ? `Event${t.meta?.label ? `: ${t.meta.label}` : ""}` : `pine (${t.kind})`}`, "", ownerWords(t.prompt, t.meta).trim());
+			out.push("", t.kind === "prompt" ? (t.meta?.steered !== undefined ? "## You, while the agent worked" : "## You") : `## ${t.kind === "event" ? `Event${t.meta?.label ? `: ${t.meta.label}` : ""}` : t.kind === "notify" && t.meta?.label ? `pine: ${t.meta.label}` : `pine (${t.kind})`}`, "", ownerWords(t.prompt, t.meta).trim());
 			if (t.meta?.steered !== undefined) continue;
 			if (full) {
 				const steps = (await this.client.transcript(t.id).catch(() => undefined))?.entries ?? [];
@@ -3227,7 +3237,9 @@ export class PineTui {
 			} else if (!tab.roots.has(p.task)) {
 				if (p.kind === "event" && p.label) this.eventLine(tab, String(p.label), String(p.prompt ?? ""));
 				// A round of a goal was announced by the goal's own line; its text is the same every round.
-				else if (!isGoalRound(p.kind, p.label)) this.user(tab, ownerWords(p.prompt, p), p.kind === "prompt" ? "elsewhere" : p.kind);
+				else if (p.kind === "notify") {
+					if (!isGoalRound(p.kind, p.label)) this.pineLine(tab, p.label, p.body);
+				} else this.user(tab, ownerWords(p.prompt, p), p.kind === "prompt" ? "elsewhere" : p.kind);
 				// What came with it and was not typed here: a photo sent on Telegram, a picture a camera saved.
 				for (let n = 0; n < Number(p.images ?? 0); n++) this.picture(tab, `picture ${n + 1}`, () => this.client.taskImage(p.task, n));
 			}

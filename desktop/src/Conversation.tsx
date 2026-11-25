@@ -527,10 +527,10 @@ export const Row = memo(function Row({ item, tab }: { item: Item; v: number; tab
 		}
 		case "event":
 			return (
-				<Alert className="select-text">
-					<ZapIcon />
+				<Alert className="select-text" data-pine={item.pine ? "" : undefined}>
+					{item.pine ? <InfoIcon /> : <ZapIcon />}
 					<AlertTitle>{item.label}</AlertTitle>
-					<AlertDescription className="wrap-anywhere">{short(oneLine(tilde(item.body)), 400)}</AlertDescription>
+					{item.body.trim() ? <AlertDescription className="wrap-anywhere">{short(oneLine(tilde(item.body)), 400)}</AlertDescription> : null}
 				</Alert>
 			);
 		case "approval":

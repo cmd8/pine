@@ -81,6 +81,32 @@ test("tui: a conversation streams in, tools and delegated work are shown, and hi
 	await t.h.close();
 });
 
+test("tui: pine's note that a command run from an answer ended is shown as pine's, live and when the UI is opened again", async () => {
+	const t = await open({ agents: { main: {} } });
+	await t.send("hello there");
+	await t.sees("ECHO[hello there]");
+	await done(t.h, 1);
+	// The Pine app reports a command its Run button ran; this UI shows the conversation.
+	const res = await fetch(`http://127.0.0.1:${t.h.pine.http!.port}/agents/main/terminal`, { method: "POST", headers: { authorization: `Bearer ${t.h.pine.token}`, "content-type": "application/json" }, body: JSON.stringify({ session: "main", command: "gh secret set TOKEN", state: "ended", code: 0, seconds: 2, output: "set the secret" }) });
+	assert.equal(res.status, 202);
+	await done(t.h, 2);
+	const pines = (screen: string) => {
+		assert.ok(screen.includes("terminal: ended") && screen.includes("Command: gh secret set TOKEN"), screen);
+		assert.ok(!screen.includes("[notify]") && !screen.includes("This message is from pine"), screen);
+	};
+	await t.sees("terminal: ended");
+	pines(t.text());
+	// Opened again, it is read from the history: the same line, not a message of the owner's with pine's text.
+	await t.app.stop();
+	const again = new PineTui({ client: t.app.client, terminal: new FakeTerminal(110, 40) });
+	apps.push(again);
+	await again.start();
+	await until(() => again.screen().join("\n").includes("── now ──"));
+	pines(again.screen().join("\n"));
+	await again.stop();
+	await t.h.close();
+});
+
 test("tui: what /reset cleared does not come back when the UI is opened again", async () => {
 	const t = await open({ agents: { main: {} } });
 	await t.send("before the reset");

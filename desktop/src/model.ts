@@ -63,7 +63,7 @@ export type Item = Base &
 		| { t: "answer"; task: number; agent: string; text: string; live: boolean; /** It arrived while the owner was looking at its conversation: its first sound plays by itself, once. */ arrived?: { heard: boolean } }
 		| { t: "work"; parts: Part[]; done: boolean; open: boolean; startedAt: number; ms?: number }
 		| { t: "note"; tone: Tone; text: string; lines?: Array<{ text: string; tone?: Tone }>; action?: { label: string; run: () => void } }
-		| { t: "event"; label: string; body: string }
+		| { t: "event"; label: string; body: string; /** A note of pine's to the agent (`notify`): what it reports, never the owner's words. */ pine?: boolean }
 		/** A message was not answered because the agent has no model that answers (`ModelNotice`). */
 		| { t: "model"; agent: string }
 		| { t: "approval"; req: Approval; state: "open" | "allowed" | "denied" | "gone"; by?: string; always?: boolean }
@@ -118,6 +118,12 @@ export const quoteId = () => ++quoteIds;
  * frame of its own around the owner's words (the first message of a goal or a swarm), those words alone.
  */
 const ownerText = (p: { prompt?: unknown; quotes?: unknown; body?: unknown }): { text: string; quotes?: SentQuote[] } => (Array.isArray(p.quotes) && p.quotes.length ? { text: String(p.body ?? ""), quotes: p.quotes as SentQuote[] } : { text: String(typeof p.body === "string" ? p.body : (p.prompt ?? "")) });
+
+/**
+ * A note pine gave the agent (`notify`: a background command or a command run with a Run button has
+ * ended, a delegated task was answered): its line and what it reports, never shown as the owner's message.
+ */
+const pineNote = (label: unknown, body: unknown): Omit<Of<"event">, "id" | "v"> & { t: "event" } => ({ t: "event", label: typeof label === "string" && label ? label : "pine", body: typeof body === "string" ? body : "", pine: true });
 
 /** The same as one text, quotes as markdown: for a title, a search, an export. */
 const ownerSaid = (t: Task) => (t.meta?.quotes?.length ? t.prompt : (t.meta?.body ?? t.prompt));
@@ -1901,6 +1907,7 @@ export class Store extends Model {
 		if (t.meta?.compact) return void tab.note(t.status === "done" ? (t.result ?? "The earlier part of the conversation was summarised.") : `Shortening the conversation: ${t.status}${t.error ? ` (${t.error})` : ""}`);
 		if (t.kind === "event" && t.meta?.label) tab.add({ t: "event", label: t.meta.label, body: eventBody(t.prompt) });
 		else if (isGoalRound(t.kind, t.meta?.label)) tab.note(`↻ ${t.meta.label}`);
+		else if (t.kind === "notify") tab.add(pineNote(t.meta?.label, t.meta?.body));
 		else tab.add({ t: "user", ...ownerText({ prompt: t.prompt, quotes: t.meta?.quotes, body: t.meta?.body }), from: t.kind === "prompt" ? undefined : t.kind, task: t.kind === "prompt" && t.meta?.trust === "owner" && t.meta?.steered === undefined ? t.id : undefined, steer: t.meta?.steered === undefined ? undefined : { task: t.id, into: t.meta.steered, read: t.meta.read } });
 		(t.meta?.images ?? []).forEach((_, i) => tab.add({ t: "media", kind: "image", name: `attached picture ${i + 1}`, url: media.task(t.id, i) }));
 		// It was read by work that was already running; the answer is that work's.
@@ -3285,7 +3292,9 @@ export class Store extends Model {
 			} else if (!tab.roots.has(p.task)) {
 				if (p.kind === "event" && p.label) tab.add({ t: "event", label: String(p.label), body: eventBody(String(p.prompt ?? "")) });
 				// A round of a goal was announced by the goal's own line; its text is the same every round.
-				else if (!isGoalRound(p.kind, p.label)) tab.add({ t: "user", ...ownerText(p), from: p.kind === "prompt" ? "elsewhere" : p.kind });
+				else if (p.kind === "notify") {
+					if (!isGoalRound(p.kind, p.label)) tab.add(pineNote(p.label, p.body));
+				} else tab.add({ t: "user", ...ownerText(p), from: p.kind === "prompt" ? "elsewhere" : p.kind });
 				// What came with it and was not typed here: a photo sent on Telegram, a picture a camera saved.
 				for (let n = 0; n < Number(p.images ?? 0); n++) tab.add({ t: "media", kind: "image", name: `picture ${n + 1}`, url: media.task(p.task, n) });
 			}

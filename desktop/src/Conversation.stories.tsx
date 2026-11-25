@@ -127,6 +127,7 @@ const notes: Made[] = [
 	{ t: "note", tone: "bad", text: "The model server did not answer.", action: { label: "Settings", run: () => {} } },
 	{ t: "note", tone: "accent", text: "↶ Taken back: your last message", lines: [{ text: "2 files restored" }, { text: "notes.md was changed since", tone: "warn" }] },
 	{ t: "event", label: "folder · changed", body: "~/notes/today.md was written" },
+	{ t: "event", label: "terminal: ended", body: "Command: gh secret set TOKEN\nHow it went: it finished without an error after 2 s (exit code 0).\nThe last lines:\n| ✓ Set Actions secret TOKEN", pine: true },
 	{ t: "goal", goal: { agent: "main", session: "main", objective: "Every link in the notes works", status: "met", note: "met after 2 rounds", round: 2, until: 5, reason: "All twelve links answer." } },
 	{ t: "swarm", swarm: { agent: "main", session: "main", objective: "Write a test file for each module in src/", status: "active", note: "3 tasks are not done: round 2 of 8 starts", round: 2, until: 8 }, full: true },
 	{ t: "swarm", swarm: { agent: "main", session: "main", objective: "Write a test file for each module in src/", status: "done", note: "done after 2 rounds: 16 tasks, and the answer was checked", round: 2, until: 8 } },
