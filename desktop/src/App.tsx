@@ -7,7 +7,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FieldGroup } from "@/components/ui/field";
+import { Field, FieldGroup } from "@/components/ui/field";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { type Layout, usePanelRef } from "react-resizable-panels";
@@ -47,6 +47,7 @@ import { AgentColorPicker, AgentNameInput } from "@/components/agent-identity";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Kbd } from "@/components/ui/kbd";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Sidebar as SidebarRoot, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupAction, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuAction, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Pulse } from "@/components/pulse";
@@ -69,8 +70,70 @@ const UNDER_ACTIONS = "group-hover/menu-item:hidden group-focus-within/menu-item
 
 // ---- before pine answers -----------------------------------------------------------------------------
 
+/** The first screen's frame: stock Empty in a ScrollArea that moves the window. */
+function GateFrame({ children, ...props }: { children: React.ReactNode; "data-slot"?: string }) {
+	return (
+		<ScrollArea className="m-1.5 min-h-0 min-w-0 flex-1 rounded-xl border bg-background text-sm [-webkit-app-region:drag] *:data-[slot=scroll-area-viewport]:scroll-fade">
+			<Empty className="min-h-full [-webkit-app-region:no-drag]" {...props}>
+				{children}
+			</Empty>
+		</ScrollArea>
+	);
+}
+
+/**
+ * Before the bridge has said what it is (`stateRead`), the screen to come is not known yet: the logo every screen has,
+ * then skeletons where that screen's parts come, so that it takes their place without a jump. A bridge with no machine
+ * of its own (the web client's, the mobile app's) is known by a function only it has (`trustHostKey`): its first screen
+ * is how to pair, a column of blocks, drawn as stock Skeletons in a stock Card like the pairing view's. The app on a
+ * computer comes to its own pine's wait ("Starting pine", "Loading your agents…"): a title, nothing under it.
+ */
+function GateSkeleton() {
+	const elsewhere = typeof bridge.trustHostKey === "function";
+	return (
+		<GateFrame data-slot="gate-skeleton">
+			<EmptyHeader className="w-full">
+				<EmptyMedia>
+					<Logo className="size-9" />
+				</EmptyMedia>
+				<Skeleton className="h-5 w-64 max-w-full" />
+			</EmptyHeader>
+			{elsewhere ? (
+				<EmptyContent>
+					{/* The pairing view's column, as a browser on a computer draws it: the app's button and its line, the card, the way to SSH. */}
+					<FieldGroup>
+						<Field>
+							<Skeleton className="h-8 w-full" />
+							<Skeleton className="h-4 w-full" />
+							<Skeleton className="h-4 w-2/3" />
+						</Field>
+						<Card size="sm">
+							<CardHeader>
+								<Skeleton className="h-5 w-1/2" />
+								<Skeleton className="h-4 w-full" />
+								<Skeleton className="h-4 w-full" />
+								<Skeleton className="h-4 w-1/3" />
+							</CardHeader>
+							<CardContent className="flex flex-col gap-2">
+								<Skeleton className="h-4 w-3/4" />
+								<Skeleton className="h-4 w-full" />
+								<Skeleton className="h-4 w-1/2" />
+							</CardContent>
+							<CardFooter>
+								<Skeleton className="h-7 w-36" />
+							</CardFooter>
+						</Card>
+						<Skeleton className="h-7 w-56 self-center" />
+					</FieldGroup>
+				</EmptyContent>
+			) : null}
+		</GateFrame>
+	);
+}
+
 export function Gate() {
 	const s = useModel(store);
+	if (!s.stateRead) return <GateSkeleton />;
 	const state = s.service;
 	const init = async () => {
 		s.initRunning = true;
@@ -189,22 +252,20 @@ export function Gate() {
 							: ["Loading your agents…", "", <Pulse label="Loading" key="s" />];
 	// Before pine answers there is nothing to show yet: stock Empty, in a frame that moves the window.
 	return (
-		<ScrollArea className="m-1.5 min-h-0 min-w-0 flex-1 rounded-xl border bg-background text-sm [-webkit-app-region:drag] *:data-[slot=scroll-area-viewport]:scroll-fade">
-			<Empty className="min-h-full [-webkit-app-region:no-drag]">
-				{/* As wide as the column under it (both stop at the stock max-w-sm), so that its way back starts where the cards do. */}
-				<EmptyHeader className="w-full">
-					{back}
-					<EmptyMedia>
-						<Logo className="size-9" />
-					</EmptyMedia>
-					{/* A long host (a Tailscale Funnel name and its port) wraps instead of spilling past the card. */}
-					<EmptyTitle className="max-w-full wrap-anywhere">{title}</EmptyTitle>
-					{/* A host key's fingerprint is one long word: it breaks anywhere, or it overflows its centered line on a phone. */}
-					{about ? <EmptyDescription className="wrap-anywhere select-text">{about}</EmptyDescription> : null}
-				</EmptyHeader>
-				<EmptyContent>{actions}</EmptyContent>
-			</Empty>
-		</ScrollArea>
+		<GateFrame>
+			{/* As wide as the column under it (both stop at the stock max-w-sm), so that its way back starts where the cards do. */}
+			<EmptyHeader className="w-full">
+				{back}
+				<EmptyMedia>
+					<Logo className="size-9" />
+				</EmptyMedia>
+				{/* A long host (a Tailscale Funnel name and its port) wraps instead of spilling past the card. */}
+				<EmptyTitle className="max-w-full wrap-anywhere">{title}</EmptyTitle>
+				{/* A host key's fingerprint is one long word: it breaks anywhere, or it overflows its centered line on a phone. */}
+				{about ? <EmptyDescription className="wrap-anywhere select-text">{about}</EmptyDescription> : null}
+			</EmptyHeader>
+			<EmptyContent>{actions}</EmptyContent>
+		</GateFrame>
 	);
 }
 

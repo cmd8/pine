@@ -284,6 +284,11 @@ export type Picker = { title: string; loading?: boolean; items: Array<{ value: s
 /** The app as a whole. */
 export class Store extends Model {
 	service: ServiceState = { status: "starting" };
+	/**
+	 * Whether the bridge has said what it is (`bridge.state()`): until then `service`, `local` and `canPair` are only
+	 * defaults, and the first screen draws a skeleton rather than a screen it would leave a frame later.
+	 */
+	stateRead = false;
 	/** Why the agents of the pine that answered could not be loaded, until they are asked again: the gate says it and offers to try again. */
 	loadError?: string;
 	connected = false;
@@ -572,6 +577,8 @@ export class Store extends Model {
 		this.envHome = first.prefs.home ? undefined : first.home;
 		document.documentElement.dataset.platform = this.platform;
 		bridge.ready();
+		// Set with the service the bridge said, drawn in the same frame: onService draws before it awaits anything.
+		this.stateRead = true;
 		await this.onService(first.state);
 	}
 
