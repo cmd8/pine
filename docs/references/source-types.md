@@ -24,6 +24,7 @@ nothing: no event, nothing stored, no model woken.
 | `slack` | told | what happens in a Slack workspace: messages (by channel, mention, keyword or sender, also those of other apps), reactions, edits, people joining, channels, pins, slash commands | being told when somebody needs you, an alert bot posts, a customer reacts; answering in a thread, with a reaction or a file |
 | `matrix` | told | messages in the rooms of a Matrix account | Element rooms, bridges to other networks |
 | `discord` | told | messages in the channels a bot can see | a server's channels, direct messages to the bot |
+| `zulip` | told | messages in a Zulip organization's channels and direct messages | a team's channels, direct messages to the bot |
 | `ftp` | told | a file a device uploads | cameras, doorbells, scanners |
 | `smtp` | told | a mail a device sends | NAS boxes, printers, UPS units, routers, cron jobs |
 | `syslog` | told | the log lines of a device | routers, firewalls, switches, access points, NAS boxes |
@@ -84,6 +85,7 @@ than its interval, so that sources set to the same interval do not all fire toge
 | Discord | `discord` | A bot. |
 | Matrix (Element) | `matrix` | An access token of an account. |
 | Telegram | `telegram` | A bot, paired with your account. |
+| Zulip | `zulip` | A bot's email address and API key from Settings, Bots. |
 | Gmail, iCloud, Fastmail, your own mail server | `mail` | IMAP with an app password. |
 | Outlook.com, Hotmail, Microsoft 365 | `mail` | `"signIn": "microsoft"`: you sign in at Microsoft in your browser, pine holds no password. |
 | Google Calendar, iCloud, Outlook, Nextcloud | `calendar` | The calendar's iCal address. |
@@ -1484,6 +1486,58 @@ Sending writes to a channel on `sendTo` and nowhere else, as the bot: `{"channel
 several messages, and it pings nobody: no `@everyone`, no role, no person. A Discord channel reaches
 other people, and what is written there is other people's words: its events are outside
 content.
+
+### zulip
+
+A Zulip organization: reports what is written in its channels and in direct messages to the
+bot, all of it or only what mentions the bot or contains a word. It asks Zulip with one
+long-polled request that is answered the moment something arrives (`/events`), so nothing
+listens on a port.
+
+> Watch #seekvpn on Zulip and tell me when somebody mentions a release.
+
+```json
+"zulip": {
+  "type": "zulip", "site": "https://iso.zulipchat.com",
+  "email": "${ZULIP_EMAIL}", "key": "${ZULIP_API_KEY}",
+  "streams": ["seekvpn"], "keywords": ["release"],
+  "description": "the seekvpn channel on Zulip"
+}
+```
+
+| Option | Default | |
+|---|---|---|
+| `site` | | The organization's address, e.g. `https://iso.zulipchat.com`. |
+| `email` | | The bot's email address. It is used to sign in and its own messages are never reported. |
+| `key` | | The bot's API key, found under Settings, Bots. Kept in `.env`. |
+| `streams` | every channel public to the bot | Only these channels, by name. |
+| `mentions` | `false` | `true`: only messages that mention the bot. |
+| `keywords` | | Only messages that contain one of these words. Capitals do not matter. With `mentions` as well, either is enough. |
+| `ignore` | | Sender email addresses whose messages are never reported. |
+| `sendTo` | none | Channels an agent may write to. Without it the source only listens. See "Sending through a source" in [sources.md](sources.md). |
+| `local` | `false` | The address is on your own network under a name that does not say so. |
+
+Event `message`:
+`{ text, user, name, stream, topic, kind, id, mention?, keyword?, dropped? }`.
+`kind` is `"dm"` for a direct message and `"stream"` for one in a channel; `mention` is `true`
+when the bot was mentioned. What the bot itself writes is never reported. The first look is
+the starting point: earlier messages are not reported.
+
+**Making the bot.** In your organization under Settings, Bots, "Add a bot": give it a name,
+and copy the email address and the API key it shows. That is `email` and `key`. The key goes
+into `.env`, which `pine check` keeps out of what agents see.
+
+Zulip keeps an event queue for the bot and hands out events with increasing ids from the
+long-poll, one page at a time. The source stores the queue and the last id: a dropped
+connection picks up where it left off. When Zulip has let the queue expire, a new one is
+registered and only what is written from then on is reported (`stream`, "Staying connected").
+
+Sending writes to a channel on `sendTo` and nowhere else, as the bot:
+`{"stream": "seekvpn", "topic": "pine", "text": "..."}`. An agent's answer to a message in a
+channel on `sendTo` goes back to the same topic automatically. Direct messages and messages
+in other channels are reported without an automatic reply; direct messages have an empty
+`stream` field. A channel reaches other people, and
+what is written there is other people's words: its events are outside content.
 
 ### smtp
 
