@@ -26,7 +26,8 @@ The app is attached to pine's releases, a file for each system and kind of proce
 | `Pine-<version>-x64-setup.exe`, `Pine-<version>-arm64-setup.exe` | Windows 10 and 11: an installer for your user alone, which asks for no administrator. It puts Pine into `%LOCALAPPDATA%\Programs\Pine` (or a folder you choose) and into the Start menu |
 
 On a Mac, open the image and drag Pine into Applications. Nothing else has to be installed: no
-Node, no `npm install`, no developer tools. The Mac app is signed and notarised, and the app
+Node, no `npm install`, no developer tools. It opens on the macOS the Node it carries runs on
+(13.5 or later with Node 24). The Mac app is signed and notarised, and the app
 carries on every system
 
 | | |

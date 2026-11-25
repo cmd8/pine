@@ -140,6 +140,52 @@ async function carriedNode() {
 }
 
 /**
+ * The oldest macOS a Mach-O program runs on, as its LC_BUILD_VERSION says ("13.5"). Undefined for
+ * anything else (a fat file, no such command).
+ */
+function oldestMacOs(file) {
+	const head = Buffer.alloc(256 * 1024);
+	const fd = fs.openSync(file, "r");
+	try {
+		fs.readSync(fd, head, 0, head.length, 0);
+	} finally {
+		fs.closeSync(fd);
+	}
+	if (head.readUInt32LE(0) !== 0xfeedfacf) return undefined;
+	const count = head.readUInt32LE(16);
+	for (let i = 0, at = 32; i < count && at + 16 <= head.length; i++) {
+		const [cmd, size] = [head.readUInt32LE(at), head.readUInt32LE(at + 4)];
+		if (cmd === 0x32) {
+			const v = head.readUInt32LE(at + 12);
+			return `${v >>> 16}.${(v >>> 8) & 0xff}${v & 0xff ? `.${v & 0xff}` : ""}`;
+		}
+		if (!size) return undefined;
+		at += size;
+	}
+	return undefined;
+}
+
+/** Whether macOS version a ("13.5") comes after b ("13.0"). */
+function after(a, b) {
+	const [x, y] = [a.split(".").map(Number), b.split(".").map(Number)];
+	for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+	return false;
+}
+
+/**
+ * The oldest macOS the app opens on: Electron's, or the carried Node's where that is newer.
+ * An app that opened on a macOS its Node cannot run on would come up and then find no Node to run
+ * pine on, and tell the owner to install one (Node 24 needs macOS 13.5, Electron 45 13.0).
+ */
+function oldestMacOsForApp(nodeDir) {
+	if (system !== "darwin" || !nodeDir) return undefined;
+	const plist = path.join(root, "node_modules", "electron", "dist", "Electron.app", "Contents", "Info.plist");
+	const electron = fs.existsSync(plist) ? /<key>LSMinimumSystemVersion<\/key>\s*<string>([\d.]+)<\/string>/.exec(fs.readFileSync(plist, "utf8"))?.[1] : undefined;
+	const carried = oldestMacOs(path.join(nodeDir, NODE.program));
+	return carried && (!electron || after(carried, electron)) ? carried : undefined;
+}
+
+/**
  * Windows: Node for Linux, as nodejs.org hands it out, for the pine the app brings into a WSL
  * distribution (electron/wsl.ts). The archive goes in as it is, checked against nodejs.org's sums.
  */
@@ -352,6 +398,7 @@ const made = await packApp({
 			target: forArch(targets),
 			artifactName: "Pine-${version}-${arch}.${ext}",
 			darkModeSupport: true,
+			...(oldestMacOsForApp(node) ? { minimumSystemVersion: oldestMacOsForApp(node) } : {}),
 			// Signed for this Mac only ("ad hoc") unless a Developer ID is set up: enough to run what was built here.
 			identity,
 			hardenedRuntime: true,

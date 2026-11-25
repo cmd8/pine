@@ -153,6 +153,11 @@ export async function findPine(appRoot: string, resources?: string): Promise<Lau
 	if (script) {
 		// As nodejs.org hands it out for each system: bin/node, and node.exe at the top on Windows.
 		const own = resources ? (process.platform === "win32" ? path.join(resources, "node", "node.exe") : path.join(resources, "node", "bin", "node")) : undefined;
+		// The app's pine on the app's Node is taken without asking that Node its version: they were
+		// packed and tried together. Asking is not harmless either. The first run of a Node that came
+		// in a download waits for macOS to check it (seconds on a new, busy Mac), the question then
+		// runs out of time, and the owner would be told to install a Node the app already has.
+		if (script.from === "the app" && !process.env.PINE_NODE && own && fs.existsSync(own)) return { argv: [own, script.file], env, from: script.from };
 		const theirs = [onPath("node", env), ...(process.platform === "win32" ? [] : ["/opt/homebrew/bin/node", "/usr/local/bin/node", path.join(os.homedir(), ".volta", "bin", "node")])];
 		const candidates = [process.env.PINE_NODE, ...(script.from === "the app" ? [own, ...theirs] : [...theirs, own])].filter((x): x is string => Boolean(x && fs.existsSync(x)));
 		for (const node of candidates) if ((await nodeVersion(node, env)) >= 24) return { argv: [node, script.file], env, from: script.from };
