@@ -548,7 +548,9 @@ async function main(): Promise<void> {
 		// pine kill <pid> stops a daemon pine found, never whatever process a number names.
 		const pid = cmd === "kill" ? Number(rest[0]) : undefined;
 		if (cmd === "kill" && !(Number.isInteger(pid) && pid! > 0)) throw new Error("usage: pine kill <pid>   (pine list shows the numbers)");
-		const daemons = (await findDaemons(COMMANDS)).filter((d) => (!only || d.home === only) && (pid === undefined || d.pid === pid));
+		// macOS and Windows ignore case in a path, so --home does too there.
+		const same = (a: string, b: string) => (process.platform === "darwin" || process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b);
+		const daemons = (await findDaemons(COMMANDS)).filter((d) => (!only || same(d.home, only)) && (pid === undefined || d.pid === pid));
 		const tilde = (p: string) => (p === os.homedir() || p.startsWith(`${os.homedir()}${path.sep}`) ? `~${p.slice(os.homedir().length)}` : p);
 		const line = (d: (typeof daemons)[number]) =>
 			`${d.pid}  ${d.command}${d.app ? " (the Pine app)" : ""}  home ${tilde(d.home)}  ${d.base ?? (d.portsKnown ? "control API not answering" : "control API not known")}  up ${since(d.age)}`;

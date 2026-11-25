@@ -276,8 +276,9 @@ const named = (list: string[], name: string) => list.some((n) => folded(n) === f
 
 export function isInstructionPath(workspace: string, p: string): boolean {
 	if (!isInside(workspace, p)) return false;
-	const rel = folded(path.relative(workspace, p));
-	return named(INSTRUCTION_FILES, path.basename(p)) || INSTRUCTION_DIRS.map(folded).some((d) => rel === d || rel.startsWith(d + path.sep));
+	// "/" between the parts, as INSTRUCTION_DIRS writes them (".git/hooks"), also on Windows.
+	const rel = folded(path.relative(workspace, p).split(path.sep).join("/"));
+	return named(INSTRUCTION_FILES, path.basename(p)) || INSTRUCTION_DIRS.map(folded).some((d) => rel === d || rel.startsWith(`${d}/`));
 }
 
 /** Whether a path is one of the files that are read into the agent's prompt from its workspace, or one of those for all agents in pine's home. */
@@ -299,7 +300,8 @@ export function ownFileOf(roots: Roots, given: string, cwd: string): string | un
 
 /** Whether a path in one of the agent's folders is a repository's hooks or configuration, or the repository's own folder. */
 export function isGitRunPath(root: string, p: string): boolean {
-	return isInside(root, p) && GIT_RUNS.test(folded(`/${path.relative(root, p)}`));
+	// With "/" between the parts on every system: on Windows path.relative() gives .git\config.
+	return isInside(root, p) && GIT_RUNS.test(folded(`/${path.relative(root, p).split(path.sep).join("/")}`));
 }
 
 /**

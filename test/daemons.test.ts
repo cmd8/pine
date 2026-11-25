@@ -40,49 +40,68 @@ test("command lines are split back into arguments as each system writes them", (
 const cli = (args: string[]) =>
 	new Promise<string>((resolve, reject) => execFile(process.execPath, [CLI, ...args], { encoding: "utf8", timeout: 60_000 }, (e, stdout, stderr) => (e ? reject(new Error(`${e.message}\n${stderr}`)) : resolve(stdout))));
 
-test("pine list finds a running pine start with its control API, and pine killall stops it", async () => {
+type Listed = { pid: number; how: string; home: string; base?: string };
+const listed = async (home: string): Promise<Listed[]> => JSON.parse(await cli(["list", "--json", "--home", home]));
+
+/**
+ * A real `pine start` on a home of its own, once `pine list` sees its control API. What is checked
+ * is what happened (the process ended, the list is empty), never how pine words it: the wording
+ * changes, on Windows a path is printed differently, and neither says whether it works.
+ */
+async function running() {
 	const h = await harness({ pine: { http: { port: 0 }, logLevel: "warn" }, agents: { main: {} }, start: false });
 	const daemon = spawn(process.execPath, [CLI, "start", "--home", h.home], { stdio: "ignore" });
-	const exited = new Promise<void>((r) => daemon.once("exit", () => r()));
+	const gone = () => daemon.exitCode !== null || daemon.signalCode !== null;
+	let found: Listed[] = [];
 	try {
-		let found: Array<{ pid: number; how: string; home: string; base?: string }> = [];
-		await until(
-			async () => {
-				found = JSON.parse(await cli(["list", "--json", "--home", h.home]));
-				return found.some((d) => d.base);
-			},
-			30_000,
-			"pine list to find the daemon",
-		);
-		assert.equal(found.length, 1);
-		assert.equal(found[0].pid, daemon.pid);
-		assert.equal(found[0].how, "start");
-		assert.equal(found[0].home, h.home);
-		assert.equal((await fetch(`${found[0].base}/health`)).ok, true);
-
-		const said = await cli(["killall", "--home", h.home]);
-		assert.match(said, new RegExp(`(Stopped|Killed).*${daemon.pid}`));
-		await exited;
-		assert.equal((await cli(["list", "--home", h.home])).trim(), `No pine daemon runs for ${h.home}.`);
-	} finally {
+		await until(async () => (found = await listed(h.home)).some((d) => d.base) || gone(), 30_000, "pine list to find the daemon");
+		assert.equal(gone(), false, "pine start ended by itself");
+	} catch (e) {
 		daemon.kill("SIGKILL");
 		await h.close();
+		throw e;
+	}
+	return {
+		h,
+		daemon,
+		found,
+		/** Waits until the daemon's process has ended. */
+		ended: () => until(gone, 30_000, "the daemon to end"),
+		close: async () => {
+			daemon.kill("SIGKILL");
+			await h.close();
+		},
+	};
+}
+
+test("pine list finds a running pine start with its control API, and pine killall stops it", async () => {
+	const d = await running();
+	try {
+		assert.equal(d.found.length, 1, JSON.stringify(d.found));
+		assert.equal(d.found[0].pid, d.daemon.pid);
+		assert.equal(d.found[0].how, "start");
+		assert.equal((await fetch(`${d.found[0].base}/health`)).ok, true);
+
+		await cli(["killall", "--home", d.h.home]);
+		await d.ended();
+		assert.deepEqual(await listed(d.h.home), []);
+	} finally {
+		await d.close();
 	}
 });
 
 test("pine kill stops the daemon with that number, and refuses a number that is not a pine daemon", async () => {
-	const h = await harness({ pine: { http: { port: 0 }, logLevel: "warn" }, agents: { main: {} }, start: false });
-	const daemon = spawn(process.execPath, [CLI, "start", "--home", h.home], { stdio: "ignore" });
-	const exited = new Promise<void>((r) => daemon.once("exit", () => r()));
+	const d = await running();
 	try {
-		await until(async () => (JSON.parse(await cli(["list", "--json", "--home", h.home])) as Array<{ base?: string }>).some((d) => d.base), 30_000, "pine list to find the daemon");
-		// This test's own process is Node, but not pine: it is not signalled.
-		await assert.rejects(cli(["kill", String(process.pid)]), /is not a pine daemon/);
-		await assert.rejects(cli(["kill", "nope"]), /usage: pine kill <pid>/);
-		assert.match(await cli(["kill", String(daemon.pid)]), new RegExp(`(Stopped|Killed).*${daemon.pid}`));
-		await exited;
+		// This test's own process is Node, but not pine; and a word is no number. Both are refused, and the daemon runs on.
+		await assert.rejects(cli(["kill", String(process.pid)]));
+		await assert.rejects(cli(["kill", "nope"]));
+		assert.equal((await listed(d.h.home)).length, 1);
+
+		await cli(["kill", String(d.daemon.pid)]);
+		await d.ended();
+		assert.deepEqual(await listed(d.h.home), []);
 	} finally {
-		daemon.kill("SIGKILL");
-		await h.close();
+		await d.close();
 	}
 });
