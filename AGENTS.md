@@ -1112,8 +1112,9 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
   and its parts under plain Node, with an in-memory stream or the Worker's meeting module served on
   a loopback port, and `desktop/test/peer.test.ts` joins two peers on this computer by hand, with no
   STUN server. The owner's relay is tested on a TURN server in the test (`node-turn` on a loopback
-  UDP port, `desktop/test/support/turn.ts`), through which two peers that offer nothing but relay
-  candidates pass bytes. The app's tests put the stand-in host behind the app (`PINE_DESKTOP_ACCESS_STAND_IN`,
+  UDP port, `desktop/test/support/turn.ts`), with which two peers that offer nothing but relay
+  candidates reserve addresses and pass bytes (which pair the library picks between two peers on one
+  computer is its own choice: how a relay pair is named is tested on its own, `pathOfPair`). The app's tests put the stand-in host behind the app (`PINE_DESKTOP_ACCESS_STAND_IN`,
   for tests only, `desktop/electron/access/stand-in.ts`), which also switches the app to Chromium's
   mock keychain. `web/test/peer.test.ts` pairs the web bridge with the real access host. Real
   networks (cellular, carrier NAT) are tried by hand.
