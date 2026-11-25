@@ -43,7 +43,7 @@ import { AgentAvatar } from "@/components/agent-avatar";
 import { ModelNotice } from "@/components/model-notice";
 import { AgentColorPicker, AgentNameInput } from "@/components/agent-identity";
 import { BrowserAccess } from "./BrowserAccess.tsx";
-import { Control, CONTROL, ModelSelect, Page, Section } from "./settings-parts.tsx";
+import { Control, CONTROL, LIST, Page, Section, Wrapped } from "./settings-parts.tsx";
 import { type Entry, entries, GROUPS, LABELS, type Lists, type Place, search } from "./settings-index.ts";
 import { providerAbout, providerName, providerWords, SUBSCRIPTIONS } from "./providers.ts";
 import { NearbyComputers, PairLinkField } from "./Pairing.tsx";
@@ -264,26 +264,22 @@ function SettingRow({ s, models, reload }: { s: Setting; models?: string[]; relo
 				? [{ value: "", label: unset ? s.now.replace(/^not set \((.+)\)$/, "$1") : "pine's default" },...(!unset && !models!.includes(s.now) ? [s.now] : []).concat(models!).map((m) => ({ value: m, label: m }))]
 				: [...(k.one.includes(s.now) ? [] : [{ value: "", label: s.now }]), ...k.one.map((v) => ({ value: v, label: v }))];
 		const value = k === "model" ? (unset ? "" : s.now) : k.one.includes(s.now) ? s.now : "";
-		// A model's name does not fit a control's width: it is given whole on hover and in a list that wraps it.
-		control =
-			k === "model" ? (
-				<ModelSelect id={id} items={items} value={value} onChange={(v) => void set(v || "default")} />
-			) : (
-				<Select items={items} value={value} onValueChange={(v) => void set(v || "default")}>
-					<SelectTrigger id={id} className={CONTROL}>
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent alignItemWithTrigger={false} align="end">
-						<SelectGroup>
-							{items.map((o) => (
-								<SelectItem key={o.value} value={o.value}>
-									{o.label}
-								</SelectItem>
-							))}
-						</SelectGroup>
-					</SelectContent>
-				</Select>
-			);
+		control = (
+			<Select items={items} value={value} onValueChange={(v) => void set(v || "default")}>
+				<SelectTrigger id={id} className={CONTROL}>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent alignItemWithTrigger={false} align="end" className={LIST}>
+					<SelectGroup>
+						{items.map((o) => (
+							<SelectItem key={o.value} value={o.value}>
+								<Wrapped>{o.label}</Wrapped>
+							</SelectItem>
+						))}
+					</SelectGroup>
+				</SelectContent>
+			</Select>
+		);
 	} else {
 		const hint = typeof k === "object" ? `A whole number from ${k.from} to ${k.to}. Enter to save.` : "A time such as 90s or 5m. Enter to save.";
 		// Saved on Enter or when the field is left: no button that comes and goes beside it.
@@ -566,11 +562,11 @@ function AgentPage({ id, back }: { id: string; back: () => void }) {
 				<SelectTrigger id={fieldId} className={CONTROL}>
 					<SelectValue />
 				</SelectTrigger>
-				<SelectContent alignItemWithTrigger={false} align="end">
+				<SelectContent alignItemWithTrigger={false} align="end" className={LIST}>
 					<SelectGroup>
 						{items.map((o) => (
 							<SelectItem key={o.value} value={o.value}>
-								{o.label}
+								<Wrapped>{o.label}</Wrapped>
 							</SelectItem>
 						))}
 					</SelectGroup>
@@ -592,7 +588,7 @@ function AgentPage({ id, back }: { id: string; back: () => void }) {
 							<FieldLabel htmlFor={`${field}-model`}>Model</FieldLabel>
 							<FieldDescription>The model this agent thinks with.</FieldDescription>
 						</FieldContent>
-						{models.data || models.error ? <Control><ModelSelect id={`${field}-model`} items={modelItems} value={(change.model as string) ?? d.model ?? ""} onChange={(v) => put("model", v || "default")} /></Control> : <SelectPending id={`${field}-model`} />}
+						{models.data || models.error ? select(`${field}-model`, modelItems, (change.model as string) ?? d.model ?? "", (v) => put("model", v || "default")) : <SelectPending id={`${field}-model`} />}
 					</Field>
 					<Field orientation="responsive" data-find="agent-reasoning">
 						<FieldContent className="min-w-0">
@@ -806,7 +802,20 @@ export function NewAgent({ close, made }: { close: () => void; made: (id: string
 						<Field>
 							<FieldLabel htmlFor={`${field}-model`}>Model</FieldLabel>
 							{models.data || models.error ? (
-								<ModelSelect id={`${field}-model`} items={modelItems} value={f.model} onChange={(model) => setF({ ...f, model })} />
+								<Select items={modelItems} value={f.model} onValueChange={(model) => setF({ ...f, model: model ?? "" })}>
+								<SelectTrigger id={`${field}-model`}>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent className={LIST}>
+									<SelectGroup>
+										{modelItems.map((o) => (
+											<SelectItem key={o.value} value={o.value}>
+												<Wrapped>{o.label}</Wrapped>
+											</SelectItem>
+										))}
+									</SelectGroup>
+								</SelectContent>
+							</Select>
 							) : <SelectPending id={`${field}-model`} />}
 						</Field>
 					</FieldGroup>
@@ -2129,7 +2138,18 @@ export function NewRoute({ made, does: first = "wake" }: { made: () => void; doe
 									<Field>
 										<FieldLabel htmlFor={`${field}-model`}>Model</FieldLabel>
 										{models.data || models.error ? (
-											<ModelSelect id={`${field}-model`} items={modelItems} value={f.call_model} onChange={(m) => setF({ ...f, call_model: m })} />
+											<Select items={modelItems} value={f.call_model} onValueChange={(m) => setF({ ...f, call_model: m ?? "" })}>
+											<SelectTrigger id={`${field}-model`}>
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent className={LIST}>
+												<SelectGroup>
+													{modelItems.map((o) => (
+														<SelectItem key={o.value} value={o.value}><Wrapped>{o.label}</Wrapped></SelectItem>
+													))}
+												</SelectGroup>
+											</SelectContent>
+										</Select>
 							) : <SelectPending id={`${field}-model`} />}
 									</Field>
 									<Field>

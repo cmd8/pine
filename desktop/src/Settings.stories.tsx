@@ -33,7 +33,8 @@ const settings: Setting[] = [
 	{ key: "security.bypassWhenTainted", title: "Bypass after outside content", about: "Whether bypass mode still asks nothing once a conversation has read outside content.", kind: "boolean", now: "false", live: true },
 ];
 
-const models = ["anthropic/claude-sonnet", "anthropic/claude-haiku", "local/qwen3-coder"];
+// One name longer than a control: its list is as wide as it, and wraps it at a phone's width.
+const models = ["anthropic/claude-sonnet", "anthropic/claude-haiku", "fireworks/accounts/my-company/routers/deepseek-v4-instruct-turbo", "local/qwen3-coder"];
 
 const agents: AgentInfo[] = [
 	{ id: "main", main: true, description: "Your assistant: it runs pine and hands work to the others.", workspace: "/Users/owner/.pine/agents/main/workspace", model: "anthropic/claude-sonnet", mode: "safe", thinking: "medium", delegates: ["scout", "mail"] },

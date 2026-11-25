@@ -14,7 +14,8 @@ export function PickDialog({ p }: { p: Picker }) {
 		if (el && p.initial && p.selected !== undefined) requestAnimationFrame(() => el.setSelectionRange(0, p.selected!));
 	};
 	const shown = useMemo(() => (query && !p.free ? p.items.map((i) => ({ i, rank: Math.min(...[fuzzy(query, i.label), fuzzy(query, i.about ?? "") + 10].filter((r) => r >= 0), 99) })).filter((x) => x.rank < 99).sort((a, b) => a.rank - b.rank).map((x) => x.i) : p.items), [query, p]);
-	// The list starts on the one in use.
+	// The list starts on the one in use. A label with a line beside it gets three fifths of the row and is cut there; one
+	// alone (a model's name, which can be longer than the dialog) has the row and wraps, so that it is read whole.
 	const line = useNamedLine(query, p.current, !p.loading);
 	const description = p.free ? "Type a name and press Enter." : "Type to narrow the list, or choose with the arrows and Enter.";
 	const list = (
@@ -39,7 +40,7 @@ export function PickDialog({ p }: { p: Picker }) {
 							))
 						: shown.map((i) => (
 								<CommandItem key={i.value} value={i.value} data-checked={i.value === p.current} onSelect={() => p.done(i.value)}>
-									<span title={i.label} className={cn("max-w-3/5 flex-none truncate", i.tone === "bad" && "text-destructive")}>{i.label}</span>
+									<span className={cn(i.about ? "max-w-3/5 flex-none truncate" : "min-w-0 wrap-break-word", i.tone === "bad" && "text-destructive")}>{i.label}</span>
 									{i.about ? <span className="min-w-0 truncate text-xs text-muted-foreground">{i.about}</span> : null}
 								</CommandItem>
 							))}

@@ -15,6 +15,7 @@ export const PickDialog: Story = {
 			current: "mock/m",
 			items: [
 				{ value: "mock/m", label: "mock/m" },
+				{ value: "fireworks/accounts/my-company/routers/deepseek-v4-instruct-turbo", label: "fireworks/accounts/my-company/routers/deepseek-v4-instruct-turbo" },
 				{ value: "anthropic/claude", label: "anthropic/claude", about: "signed in" },
 				{ value: "studio/qwen", label: "studio/qwen", about: "a model server of your own" },
 			],
