@@ -1106,11 +1106,11 @@ function BookmarkJump({ tab, root }: { tab: Tab; root: RefObject<HTMLElement | n
 
 /**
  * The column of the transcript, and the size of what is said in it, set once here: messages and the owner's
- * bubbles read at the body's size (text-base, snug), larger than the stock parts' text-sm, which the lines of
+ * bubbles read at the reading size (text-read, snug), larger than the stock parts' text-sm, which the lines of
  * work, the notes and the requests keep. The stock Message and Bubble Content set their own size, so it is
  * said to them by their slot.
  */
-const TRANSCRIPT = "mx-auto max-w-3xl px-7 pt-7 pb-6 [&_[data-slot=bubble-content]]:text-base [&_[data-slot=bubble-content]]:leading-snug [&_[data-slot=message]]:text-base [&_[data-slot=message]]:leading-snug";
+const TRANSCRIPT = "mx-auto max-w-3xl px-7 pt-7 pb-6 [&_[data-slot=bubble-content]]:text-read [&_[data-slot=bubble-content]]:leading-snug [&_[data-slot=message]]:text-read [&_[data-slot=message]]:leading-snug";
 
 export function Conversation({ tab }: { tab: Tab }) {
 	useModel(tab);

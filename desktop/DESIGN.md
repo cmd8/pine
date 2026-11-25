@@ -52,8 +52,8 @@ Classes are on Tailwind's default scale; an arbitrary value is only for what no 
 
 **Type has one base.** The root keeps the browser's 16px, each top-level part of the app (the
 window, a side bar, a panel, a page) sets `text-sm` once on its root, and nothing below sets a
-base size of its own: the stock parts carry their sizes. The one other base is the reading part's
-(see "Reading comes first").
+base size of its own: the stock parts carry their sizes. The one other base is the reading part's,
+`text-read` (see "Reading comes first").
 
 **Colour is a role.** Where shadcn has a token for the role, use shadcn's (`bg-muted`, `bg-accent`);
 where it has none, add the role to the theme (`src/index.css`), never a colour to the markup, so
@@ -130,20 +130,30 @@ it can: a row with two actions is two side-by-side buttons, since a button canno
 a choice that must not be dismissed by a click outside stays an `AlertDialog`, even where it looks
 like a palette.
 
-**Reading comes first.** Text the owner reads at length is at the body's size; the controls
-around it stay stock. A stock behaviour that serves the reader is kept even when it looks like
-something to fix: fields at 16px on small screens, so that iOS does not zoom on focus; a
-conversation that fades at the bottom only, where the newest text arrives.
+**Reading comes first.** Text the owner reads at length is at the reading size, `text-read`
+(15px, snug); the controls around it stay stock. The reading size is a step of the type scale,
+set once in the theme (`src/index.css`), not a size in the markup: the browser's 16px
+(`text-base`) reads a size larger than Claude and the apps beside pine, and moving the root
+instead would move every stock size with it. The reading part says it on its root, to the stock
+parts inside by their slot (`[&_[data-slot=message]]:text-read`), and never in the `className` of
+a stock part that has a size of its own: `cn` knows Tailwind's scale and not this step, so it
+keeps both sizes and the stock one wins. A stock behaviour that serves the reader is kept
+even when it looks like something to fix: fields at 16px on small screens, so that iOS does not
+zoom on focus (a field that reads at the reading size takes it from `md:` up, from its group:
+`md:[&_[data-slot=input-group-control]]:text-read`); a conversation
+that fades at the bottom only, where the newest text arrives.
 
 ```tsx
-// Do: the reading part sets the body's size once, on its root; the controls in it stay stock.
-<section className="text-base leading-snug">
+// Do: the reading part sets the reading size once, on its root; the controls in it stay stock.
+<section className="text-read leading-snug">
   <Message>…</Message>
   <Button variant="ghost" size="sm">Copy</Button>
 </section>
 
-// Don't: the controls grown to match the text, or the text shrunk to match the controls.
-<Button variant="ghost" size="sm" className="text-base">Copy</Button>
+// Don't: the size written into the markup, the controls grown to match the text, or the text
+// shrunk to match the controls.
+<section className="text-[15px]">…</section>
+<Button variant="ghost" size="sm" className="text-read">Copy</Button>
 <Message className="text-xs">…</Message>
 ```
 

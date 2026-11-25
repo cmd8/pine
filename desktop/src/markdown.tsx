@@ -453,10 +453,10 @@ function Quote({ node: _, className, ...props }: React.ComponentProps<"blockquot
 	return <blockquote className={cn("flex flex-col gap-2 border-s-2 ps-6 italic", className)} {...props} />;
 }
 
-// Headings on the answer's own scale: the reading part is at the body's size, and a heading stands a
+// Headings on the answer's own scale: the reading part is at the reading size, and a heading stands a
 // step or two above it, not at Streamdown's fixed 30 pixels. Space above sets a heading apart from
 // what it closes, as shadcn's typography does.
-const HEADING = { h1: "text-xl", h2: "text-lg", h3: "text-base", h4: "text-base", h5: "text-base", h6: "text-base" } as const;
+const HEADING = { h1: "text-xl", h2: "text-lg", h3: "text-read", h4: "text-read", h5: "text-read", h6: "text-read" } as const;
 function heading(Tag: keyof typeof HEADING) {
 	return function Heading({ node: _, className, ...props }: React.ComponentProps<"h1"> & ExtraProps) {
 		return <Tag className={cn("mt-6 font-semibold text-balance", HEADING[Tag], className)} {...props} />;

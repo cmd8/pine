@@ -1335,7 +1335,9 @@ text color. Settings keeps to this; other parts of the page are brought to it as
   The root is the browser's stock 16px and the text scale is Tailwind's own: the app's text is
   `text-sm`, set on the root of each of its parts (the window, the side bar, a conversation,
   Settings, the panels), small labels `text-xs`, and a conversation's answers, your messages and
-  the message box `text-base` with `leading-snug`. Corners come from shadcn's `--radius`, shadows
+  the message box `text-read` with `leading-snug`: 15px, the one step `index.css` adds to the
+  scale, which Claude and the apps beside pine read at (the message box stays at 16px on a narrow
+  window, so that iOS does not zoom on focus). Corners come from shadcn's `--radius`, shadows
   are Tailwind's own. The font is the system's, written into `--font-sans` and `--font-mono`, which
   the code editor and the terminal read from script. The sizes that are not on the scale are the room for the window's buttons at the ends
   of a bar along the top, tokens in `index.css`: `pl-window-buttons` at the start for a Mac's, and

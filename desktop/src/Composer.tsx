@@ -351,7 +351,7 @@ export function Composer({ tab }: { tab: Tab }) {
 				onDragLeave={() => setOver(false)}
 				onDrop={(e) => void onDrop(e)}
 			>
-				<InputGroup className="has-[[data-slot=input-group-control]:focus-visible]:ring-0">
+				<InputGroup className="has-[[data-slot=input-group-control]:focus-visible]:ring-0 md:[&_[data-slot=input-group-control]]:text-read">
 					{tab.attachments.length || tab.quotes.length || over ? (
 						<InputGroupAddon align="block-start" className="flex-col items-stretch">
 							{/* The quotes and files, as a stock row of attachments; the reply being written under them. */}
@@ -425,7 +425,7 @@ export function Composer({ tab }: { tab: Tab }) {
 					>
 						<ComboboxPrimitive.Input
 							ref={area as unknown as React.Ref<HTMLInputElement>}
-							render={<InputGroupTextarea rows={1} className="max-h-48 p-3 leading-snug md:text-base md:leading-snug" />}
+							render={<InputGroupTextarea rows={1} className="max-h-48 p-3 leading-snug" />}
 							placeholder={tab.busy ? `Say something to ${tab.agent} while it works…` : `Message ${tab.agent} · / for commands · @ for files`}
 							onChange={(e) => {
 								// A key that types ends the listening: what was heard stays, and nothing more is put into the input.
