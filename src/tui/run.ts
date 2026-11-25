@@ -75,25 +75,39 @@ function needsTerminal(): void {
  * they were given. Each stops the app, which puts the terminal back before it waits for anything;
  * `report` is told what went wrong, to be said once the screen is the owner's own again. What is
  * returned takes the handlers off.
+ *
+ * Stopping waits for the daemon this process started, and nothing bounds how long that takes. So a
+ * signal after a signal or a crash ends the process at once, and a stop begun by one that has not
+ * ended after `waitMs` ends it all the same. After /quit the terminal is the owner's again, and
+ * Ctrl-C is such a signal: the first one stops (nothing more to do) and starts that wait, a second
+ * ends it.
  */
-export function endOnFailure(app: Pick<PineTui, "stop">, report: (why: string) => void = () => {}): () => void {
+export function endOnFailure(
+	app: Pick<PineTui, "stop">,
+	opts: { report?: (why: string) => void; exit?: (code: number) => void; waitMs?: number } = {},
+): () => void {
+	const { report = () => {}, exit = (code: number) => process.exit(code), waitMs = 10_000 } = opts;
 	let ending = false;
+	let late: NodeJS.Timeout | undefined;
 	const stop = (crash?: string): void => {
-		// The first way out is the one that counts: a second signal, or a crash while the terminal is
-		// being put back, must not start stopping again.
+		// A crash while the terminal is being put back must not start stopping again.
 		if (ending) return;
 		ending = true;
 		if (crash !== undefined) report(crash);
+		late = setTimeout(() => exit(1), waitMs);
+		late.unref();
 		void app.stop().catch(() => {});
 	};
 	const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT", "SIGHUP"];
-	const onSignal = () => stop();
+	// Whoever sends a signal while the app is stopping already does not want to wait any longer.
+	const onSignal = () => (ending ? exit(1) : stop());
 	// An exception has no caller left to go on with, so the process ends with the app.
 	const onCrash = (e: unknown) => stop(`\npine stopped: ${errText(e)}\n`);
 	for (const signal of signals) process.on(signal, onSignal);
 	process.on("uncaughtException", onCrash);
 	process.on("unhandledRejection", onCrash);
 	return () => {
+		clearTimeout(late);
 		for (const signal of signals) process.off(signal, onSignal);
 		process.off("uncaughtException", onCrash);
 		process.off("unhandledRejection", onCrash);
@@ -115,9 +129,16 @@ async function open(client: Client, mode: string, stop: () => Promise<void>, opt
 	});
 	// What a crash said goes onto the terminal once the app has given it back.
 	let complaint = "";
-	const off = endOnFailure(app, (why) => {
-		complaint = why;
-		process.exitCode = 1;
+	const off = endOnFailure(app, {
+		report: (why) => {
+			complaint = why;
+			process.exitCode = 1;
+		},
+		// Ended before the stop was through: the terminal is the owner's again, and what went wrong is still said.
+		exit: (code) => {
+			if (complaint) process.stderr.write(complaint);
+			process.exit(code);
+		},
 	});
 	try {
 		await app.start();

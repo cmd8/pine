@@ -503,10 +503,13 @@ const PEEK = 4;
  * What a text is not drawn with: a control sequence, a command of the terminal's own (its title,
  * its clipboard), the two characters an escape can be, a tab (spaces are drawn in its place), and
  * the control characters but a line break - among them a C1 control, such as a raw CSI.
+ * A command of the terminal's own goes only with its end: one that never ends loses its first two
+ * characters and nothing more, so that what follows it (the rest of a command the owner is asked
+ * about) is still shown.
  */
-const NOT_TEXT = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][\s\S]*?(?:\x07|\x1b\\|$)|\x1b[P^_X][\s\S]*?(?:\x1b\\|$)|\x1b[@-Z\\-_]|\t|[\x00-\x09\x0b-\x1f\x7f\x80-\x9f]/g;
+const NOT_TEXT = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][\s\S]*?(?:\x07|\x1b\\)|\x1b[P^_X][\s\S]*?\x1b\\|\x1b[@-Z\\-_]|\t|[\x00-\x09\x0b-\x1f\x7f\x80-\x9f]/g;
 /** A color: the one kind of sequence that cannot reach past the line it is on. */
-const COLOUR = /^\x1b\[[0-9;]*m$/;
+const COLOR = /^\x1b\[[0-9;]*m$/;
 
 /**
  * Somebody else's text drawn as text. A summary, an error, a tool's output, an event of another
@@ -518,7 +521,7 @@ const COLOUR = /^\x1b\[[0-9;]*m$/;
  * stays - it cannot leave its line - and everything else goes.
  */
 const asText = (text: unknown, styled = false): string =>
-	String(text ?? "").replace(NOT_TEXT, (what) => (what === "\t" ? "  " : styled && COLOUR.test(what) ? what : ""));
+	String(text ?? "").replace(NOT_TEXT, (what) => (what === "\t" ? "  " : styled && COLOR.test(what) ? what : ""));
 
 /**
  * What a model thought before it answered. While it thinks, its last few lines are shown. A click
