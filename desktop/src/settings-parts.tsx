@@ -4,6 +4,7 @@ import { ChevronLeftIcon } from "lucide-react";
 import { useId, type ComponentProps, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldContent, FieldDescription, FieldGroup, FieldLegend, FieldSet } from "@/components/ui/field";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // One grid for every page: a header (a way back above the title, the title, one line on what the page is
 // for, the page's buttons on the right), then its parts in a stock FieldGroup. A section is a stock FieldSet
@@ -81,4 +82,31 @@ export const CONTROL = "w-full @md/field-group:w-52";
 /** Where a row's control goes: right-aligned, with whatever buttons go with it. */
 export function Control({ children }: { children: ReactNode }) {
 	return <div className="flex flex-wrap items-center justify-end gap-2">{children}</div>;
+}
+
+/**
+ * A select of models. A model's name is long - `fireworks/accounts/<account>/routers/<model>` - and a
+ * control is one column's width (CONTROL), so a plain select cut the name twice: in the trigger, which
+ * holds one line, and in the list, which is drawn as wide as the trigger. Here the name that does not
+ * fit is given whole on hover, and the list is as wide as the longest name, wrapping what still does
+ * not fit rather than cutting it.
+ */
+export function ModelSelect({ id, items, value, onChange }: { id?: string; items: Array<{ value: string; label: string }>; value: string; onChange: (v: string) => void }) {
+	const name = items.find((i) => i.value === value)?.label ?? value;
+	return (
+		<Select items={items} value={value} onValueChange={(v) => onChange(v ?? "")}>
+			<SelectTrigger id={id} className={CONTROL} title={name}>
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent alignItemWithTrigger={false} align="end" className="w-auto max-w-[min(92vw,34rem)]">
+				<SelectGroup>
+					{items.map((o) => (
+						<SelectItem key={o.value} value={o.value} title={o.label}>
+							<span className="min-w-0 whitespace-normal break-words">{o.label}</span>
+						</SelectItem>
+					))}
+				</SelectGroup>
+			</SelectContent>
+		</Select>
+	);
 }
