@@ -560,6 +560,10 @@ These are invariants. A change that breaks one needs a test that shows why it is
    and never give the door a road that does more than look and act in the page. An address on
    this computer that the owner types there is allowed for the conversation by it
    (`browserOpen`: the control API is the owner); pine's control port is refused there too.
+   A link in an answer goes there by a click only when it is on the web: one on this computer
+   or the local network opens in the owner's own browser, and reaches the conversation's only
+   by the item of the link's menu that names the address it lets the agent reach
+   (`store.openLink`, `localAddress` in `desktop/src/text.ts`), since its words may be outside content.
    Where that conversation's browser is not up, `browserOpen` brings its session up as a
    message of the owner's would, without a turn (`wakeBrowser`): only for a conversation there
    is, only as the owner's, and nothing else of the view starts anything. The addresses an

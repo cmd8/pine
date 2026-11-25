@@ -9,7 +9,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { toast } from "@/components/ui/toast";
 import { type AgentInfo, api, type Approval, type Conversation, type GoalInfo, type SwarmInfo, type GroupList, media, type WorktreeMade, type BoardBrief, type PineEvent, type Program, type Stats, type Task, type Todo, type TranscriptEntry } from "./api.ts";
 import { bridge, type ChromeLayout, type Prefs, type ServiceState, type Update, type WindowDraft, type WindowLayout, type WindowTabRef, type WindowWidths } from "./bridge.ts";
-import { baseName, childKind, errText, eventBody, isGoalRound, learnHome, MODES, oneLine, plural, short, shortcut, type Speed, speedOf, speedText, taskSummary, tilde, took, undoLines } from "./text.ts";
+import { baseName, childKind, errText, eventBody, isGoalRound, learnHome, localAddress, MODES, oneLine, plural, short, shortcut, type Speed, speedOf, speedText, taskSummary, tilde, took, undoLines } from "./text.ts";
 import { runnable } from "./runnable.ts";
 import { type QuoteSource, type SentQuote, withQuotes } from "../../src/quotes.ts";
 import type { Bookmark, NewBookmark } from "../../src/bookmarks.ts";
@@ -605,6 +605,25 @@ export class Store extends Model {
 		this.flash("This conversation has no browser, so the address was opened in your own.", "muted", 6000);
 		this.touch();
 		void bridge.open(url);
+	}
+
+	/**
+	 * A link of an answer, clicked. A page on the web opens in the conversation's browser, beside
+	 * it, where the agent sees the same page. An address on this computer or the local network goes
+	 * to the owner's own browser: in the conversation's it would be allowed to the agent, and a
+	 * link's words may come from a page the agent read. The link's menu opens it there on purpose
+	 * (`inPine`). `outside` is the owner's own browser, asked for.
+	 */
+	openLink(agent: string, session: string | undefined, url: string, how: "click" | "inPine" | "outside" = "click"): void {
+		const tab = this.answerTab(agent, session);
+		if (how === "outside" || !tab || (how === "click" && localAddress(url))) return void bridge.open(url);
+		if (this.active !== tab) this.activate(tab);
+		void this.showInBrowser(tab, url);
+	}
+
+	/** The open tab of an answer's conversation, if there is one. */
+	answerTab(agent: string, session: string | undefined): Tab | undefined {
+		return session === undefined ? undefined : this.tabs.find((t) => t.kind === "chat" && t.agent === agent && t.session === session);
 	}
 
 	/**

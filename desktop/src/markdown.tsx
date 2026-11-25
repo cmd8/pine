@@ -39,7 +39,8 @@ import { api, bytesOf, media } from "./api.ts";
 import { bridge } from "./bridge.ts";
 import { mediaKind, store } from "./model.ts";
 import { SHELLS } from "./runnable.ts";
-import { baseName, errText, short } from "./text.ts";
+import { baseName, errText, localAddress, short } from "./text.ts";
+import { contextMenu } from "@/components/page-menu";
 
 /** The tags and attributes an answer keeps. Everything else is taken away, its words kept; what is in `strip` goes with its words. */
 export const CLEAN: Schema = {
@@ -90,38 +91,65 @@ const textOf = (node: Node | { type: string; value?: string; children?: unknown[
 };
 
 /**
- * What makes a link without an href one all the same: a click opens it in the owner's browser, and so
- * does Enter once it has the focus, which it takes in the order of the page, with the stock focus ring.
+ * What makes a link without an href one all the same. A click opens it in the conversation's browser (a web
+ * page) or the owner's own (an address on this computer, or with ⌘, Ctrl or ⌥ held); the right button offers
+ * both. Enter, once it has the focus, opens it as a plain click does; it takes the focus in the order of the
+ * page, with the stock focus ring. See `store.openLink`.
  */
-const opens = (url: string) => ({
-	role: "link",
-	tabIndex: 0,
-	onClick: (e: React.MouseEvent) => {
-		e.preventDefault();
-		void bridge.open(url);
-	},
-	onKeyDown: (e: React.KeyboardEvent) => {
-		if (e.key !== "Enter") return;
-		e.preventDefault();
-		void bridge.open(url);
-	},
-});
+function linkHandlers(url: string, where: Where | undefined) {
+	const agent = where?.agent ?? "";
+	const open = (outside: boolean) => (!where || outside ? void bridge.open(url) : store.openLink(agent, where.session, url));
+	return {
+		role: "link",
+		tabIndex: 0,
+		onClick: (e: React.MouseEvent) => {
+			e.preventDefault();
+			open(e.metaKey || e.ctrlKey || e.altKey);
+		},
+		onKeyDown: (e: React.KeyboardEvent) => {
+			if (e.key !== "Enter") return;
+			e.preventDefault();
+			open(e.metaKey || e.ctrlKey || e.altKey);
+		},
+		onContextMenu: (e: React.MouseEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+			void linkMenu(url, where);
+		},
+	};
+}
 const FOCUS = "rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50";
 
+async function linkMenu(url: string, where: Where | undefined): Promise<void> {
+	const local = localAddress(url);
+	const tab = where ? store.answerTab(where.agent, where.session) : undefined;
+	const picked = await contextMenu([
+		{ id: "pine", label: local ? `Open in Pine's Browser (lets the agent reach ${local})` : "Open in Pine's Browser", enabled: Boolean(tab) },
+		{ id: "outside", label: "Open in Your Browser" },
+		{ id: "sep", label: "", separator: true },
+		{ id: "copy", label: "Copy Address" },
+	]);
+	if (picked === "pine" && where) store.openLink(where.agent, where.session, url, "inPine");
+	else if (picked === "outside") void bridge.open(url);
+	else if (picked === "copy") void navigator.clipboard.writeText(url).then(() => store.flash("Copied the address."), () => store.flash("Could not copy the address.", "warn"));
+}
+
 function Link({ href, children, node }: React.ComponentProps<"a"> & ExtraProps) {
+	const where = useContext(WhereContext);
 	const url = typeof href === "string" ? href : "";
 	const shown = textOf(node).trim();
 	if (!isWeb(url)) return <span>{url && shown !== url ? <>{children} ({url})</> : children}</span>;
 	const plain = shown === url || shown === url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+	const on = linkHandlers(url, where);
 	return (
 		<>
-			<a data-href={url} title={url} className={cn("cursor-pointer text-primary underline decoration-primary/40 underline-offset-2", FOCUS)} {...opens(url)}>
+			<a data-href={url} title={url} className={cn("cursor-pointer text-primary underline decoration-primary/40 underline-offset-2", FOCUS)} {...on}>
 				{children}
 			</a>
 			{/* Beside the link, not inside it: it is the address in plain letters, not more of the link's words.
 			    It flows with the sentence: a line of its own would cut the link off from where it leads. */}
 			{plain ? null : (
-				<span data-target="" className={cn("ml-1 inline cursor-pointer font-mono text-xs text-faint wrap-anywhere", FOCUS)} title={url} {...opens(url)}>
+				<span data-target="" className={cn("ml-1 inline cursor-pointer font-mono text-xs text-faint wrap-anywhere", FOCUS)} title={url} {...on}>
 					<ArrowRightIcon className="mr-1 inline size-3" aria-hidden />
 					{short(url.replace(/^https?:\/\//, ""), 72)}
 				</span>

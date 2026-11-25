@@ -546,7 +546,7 @@ click on that button brings it to the front and puts the other behind, and a cli
 the one in front closes it, which shows the other again. Below 1024 pixels each is a sheet over the
 conversation, which covers the buttons of the title bar: there only `⌥⌘B` and `⇧⌘B` switch, and
 closing the sheet in front does not bring the other up. The other stays open behind, and shows as a
-column when the window is wide enough, or as a sheet by its key. The agent's `browser_show` and a port's link under Running open the browser in front.
+column when the window is wide enough, or as a sheet by its key. The agent's `browser_show`, a port's link under Running and a link in an answer open the browser in front.
 Narrowing the window never closes anything: when there is room again, both show without a click.
 
 Settings follow the room they have, not the window: narrower than about 720 pixels, the list of
@@ -1036,7 +1036,7 @@ the agent to write. So:
 |---|---|
 | The page has no token and no Node | The daemon's token stays in the app's main process, which makes each call for the page. The page runs in the browser's sandbox, without access to files or programs |
 | An answer is content, not a page | It is drawn from markdown (Streamdown, with code colored on the page by Shiki) and cleaned of everything that could act or restyle: scripts, styles, forms, frames, svg, media tags, style, class and id attributes, `javascript:` links. A small picture written into the text (`data:` png, jpeg, gif, webp) is shown. The window's own policy lets it load nothing from the web |
-| A link says where it leads | The address stands next to a link whose words are not the address, and only `http` and `https` addresses open, in your browser |
+| A link says where it leads | The address stands next to a link whose words are not the address, and only `http` and `https` addresses open. A click opens a page on the web in the conversation's browser, where the agent sees it too; an address on this computer or your network opens in your own browser, since in the conversation's browser it would be allowed to the agent for the conversation, and a link's words may come from a page the agent read. ⌘-click or ⌥-click (Ctrl-click or Alt-click) opens any link in your own browser. The right button offers both, with the address the agent could reach named on the item, and Copy Address. Where the conversation has no browser, a link opens in your own |
 | Nothing is fetched because an answer contains it | A picture at a web address is a line to click (`Load picture · https://…`); the daemon then fetches it, with its guard against addresses in your network. A picture at a path in the agent's workspace is shown from there |
 | Nothing plays because an answer contains an address | A sound plays by itself only where it is a file of the agent's workspace, which the daemon serves, and its answer has just arrived. One at a web address is a line to click, like a picture |
 | What is drawn straight from the daemon | Only pictures, video and sound, by fixed addresses of the control API. The bars of a sound are measured from the same bytes, which the app asks the daemon for; the page reads no file |
