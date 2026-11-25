@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -342,4 +343,45 @@ test("sources: a folder for all agents gives its read access to the main agent, 
 	assert.equal(json("pine.json").sourceTypes, undefined);
 	assert.equal(fs.readFileSync(path.join(h.home, "sources", "bell.ts"), "utf8"), BELL);
 	await h.close();
+});
+
+test("folder: a file that is only a placeholder is reported once, not looked at for ever", async () => {
+	const h = await harness({ pine: { sources: { drop: { type: "folder", dir: "./drop", settle: "60ms", start: "always" } } }, files: { "drop/keep.txt": "x" }, agents: { main: {} } });
+	const added = (): any[] => h.pine.bus.query({ topic: "source/drop/added" });
+	await until(() => h.pine.sources.list()[0].running, 4000, "the source");
+	await sleep(150); // the OS needs a moment before a new watcher reports changes
+	fs.writeFileSync(path.join(h.home, "drop", "placeholder"), "");
+	// Nothing is ever written into it: it is reported as it is, once, and pine keeps no timer on it.
+	await until(() => added().length === 1, 4000, "the empty file to be reported");
+	assert.deepEqual([added()[0].payload.file, added()[0].payload.size], ["placeholder", 0]);
+	await sleep(400);
+	assert.equal(added().length, 1);
+	await h.close();
+});
+
+test("folder: a watcher that fails says so in its status and is tried again, instead of throwing", async () => {
+	type Fake = EventEmitter & { close(): void };
+	const real = fs.watch;
+	const made: Fake[] = [];
+	(fs as any).watch = (target: any) => {
+		const watcher = new EventEmitter() as Fake;
+		watcher.close = () => void watcher.removeAllListeners();
+		if (String(target).endsWith(`${path.sep}drop`)) made.push(watcher);
+		return watcher;
+	};
+	const h = await harness({ pine: { sources: { drop: { type: "folder", dir: "./drop", settle: "60ms", start: "always" } } }, files: { "drop/keep.txt": "x" }, agents: { main: {} } });
+	try {
+		const info = () => h.pine.sources.list()[0];
+		await until(() => made.length === 1 && info().running, 4000, "the watcher");
+		// An inotify limit reached, rights taken away, the folder replaced: the watcher reports it on
+		// itself, and with nothing listening for it that is an exception out of pine's timers.
+		made[0].emit("error", new Error("ENOSPC: System limit for number of file watchers reached"));
+		assert.match(info().status!, /^not watching .*: ENOSPC/);
+		assert.equal(info().running, true, "one that watches nothing just now is still there");
+		await until(() => made.length === 2, 4000, "a new watcher");
+		assert.ok(!info().status, "and the line about the failure is gone with it");
+		await h.close();
+	} finally {
+		(fs as any).watch = real;
+	}
 });
