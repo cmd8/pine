@@ -600,8 +600,13 @@ export class HttpServer {
 		return w && !w.gone ? { branch: w.branch, base: w.base, ahead: w.ahead, behind: w.behind, dirty: w.dirty, merged: w.merged } : undefined;
 	}
 
-	private guardBrowser(req: http.IncomingMessage): void {
+	/** The part of the guard a page trips whatever the route: a browser sends Origin or Sec-Fetch-Site, a program calling us sends neither. */
+	private guardWebPage(req: http.IncomingMessage): void {
 		if (req.headers.origin || req.headers["sec-fetch-site"]) throw new HttpError(403, "requests from web pages are not accepted");
+	}
+
+	private guardBrowser(req: http.IncomingMessage): void {
+		this.guardWebPage(req);
 		const host = (req.headers.host ?? "").replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
 		const allowed = ["127.0.0.1", "localhost", "::1", this.cfg.http!.host];
 		if (!allowed.includes(host)) throw new HttpError(403, "unexpected Host header");
@@ -630,6 +635,11 @@ export class HttpServer {
 
 	/** A webhook: outside content by definition, so the event is untrusted whatever it says. */
 	private async hook(name: string, req: http.IncomingMessage): Promise<{ id: number }> {
+		// This route carries no token, so a page that can reach the port would otherwise be the one
+		// caller that gets in unguarded. The Host is not checked here: a webhook from outside
+		// arrives through a tunnel or proxy that forwards /hook/ under its own name, and a real
+		// sender sends no Origin, so the page check alone leaves those working.
+		this.guardWebPage(req);
 		const hook = this.cfg.http!.hooks[name];
 		// A running event source of type webhook (or one of your own) takes requests under its name.
 		const sourceHook = hook ? undefined : this.sources?.hookFor(name);
