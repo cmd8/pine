@@ -158,7 +158,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: ${{ fromJSON(github.event_name == 'pull_request' && github.base_ref != 'main' && '["ubuntu-24.04"]' || '["ubuntu-24.04", "windows-latest"]') }}
+        # Linux on arm64 too for a push to next, so that the AppImage's repack is tried on both
+        # processors a release packs on before one does.
+        runner: ${{ fromJSON(github.event_name == 'pull_request' && github.base_ref != 'main' && '["ubuntu-24.04"]' || '["ubuntu-24.04", "ubuntu-24.04-arm", "windows-latest"]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
     steps:
@@ -189,6 +191,25 @@ jobs:
       - name: Start it once (Windows)
         if: runner.os == 'Windows'
         run: node desktop/scripts/smoke.mjs
+      # The AppImage as a release hands it out (app-linux): made from the folder packed above, then
+      # repacked with its update information, its .zsync and its AppStream metainfo.
+      - name: The AppImage, with its update information (Linux)
+        if: runner.os == 'Linux'
+        env:
+          PINE_VERSION: "9.8.7"
+        run: |
+          case "$(uname -m)" in x86_64) arch=x86_64 folder=linux-unpacked ;; *) arch=arm64 folder=linux-arm64-unpacked ;; esac
+          node desktop/scripts/pack.mjs --prepackaged "desktop/release/$folder"
+          image="desktop/release/Pine-9.8.7-$arch.AppImage"
+          sh desktop/scripts/appimage-update.sh "$image"
+          want="gh-releases-zsync|pmndre|pine|latest|Pine-*-$arch.AppImage.zsync"
+          said="$("$image" --appimage-updateinformation)"
+          if [ "$said" != "$want" ]; then echo "::error::$image says its update information is \"$said\", not \"$want\""; exit 1; fi
+          if [ ! -s "$image.zsync" ]; then echo "::error::no $image.zsync"; exit 1; fi
+          sudo apt-get install -y appstream
+          cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/$image" --appimage-extract >/dev/null
+          appstreamcli validate --no-net squashfs-root/usr/share/metainfo/dev.pine.desktop.metainfo.xml
+          appstreamcli validate-tree --no-net squashfs-root
       # What a release's code signing checks on every file it signs (desktop/signpath/): the product's
       # name and the release's version. And the installer made from a folder packed before, as the
       # release makes it from the signed one.
