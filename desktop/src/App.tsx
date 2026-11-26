@@ -1238,8 +1238,9 @@ const GAP = 6;
 /** The page's root font size in pixels, which rem are of. */
 const rem = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
 /**
- * The least a group is wide or tall, in pixels, however its edges are dragged or its tabs are moved: as wide as a
- * conversation is at its narrowest (`min-w-85` in Conversation.tsx), so that none spills over the group beside it.
+ * The least a group is wide or tall, in pixels, however its edges are dragged or its tabs are moved: room for a
+ * conversation's input and its buttons on one row. A window too small for every group at that size makes them all
+ * smaller alike: what a group shows then fits itself to the group, and nothing is drawn past its edge.
  */
 const least = (): dock.Least => ({ row: 21.25 * rem(), column: 10 * rem() });
 /** How tall a group's bar is (h-11 along the top of the window, h-9 elsewhere), in pixels at the page's root font size. */

@@ -773,9 +773,9 @@ test("the panel's Agent view scrolls up and down only, however narrow the panel 
 	await page.mouse.down();
 	await page.mouse.move(edge.x + edge.width / 2 + 600, 300, { steps: 6 });
 	await page.mouse.up();
-	// Narrower, or already as narrow as a group gets (340 pixels: dock.ts, `least` in App.tsx).
+	// Narrower, or as narrow as a group gets already: never wider.
 	const now = await width();
-	assert.ok(now < was || now <= 341, `the panel was not made narrower: ${was} → ${now}, at the edge ${JSON.stringify(edge)}`);
+	assert.ok(now <= was, `the panel was made wider: ${was} → ${now}, at the edge ${JSON.stringify(edge)}`);
 	const fits = () => page.$eval("[data-slot=code-panel] [data-slot=scroll-area]:has-text(\"What it remembers\") > [data-slot=scroll-area-viewport]", (el: Element) => {
 		const wide = [...el.querySelectorAll("*")].filter((c) => c.getBoundingClientRect().right > el.getBoundingClientRect().right + 0.5).slice(0, 5).map((c) => `${c.tagName}.${c.className}`.slice(0, 120));
 		return { scroll: el.scrollWidth, client: el.clientWidth, wide };
@@ -1103,7 +1103,7 @@ const misplaced = () =>
 		return wrong.join("; ");
 	});
 
-test("the side panel dragged onto the edge of the conversation's group, again and again, leaves the conversation at its least and every group and edge in reach", async () => {
+test("the side panel dragged onto the edge of the conversation's group, again and again, and a window too narrow for every group, leave every group whole and every edge in reach", async () => {
 	try {
 		await page.setViewportSize({ width: 1280, height: 820 });
 		await page.click("[data-slot=tab] >> nth=0");
@@ -1123,7 +1123,24 @@ test("the side panel dragged onto the edge of the conversation's group, again an
 		await page.reload();
 		await sees("#code-panel [data-slot=code-panel]");
 		assert.equal(await misplaced(), "");
+		// A third group, in a window too narrow for three at their least: each is smaller, and what it shows fits it.
+		const tabs = await page.locator("[data-slot=tab]").count();
+		await menu("new");
+		await page.waitForFunction((n) => document.querySelectorAll("[data-slot=tab]").length > n, tabs);
+		const fresh = (await page.textContent("[data-slot=tab][data-active] [data-slot=tab-name]"))!.trim();
+		await dragTo(fresh, "main", "right");
+		await page.waitForFunction(() => document.querySelectorAll("[data-slot=group-bar]").length === 3);
+		await page.setViewportSize({ width: 1060, height: 820 });
+		await page.waitForFunction(() => document.querySelector("[data-slot=dock]")!.getBoundingClientRect().right < 1061);
+		assert.equal(await misplaced(), "", "three groups in a narrow window");
+		// As the owner did next: one group closed, the window made wider again.
+		await menu("close");
+		await page.waitForFunction(() => document.querySelectorAll("[data-slot=group-bar]").length === 2);
+		await page.setViewportSize({ width: 1280, height: 820 });
+		await page.waitForFunction(() => document.querySelector("[data-slot=dock]")!.getBoundingClientRect().right > 1061);
+		assert.equal(await misplaced(), "", "two groups again in a wider window");
 	} finally {
+		await page.setViewportSize({ width: 1280, height: 820 });
 		if (await page.$("[data-slot=code-panel]")) await menu("code");
 	}
 });
