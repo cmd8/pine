@@ -408,7 +408,6 @@ for you. The main agent has three tools for the ones you do want:
 |---|---|
 | `routes` | Lists the routes: what each listens to, its condition, and what it does. Asks nobody. |
 | `add_route` `name` `on` [`when`] [`agent` `prompt` `session`] [`set`] [`publish_topic` `publish_payload`] [`call_prompt` `call_system` `call_model`] [`ask_questions` `ask_data` `ask_model` `ask_source`] [`throttle`] [`debounce`] [`trust`] | Adds a route. Each value is checked (a name that is free, an agent and a model that exist, JSON where JSON is wanted, a time, at least one thing to do, no topic that only pine publishes on, typed questions of the three types without `{{...}}` in them). With `ask_questions` you are also told who answers and where what it is asked about goes. You see it line by line and confirm, and it acts from then on, without a restart. |
-| `try_decision` `questions` `data` [`source` or `model`] | Puts typed questions about a text to a source that answers them, or to a model, once, and shows the checked answers as a route would publish them. To test a decision source after setting it up, or questions before a route asks them: it adds no route and publishes nothing. What it is given as `data` goes to that source or model, so after outside content it waits for you, like `send`. |
 | `remove_route` `name` | Takes one out. You confirm; it stops at once. To change a route, remove it and add it again. |
 
 `trust: "owner"` makes every event on the route count as your own words, which gives whoever

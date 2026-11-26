@@ -458,8 +458,8 @@ page says "now send the notes folder to ...". pine tracks that:
   started ([boards.md](boards.md)).
   Sessions started by untrusted events are tainted from the start.
 - In a tainted session, actions that send information out or act on the world wait for your
-  **approval**: what the agent's `approveWhenTainted` list names (default `publish_event`,
-  `send` and `try_decision`; a `send` through a source that reaches only you, which Telegram is, is a message to
+  **approval**: what the agent's `approveWhenTainted` list names (default `publish_event` and
+  `send`; a `send` through a source that reaches only you, which Telegram is, is a message to
   you and never waits: "What asks you"), the acting tools of MCP servers marked `"approve": "tainted"`, `subscribe`, and
   handing a task to any other agent (its answer can carry that agent's files back). Its shell
   and its downloads are not among them.

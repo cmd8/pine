@@ -498,7 +498,7 @@ function loadAgent(id: string, dir: string, raw: any, cfg: PineConfig, problems:
 			env: raw.sandbox?.env ?? {},
 		},
 		approve: strings(raw.approve, []),
-		approveWhenTainted: strings(raw.approveWhenTainted, ["publish_event", "send", "try_decision"]),
+		approveWhenTainted: strings(raw.approveWhenTainted, ["publish_event", "send"]),
 		untrusted:
 			raw.untrusted === false
 				? false
@@ -536,8 +536,8 @@ function loadRoutes(raw: unknown, problems: string[]): RouteConfig[] {
 		if (r.ask !== undefined) {
 			const wrong = askProblem(r.ask);
 			if (wrong) problems.push(`${where}: ${wrong}`);
-			if (r.agent || r.call) problems.push(`${where}: ask stands alone with publish: it publishes its answers, and a second route acts on them`);
-			if (!r.publish) problems.push(`${where}: ask needs "publish": its answers go out as an event`);
+			if (r.agent || r.call) problems.push(`${where}: ask stands with publish or set, not with agent or call: it publishes its answers or writes them into shared state, and a second route acts on them`);
+			if (!r.publish && !r.set) problems.push(`${where}: ask needs "publish" or "set": its answers go out as an event, or into shared state ({{answers.<name>}})`);
 		}
 		if (r.call && typeof r.call.prompt !== "string") problems.push(`${where}: call needs "prompt"`);
 		if (r.publish && typeof r.publish.topic !== "string") problems.push(`${where}: publish needs "topic"`);

@@ -609,7 +609,7 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[],
 		if (input.ask_model && !models.includes(input.ask_model)) throw new Error(`there is no model "${input.ask_model}". Models: ${models.slice(0, 40).join(", ")}`);
 		const decider = input.ask_source ? deciders.find((d) => d.name === input.ask_source) : undefined;
 		if (input.ask_source && !decider) throw new Error(`"${input.ask_source}" is not a source that answers typed questions. ${deciders.length ? `Those that do: ${deciders.map((d) => d.name).join(", ")}` : "There is none: leave ask_source out, and a model answers"}`);
-		if (!input.publish_topic) throw new Error('typed questions need "publish_topic": the answers go out as an event, and a second route filters on payload.answers.<name>');
+		if (!input.publish_topic && !input.set) throw new Error('typed questions need "publish_topic" (the answers go out as an event, and a second route filters on payload.answers.<name>) or "set" (the answers go into shared state: {"agent/main/answer": "{{answers}}"})');
 		entry.ask = ask;
 		const questions = ask.questions as AskQuestions;
 		const shown = ask.data === undefined ? "the event's whole payload" : `${JSON.stringify(ask.data)}`;

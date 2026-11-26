@@ -83,7 +83,7 @@ unless a conversation is subscribed to it anyway.
 | `set` | Write shared state: `{ "house/mode": "{{payload.value}}" }`. `null`, or a value that is exactly one `{{path}}` that finds nothing, deletes the key. |
 | `publish` | Publish another event: `{ "topic": "...", "payload": {...} }`. Without `payload` the original payload is passed on; after a `call` it is `{ "text": <the answer>, "of": <the original payload> }`. |
 | `call` | One model call: `{ "prompt": "...", "system": "...", "model": "provider/id" }`. Its answer is `{{result}}`. |
-| `ask` | Typed questions about the event: `{ "questions": {...}, "data": "...", "model": "provider/id" }` or `"source": "<name>"` instead of `model`. Its answers are `{{answers.<name>}}`; without a `payload` of its own, `publish` sends `{ "answers": ..., "of": <the original payload> }`. See "Typed questions" below. |
+| `ask` | Typed questions about the event: `{ "questions": {...}, "data": "...", "model": "provider/id" }` or `"source": "<name>"` instead of `model`. Its answers are `{{answers.<name>}}`; without a `payload` of its own, `publish` sends `{ "answers": ..., "of": <the original payload> }`. With `ask`, `set` runs after the answers, so it can write them into shared state. See "Typed questions" below. |
 | `agent` | Give an agent a task. |
 | `prompt` | The task text. Default: the payload's `text`, or the payload as JSON. |
 | `label` | A short line for the task in listings (`pine tasks`, the UIs). A template. |
@@ -96,7 +96,26 @@ unless a conversation is subscribed to it anyway.
 A route needs at least one of `set`, `publish`, `call`, `ask`, `agent`. They run in the order `set`,
 `call`, `ask`, `publish`, `agent`, so one route can classify with `call` and pass the result on with
 `publish`. `call` and `agent` cannot be in the same route: publish the result and let a second
-route start the agent, as in the example below. `ask` stands with `publish` alone in the same way.
+route start the agent, as in the example below. `ask` stands with `publish` or `set` in the same way.
+
+### Trying a route
+
+To see what a route does without waiting for a real event, write shared state. Every write is an
+event on `state/<key>`, and an agent may write keys under `agent/<its id>/`. So a route on
+`state/agent/main/try` fires when the main agent writes `agent/main/try` with `state_set`, and
+`{{payload.value}}` is what it wrote. To read what the route did, let it write that into shared
+state too, and read it with `state_get` a few seconds later. To try a decision source:
+
+```json
+{ "name": "try-decider", "on": "state/agent/main/try",
+  "ask": { "source": "decider", "data": "{{payload.value}}",
+           "questions": { "overdue": { "type": "yesno", "question": "Is the invoice past its due date?" } } },
+  "set": { "agent/main/try-answer": "{{answers}}" } }
+```
+
+`state_set` `agent/main/try` to a sample text, then `state_get` `agent/main/try-answer`:
+`{"overdue": {"yes": 0.999}}`. When nothing arrives, the route failed: for a source, the `sources`
+tool shows its status, which says why. Remove the route afterwards (`remove_route`).
 
 ### Templates
 
@@ -203,9 +222,6 @@ an untrusted mail are untrusted, and an agent a second route wakes for them work
 itself. An event can still lean on the answer (a mail that says it is urgent): that decides which
 of your routes acts on it, never what they do or with what trust, which is no more than whoever can
 write to that topic can do.
-
-To try questions, or a decision source you just set up, without a route: ask the main agent, which
-puts them to it once with `try_decision` and shows the answers ([setup.md](setup.md), "Routes").
 
 What goes where: with a model, the `data` goes to that model, as with `call`; with a local model
 nothing leaves the computer.

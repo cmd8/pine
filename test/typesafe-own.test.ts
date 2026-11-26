@@ -5,7 +5,7 @@ import type { AskQuestions } from "../src/ask.ts";
 import { type } from "../src/sources/typesafe.ts";
 import fs from "node:fs";
 import path from "node:path";
-import { harness, mockMsg } from "./support/harness.ts";
+import { harness } from "./support/harness.ts";
 
 const KEY = "pinecone-token-0123456789";
 
@@ -146,20 +146,3 @@ test("typesafe at a model server pine has: its address and key are used, as they
 	await h.close();
 });
 
-test("typesafe: the main agent tries a decision source once, without a route, and sees the checked answers", async (t) => {
-	const p = await pinecone(t);
-	const h = await harness({ pine: { main: "main", sources: { decider: { type: "typesafe", url: p.url, model: "decider", key: "${PINE_SOURCE_DECIDER_KEY}" } } }, files: { ".env": `PINE_SOURCE_DECIDER_KEY=${KEY}\n` }, agents: { main: {} } });
-	const questions = JSON.stringify({ kind: QUESTIONS.kind });
-	const tool = (args: Record<string, unknown>) => ({ name: "try_decision", args });
-	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: [tool({ source: "decider", questions, data: "Invoice 42, due today" }), tool({ source: "nope", questions, data: "x" }), tool({ source: "decider", questions: '{"q": {"type": "yesno", "question": "Is {{payload.x}} bad?"}}', data: "x" })] }]), trust: "owner" });
-	const [tried, nope, templated] = h.toolResults().slice(-3);
-	assert.match(tried, /^The source decider answered in \d+ ms, as a route would publish it in payload\.answers:\n\{\n  "kind": \{\n    "choice": "invoice",\n    "confidence": 0\.997/);
-	assert.equal(p.asked.length, 1);
-	assert.equal(p.asked[0].state, "Invoice 42, due today");
-	assert.match(nope, /"nope" is not a source that answers typed questions\. decider/);
-	assert.match(templated, /fixed text/);
-	assert.deepEqual(h.pine.cfg.routes, [], "nothing was added");
-	// What it is given leaves the computer: after outside content it waits for the owner, like send.
-	assert.ok(h.pine.cfg.agents.main.approveWhenTainted.includes("try_decision"));
-	await h.close();
-});

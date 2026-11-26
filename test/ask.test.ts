@@ -166,3 +166,16 @@ test("a source whose type decides answers in place of a model, and is held to th
 	assert.throws(() => checkRoute(cfg, { name: "judge7", on: "mail/in", ask_questions: '{"u": {"type": "yesno", "question": "Is {{payload.x}} bad?"}}', publish_topic: "x/y" }, [], deciders), /fixed text/);
 	await h.close();
 });
+
+test("a route that is tried by writing shared state asks its questions and writes the answers into state", async () => {
+	const h = await harness({
+		pine: { routes: [{ name: "try", on: "state/agent/main/try", ask: { data: "{{payload.value}}", questions: { urgent: QUESTIONS.urgent } }, set: { "agent/main/try-answer": "{{answers}}" } }] },
+		agents: { main: {} },
+		mockOptions: answering((user) => (user.includes("OVERDUE") ? '{"urgent": {"yes": 0.97}}' : '{"urgent": {"yes": 0.1}}')),
+	});
+	h.pine.state.set("agent/main/try", "OVERDUE invoice, pay today");
+	await until(() => h.pine.state.get("agent/main/try-answer") !== undefined);
+	assert.deepEqual(h.pine.state.get("agent/main/try-answer"), { urgent: { yes: 0.97 } }, "set runs after the answers");
+	assert.match(JSON.stringify(h.mock.state.requests.at(-1).body.messages), /<data>\\nOVERDUE invoice, pay today\\n<\/data>/);
+	await h.close();
+});

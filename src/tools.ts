@@ -11,7 +11,6 @@ import { NOT_A_SUBAGENTS, SUBAGENT_CANNOT_ASK, serverTool } from "./catalogue.ts
 import { type Board, type BoardItem, boardName, type BoardScope, MAX_FAILED_FINALS, MAX_REWORK, verdictOf, type Who, JOB_NOTE_CHARS, TASK_CHARS } from "./boards.ts";
 import type { PineEvent, TaskResult } from "./types.ts";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
-import { type AskConfig, askProblem } from "./ask.ts";
 import { addServer, findServer, mcpEnvName, piMcp, removeServer, splitCommand, validateServer } from "./mcp-config.ts";
 import { login, logout, type Prompter } from "./login.ts";
 import { setEnv } from "./env-file.ts";
@@ -1888,7 +1887,7 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 						call_prompt: Type.Optional(Type.String({ description: "Ask a model this, once, without tools. The answer is {{result}} in publish_payload" })),
 						call_system: Type.Optional(Type.String({ description: "The instructions for that one call" })),
 						call_model: Type.Optional(Type.String({ description: "The model for that call, as provider/model. Default: pine's default model" })),
-						ask_questions: Type.Optional(Type.String({ description: 'Typed questions about each event, as JSON, each under a name: {"urgent": {"type": "yesno", "question": "Does this need an answer today?"}, "kind": {"type": "choice", "question": "What is it?", "options": {"invoice": "a bill to pay", "other": "anything else"}}, "mood": {"type": "score", "question": "How upset is the sender?", "levels": ["calm", "annoyed", "angry"]}}. Fixed text: no {{...}}. The event published carries payload.answers.urgent.yes (0 to 1), payload.answers.kind.choice, payload.answers.mood.level and .score (0 is the lowest), and payload.of, the event asked about' })),
+						ask_questions: Type.Optional(Type.String({ description: 'Typed questions about each event, as JSON, each under a name: {"urgent": {"type": "yesno", "question": "Does this need an answer today?"}, "kind": {"type": "choice", "question": "What is it?", "options": {"invoice": "a bill to pay", "other": "anything else"}}, "mood": {"type": "score", "question": "How upset is the sender?", "levels": ["calm", "annoyed", "angry"]}}. Fixed text: no {{...}}. The event published carries payload.answers.urgent.yes (0 to 1), payload.answers.kind.choice, payload.answers.mood.level and .score (0 is the lowest), and payload.of, the event asked about. With set instead of publish_topic, {{answers}} goes into shared state: how to try a route (state_set on agent/<you>/..., then state_get)' })),
 						ask_model: Type.Optional(Type.String({ description: "The model that answers, as provider/model. Default: pine's default model" })),
 						ask_source: Type.Optional(Type.String({ description: "Instead of a model: a source of all agents that answers typed questions" })),
 						ask_data: Type.Optional(Type.String({ description: 'What the questions are about, for example "{{payload.subject}}\n{{payload.text}}". Default: the whole event' })),
@@ -1904,33 +1903,6 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what you proposed.`);
 						manager.router?.add(addRoute(cfg, checked.entry));
 						return ok(`Your owner confirmed it. The route "${p.name}" is added and works from now on:\n${checked.lines.join("\n")}\nTo change it, remove it and add it again.`);
-					},
-				}),
-				defineTool({
-					name: "try_decision",
-					label: "Try a decision",
-					description: `Put typed questions about a text to a decision source or a model, once, and see the answers, as a route's "ask" would get them: to test a decision source after setting it up, or questions before a route asks them. Nothing is added: no route, no event. What you give as "data" goes to that source or model.`,
-					parameters: Type.Object({
-						questions: Type.String({ description: 'The questions, as JSON, as for add_route\'s ask_questions: {"urgent": {"type": "yesno", "question": "Does this need an answer today?"}}' }),
-						data: Type.String({ description: "The text the questions are about, e.g. a mail as a route would pass it" }),
-						source: Type.Optional(Type.String({ description: "A source that answers typed questions (the sources tool marks them). Leave out to ask a model" })),
-						model: Type.Optional(Type.String({ description: "The model to ask instead of a source, as provider/model. Default: pine's default model" })),
-					}),
-					execute: async (_id, p) => {
-						run();
-						if (!manager.router) throw new Error("routes are not running in this pine");
-						let questions: unknown;
-						try {
-							questions = JSON.parse(p.questions);
-						} catch {
-							throw new Error('"questions" must be JSON, for example {"urgent": {"type": "yesno", "question": "Does this need an answer today?"}}');
-						}
-						const ask = { questions, ...(p.source ? { source: p.source } : {}), ...(p.model ? { model: p.model } : {}) };
-						const wrong = askProblem(ask);
-						if (wrong) throw new Error(wrong);
-						const started = Date.now();
-						const answers = await manager.router.decide(ask as AskConfig, p.data);
-						return ok(`${p.source ? `The source ${p.source}` : `The model ${p.model ?? cfg.defaults.model ?? "pine's default"}`} answered in ${Date.now() - started} ms, as a route would publish it in payload.answers:\n${JSON.stringify(answers, null, 2)}`);
 					},
 				}),
 				defineTool({
@@ -2252,7 +2224,7 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 				description: `Store a fact in shared state so other agents and later runs can see it. Keys you may write: ${agent.state.write.join(", ")}. An empty value deletes the key.`,
 				parameters: Type.Object({ key: Type.String(), value: Type.String({ description: "JSON or plain text" }) }),
 				execute: async (_id, p) => {
-					if (!matchesAny(agent.state.write, p.key)) throw new Error(`not allowed to write "${p.key}". Allowed: ${agent.state.write.join(", ")}`);
+					if (!matchesAny(agent.state.write, p.key)) throw new Error(`not allowed to write "${p.key}". Allowed: ${agent.state.write.join(", ")}${agent.state.write[0]?.endsWith("/#") ? `, for example ${agent.state.write[0].slice(0, -1)}${p.key.split("/").pop()}` : ""}`);
 					state.set(p.key, parseLoose(p.value) ?? null, { source: `agent:${agent.id}`, cause: causeOf() });
 					return ok(`stored ${p.key}`);
 				},

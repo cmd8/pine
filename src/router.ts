@@ -106,7 +106,11 @@ export class Router {
 		const trust: Trust = route.trust ?? e.trust;
 		try {
 			let ctx = this.context(e);
-			for (const [k, v] of Object.entries(route.set ?? {})) this.state.set(render(k, ctx), renderDeep(v, ctx), { source, cause: e });
+			// With typed questions, state is written after they are answered, so that it can hold the answers ({{answers.<name>}}).
+			const setState = () => {
+				for (const [k, v] of Object.entries(route.set ?? {})) this.state.set(render(k, ctx), renderDeep(v, ctx), { source, cause: e });
+			};
+			if (!route.ask) setState();
 
 			if (route.call) {
 				const images = this.imagesOf(e).flatMap((i) => {
@@ -119,7 +123,10 @@ export class Router {
 				const result = await this.complete({ model: route.call.model, system: route.call.system ? render(route.call.system, ctx) : undefined, prompt: this.guard(render(route.call.prompt, ctx), e, trust), images });
 				ctx = this.context(e, { result });
 			}
-			if (route.ask) ctx = this.context(e, { answers: await this.ask(route, e, ctx) });
+			if (route.ask) {
+				ctx = this.context(e, { answers: await this.ask(route, e, ctx) });
+				setState();
+			}
 			if (route.publish) {
 				const payload = route.publish.payload !== undefined ? renderDeep(route.publish.payload, ctx) : route.call ? { text: (ctx as any).result, of: e.payload } : route.ask ? { answers: (ctx as any).answers, of: e.payload } : e.payload;
 				this.bus.publish(render(route.publish.topic, ctx), payload, { source, cause: e, hop: true, reply: e.reply, trust });
@@ -161,7 +168,7 @@ export class Router {
 		return this.decide(a, a.data !== undefined ? renderDeep(a.data, ctx) : e.payload);
 	}
 
-	/** Typed questions about `data`, as a route asks them: by its model or its source, the answers checked. Also the main agent's try_decision. */
+	/** Typed questions about `data`, as a route asks them: by its model or its source, the answers checked. */
 	async decide(a: AskConfig, data: unknown): Promise<AskAnswers> {
 		const text = truncate(dataText(data), this.cfg.limits.maxEventChars);
 		const signal = AbortSignal.timeout(ASK_TIMEOUT_MS);
