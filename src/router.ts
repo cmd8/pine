@@ -11,7 +11,7 @@ export interface CompleteOptions {
 	schema?: Record<string, unknown>;
 	signal?: AbortSignal;
 }
-import { answerSchema, type AskAnswers, askPrompt, checkAnswers, dataText } from "./ask.ts";
+import { answerSchema, type AskAnswers, type AskConfig, askPrompt, checkAnswers, dataText } from "./ask.ts";
 import type { Bus, State } from "./store.ts";
 import type { ImageRef, PineEvent, Trust } from "./types.ts";
 import { isInside, realish } from "./security.ts";
@@ -158,7 +158,11 @@ export class Router {
 	 */
 	private async ask(route: RouteConfig, e: PineEvent, ctx: Record<string, unknown>): Promise<AskAnswers> {
 		const a = route.ask!;
-		const data = a.data !== undefined ? renderDeep(a.data, ctx) : e.payload;
+		return this.decide(a, a.data !== undefined ? renderDeep(a.data, ctx) : e.payload);
+	}
+
+	/** Typed questions about `data`, as a route asks them: by its model or its source, the answers checked. Also the main agent's try_decision. */
+	async decide(a: AskConfig, data: unknown): Promise<AskAnswers> {
 		const text = truncate(dataText(data), this.cfg.limits.maxEventChars);
 		const signal = AbortSignal.timeout(ASK_TIMEOUT_MS);
 		if (a.source) {

@@ -11,6 +11,7 @@ import { NOT_A_SUBAGENTS, SUBAGENT_CANNOT_ASK, serverTool } from "./catalogue.ts
 import { type Board, type BoardItem, boardName, type BoardScope, MAX_FAILED_FINALS, MAX_REWORK, verdictOf, type Who, JOB_NOTE_CHARS, TASK_CHARS } from "./boards.ts";
 import type { PineEvent, TaskResult } from "./types.ts";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
+import { type AskConfig, askProblem } from "./ask.ts";
 import { addServer, findServer, mcpEnvName, piMcp, removeServer, splitCommand, validateServer } from "./mcp-config.ts";
 import { login, logout, type Prompter } from "./login.ts";
 import { setEnv } from "./env-file.ts";
@@ -1903,6 +1904,33 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what you proposed.`);
 						manager.router?.add(addRoute(cfg, checked.entry));
 						return ok(`Your owner confirmed it. The route "${p.name}" is added and works from now on:\n${checked.lines.join("\n")}\nTo change it, remove it and add it again.`);
+					},
+				}),
+				defineTool({
+					name: "try_decision",
+					label: "Try a decision",
+					description: `Put typed questions about a text to a decision source or a model, once, and see the answers, as a route's "ask" would get them: to test a decision source after setting it up, or questions before a route asks them. Nothing is added: no route, no event. What you give as "data" goes to that source or model.`,
+					parameters: Type.Object({
+						questions: Type.String({ description: 'The questions, as JSON, as for add_route\'s ask_questions: {"urgent": {"type": "yesno", "question": "Does this need an answer today?"}}' }),
+						data: Type.String({ description: "The text the questions are about, e.g. a mail as a route would pass it" }),
+						source: Type.Optional(Type.String({ description: "A source that answers typed questions (the sources tool marks them). Leave out to ask a model" })),
+						model: Type.Optional(Type.String({ description: "The model to ask instead of a source, as provider/model. Default: pine's default model" })),
+					}),
+					execute: async (_id, p) => {
+						run();
+						if (!manager.router) throw new Error("routes are not running in this pine");
+						let questions: unknown;
+						try {
+							questions = JSON.parse(p.questions);
+						} catch {
+							throw new Error('"questions" must be JSON, for example {"urgent": {"type": "yesno", "question": "Does this need an answer today?"}}');
+						}
+						const ask = { questions, ...(p.source ? { source: p.source } : {}), ...(p.model ? { model: p.model } : {}) };
+						const wrong = askProblem(ask);
+						if (wrong) throw new Error(wrong);
+						const started = Date.now();
+						const answers = await manager.router.decide(ask as AskConfig, p.data);
+						return ok(`${p.source ? `The source ${p.source}` : `The model ${p.model ?? cfg.defaults.model ?? "pine's default"}`} answered in ${Date.now() - started} ms, as a route would publish it in payload.answers:\n${JSON.stringify(answers, null, 2)}`);
 					},
 				}),
 				defineTool({

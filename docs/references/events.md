@@ -204,6 +204,9 @@ itself. An event can still lean on the answer (a mail that says it is urgent): t
 of your routes acts on it, never what they do or with what trust, which is no more than whoever can
 write to that topic can do.
 
+To try questions, or a decision source you just set up, without a route: ask the main agent, which
+puts them to it once with `try_decision` and shows the answers ([setup.md](setup.md), "Routes").
+
 What goes where: with a model, the `data` goes to that model, as with `call`; with a local model
 nothing leaves the computer.
 

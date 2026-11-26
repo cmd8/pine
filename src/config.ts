@@ -498,7 +498,7 @@ function loadAgent(id: string, dir: string, raw: any, cfg: PineConfig, problems:
 			env: raw.sandbox?.env ?? {},
 		},
 		approve: strings(raw.approve, []),
-		approveWhenTainted: strings(raw.approveWhenTainted, ["publish_event", "send"]),
+		approveWhenTainted: strings(raw.approveWhenTainted, ["publish_event", "send", "try_decision"]),
 		untrusted:
 			raw.untrusted === false
 				? false

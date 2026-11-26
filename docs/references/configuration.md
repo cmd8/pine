@@ -216,7 +216,7 @@ Every key is optional; `{}` is a valid agent.
 | `sandbox.env` | `{}` | Extra environment variables for the agent's shell. Do not put secrets here; the agent can read them. |
 | `trustWorkspace` | `false` | `true` lets pi load `.pi/extensions`, `.pi/settings.json` and skills from the workspace. That is code execution inside the daemon for whoever can write there, the agent included. |
 | `approve` | `[]` | Tool calls that always need your approval: `"tool"` or `"tool:argument-glob"`, for example `"bash:*git push*"`. |
-| `approveWhenTainted` | `["publish_event", "send"]` | Tool calls that count as sending something out. Once the session has seen outside content they need your approval. A `send` through a source that reaches only you (Telegram) is a message to you and is never asked about this way; to see those first, name it in `approve` (`"send:telegram"`). |
+| `approveWhenTainted` | `["publish_event", "send", "try_decision"]` | Tool calls that count as sending something out. Once the session has seen outside content they need your approval. A `send` through a source that reaches only you (Telegram) is a message to you and is never asked about this way; to see those first, name it in `approve` (`"send:telegram"`). |
 | `untrusted` | read-only profile | What a run started by an untrusted event may use: `{ "tools": ["read","grep","find","ls"], "mcp": [], "delegates": [], "publish": [], "stateWrite": false, "subagents": false, "board": false }`. `board`: whether such a run has the board tools; what it posts counts as coming from outside ([boards.md](boards.md)). `false` in place of the whole profile refuses such runs. |
 
 ## models.json
