@@ -144,3 +144,18 @@ test("work whose end was never heard is not at work for ever: what the daemon no
 	w.settle(1, { status: "done" });
 	assert.equal(w.jobs.get(1)!.doing, "failed", "what has ended stays as it ended");
 });
+
+test("a source that was removed leaves the view, also one that had reported something", () => {
+	const w = new World();
+	w.setPlaces([{ id: "house", main: false, mode: "safe", description: "" }]);
+	w.setSources([
+		{ name: "camera", type: "onvif", events: 0, subscribers: ["house"] },
+		{ name: "inbox", type: "mail", events: 2, subscribers: ["house"] },
+	]);
+	w.take([ev("source/camera/motion", { text: "someone at the door" }, { source: "source:camera", trust: "untrusted" })]);
+	assert.deepEqual(w.inputs().filter((s) => s.kind === "source").map((s) => s.name), ["camera", "inbox"]);
+	w.setSources([{ name: "inbox", type: "mail", events: 2, subscribers: ["house"] }]);
+	assert.deepEqual(w.inputs().filter((s) => s.kind === "source").map((s) => s.name), ["inbox"]);
+	assert.equal(w.sourceInfo.has("source:camera"), false);
+	assert.equal(w.stations.has("you"), true, "the other ways in stay");
+});

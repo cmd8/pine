@@ -56,10 +56,28 @@ const announce = (list: ViewHappening[]) => {
 	for (const h of list) for (const fn of happenings) fn(h);
 };
 /** What the events do not say and the view shows: asked again when an event says it may have changed. */
-const stale = { conversations: true, schedules: true, boards: true };
+const stale = { conversations: true, schedules: true, boards: true, holdings: true };
+/** The tools that change what an agent has (sources, subscriptions, MCP servers, skills, schedules) or which agents there are. */
+const SETUP = /^((add|remove)_(source|source_type|mcp_server|skill|schedule)|subscribe|unsubscribe|(create|remove|rename|update)_agent)$/;
+/** Asks each agent what it has, and the daemon which sources there are, and gives both to the world. */
+async function fetchHoldings(agents: string[], gone: () => boolean): Promise<void> {
+	const [sources] = await Promise.all([
+		api.sources().catch(() => undefined),
+		...agents.map(async (id) => {
+			const d = await api.agentDetail(id).catch(() => undefined);
+			const h = d?.holdings;
+			if (!gone() && h) holdings.set(id, { servers: [...h.servers], skills: [...h.skills], sources: [...h.sources], schedules: [...h.schedules] });
+		}),
+	]);
+	if (gone()) return;
+	if (sources) world.setSources(sources);
+	else world.touch();
+}
 store.taps.add((batch) => {
 	world.take(batch);
 	for (const e of batch) {
+		const p = e.payload as { tool?: unknown; phase?: unknown } | undefined;
+		if (/^agent\/[^/]+\/tool$/.test(e.topic) && p?.phase === "end" && SETUP.test(String(p.tool ?? ""))) stale.holdings = true;
 		// A conversation was made, removed, branched or given a worktree; work began or ended in one (a branch is new with its first work).
 		if (e.topic === "pine/conversation" || /^agent\/[^/]+\/(started|done|failed)$/.test(e.topic)) stale.conversations = true;
 		if (e.topic === "pine/board") stale.boards = true;
@@ -117,15 +135,13 @@ function useSeed(): void {
 	const s = useModel(store);
 	useEffect(() => {
 		world.setPlaces(s.agents.map((a) => ({ id: a.id, main: a.main, color: a.color, mode: a.mode, description: a.description })));
-		// What each agent has, by name: its MCP servers, skills, sources and schedules.
+		// What each agent has, by name: its MCP servers, skills, sources and schedules. Asked again below when it may have changed.
 		let gone = false;
-		void Promise.all(
-			s.agents.map(async (a) => {
-				const d = await api.agentDetail(a.id).catch(() => undefined);
-				const h = d?.holdings;
-				if (!gone && h) holdings.set(a.id, { servers: [...h.servers], skills: [...h.skills], sources: [...h.sources], schedules: [...h.schedules] });
-			}),
-		).then(() => !gone && world.touch());
+		for (const id of holdings.keys()) if (!s.agents.some((a) => a.id === id)) holdings.delete(id);
+		void fetchHoldings(
+			s.agents.map((a) => a.id),
+			() => gone,
+		);
 		return () => void (gone = true);
 	}, [s.agents]);
 	useEffect(() => {
@@ -167,6 +183,14 @@ function useSeed(): void {
 		let talked = 0;
 		let timed = 0;
 		let boarded = 0;
+		// What each agent has and which sources there are: asked when an agent's setup tool ended, and now and then for what the owner changed in Settings.
+		let held = Date.now();
+		const holds = () => {
+			held = Date.now();
+			stale.holdings = false;
+			void fetchHoldings([...world.places.keys()], () => gone);
+		};
+		stale.holdings = false;
 		// The boards (how many tasks stand how, and which work has one): asked when pine says one changed, and now and then.
 		const boards = async () => {
 			boarded = Date.now();
@@ -202,6 +226,7 @@ function useSeed(): void {
 			const due = world.schedules.some((s) => s.next !== undefined && s.next - world.skew < t - 1500);
 			if ((stale.schedules && t - timed > 700) || (due && t - timed > 3000) || t - timed > 30_000) void schedules();
 			if ((stale.boards && t - boarded > 500) || t - boarded > 30_000) void boards();
+			if ((stale.holdings && t - held > 500) || t - held > 30_000) holds();
 		}, 300);
 		return () => ((gone = true), window.clearInterval(id));
 	}, [s.home, s.remote]);

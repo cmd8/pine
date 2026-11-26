@@ -294,8 +294,11 @@ export class World {
 		this.touch();
 	}
 
-	/** The event sources there are, also those that have reported nothing yet. */
+	/** The event sources there are, also those that have reported nothing yet; a source that is not in the list was removed. */
 	setSources(list: Array<{ name: string; type: string; last?: { ts: number }; events: number; subscribers?: string[]; running?: boolean; error?: string }>): void {
+		const there = new Set(list.map((s) => `source:${s.name}`));
+		for (const [id, st] of this.stations) if (st.kind === "source" && !there.has(id)) this.stations.delete(id);
+		for (const id of this.sourceInfo.keys()) if (!there.has(id)) this.sourceInfo.delete(id);
 		for (const s of list) {
 			const id = `source:${s.name}`;
 			// A subscriber is an agent, or one conversation of it ("agent:session"): the agent is what a view is told.
