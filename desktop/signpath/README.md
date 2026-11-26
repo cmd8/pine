@@ -35,10 +35,7 @@ four numbers Windows keeps beside it (0.41.0.0). Should SignPath compare the fou
    - **Artifact configurations:** two, with the slugs `app-folder` and `installer`, each with the
      XML of the file of that name here.
    - **The CI user's API token:** Users and Groups → CI builds → Regenerate token (shown once).
-4. **Secrets** in the GitHub environment `signing-trial`, for the trial below and for every
-   release: it is the only place they are kept, since nobody can read them back from GitHub to
-   set them a second time. The environment allows the branches `main` and `next` (and a branch a
-   trial runs from):
+4. **Secrets** in the GitHub environment `signing-trial`, for the trial below:
 
    | Secret                     | Value                                              |
    | -------------------------- | -------------------------------------------------- |
@@ -52,16 +49,11 @@ four numbers Windows keeps beside it (0.41.0.0). Should SignPath compare the fou
 5. **The trial:** `gh workflow run release.yml --ref <branch> -f version=0.0.1 -f
    signing_trial=true` packs both apps from that branch, has them and their installers signed with
    the test certificate (no approval) and keeps the result as an artifact of the run. SignPath
-   Foundation looks at a trial that went through before it orders the real certificate. With
-   `-f signing_policy=release-signing` the trial asks for the real certificate instead, and its
-   check wants signatures that Windows trusts.
+   Foundation looks at a trial that went through before it orders the real certificate.
 6. **Once the certificate is in** (the policy `release-signing` is valid): "Use approval process"
-   with yourself as approver on that policy. Nothing changes on GitHub: a release asks for
-   `release-signing` by name (the secret `SIGNPATH_POLICY_SLUG` stays `test-signing`, for
-   trials). From then on every release from `main` asks for its two approvals. "Verify origin"
-   with the branch `main` would also refuse a trial with the real policy and a repair run from
-   `next`.
+   with yourself as approver and "Verify origin" with the branch `main` on that policy, and the
+   same four secrets in the environment `release`, the last one `release-signing`. From then on
+   every release from `main` asks for its two approvals.
 
 To build a release's apps again: `gh workflow run release.yml -f version=<the last release>` from
-`main` builds them from that release's tag and uploads them to it (`-f apps=windows -f
-replace=true` signs the Windows installers anew).
+`main` builds them from that release's tag and uploads them to it.
