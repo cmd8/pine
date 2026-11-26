@@ -627,7 +627,7 @@ export function ease(name: string, args: any): any {
 	return args;
 }
 
-/** Arguments made to fit a schema where the difference is one of form: a number as text, one value where a list is taken, a choice in other letters, an object as JSON text, a key in other spelling. */
+/** Arguments made to fit a schema where the difference is one of form: a number as text, one value where a list is taken, a choice in other letters, an object as JSON text and JSON text as an object, a key in other spelling. */
 export function fit(schema: any, args: any): any {
 	if (!schema || typeof schema !== "object" || !args || typeof args !== "object" || Array.isArray(args)) return args;
 	const props = (schema.properties ?? {}) as Record<string, any>;
@@ -665,6 +665,8 @@ export function fit(schema: any, args: any): any {
 		if (s.type === "array" && v !== undefined && v !== null && !Array.isArray(v)) v = [v];
 		// A list where the tool takes its items in one text, separated by commas (pine's own tools do).
 		if (s.type === "string" && Array.isArray(v) && v.every((x) => typeof x === "string")) v = v.join(", ");
+		// JSON where the tool takes it as text (pine's own tools take a filter, state or questions so): the object as JSON.
+		else if (s.type === "string" && v !== null && typeof v === "object") v = JSON.stringify(v);
 		if (v === null && !(raw.anyOf ?? raw.oneOf ?? []).some((x: any) => x?.type === "null") && !(schema.required ?? []).includes(key)) {
 			delete args[key];
 			continue;
