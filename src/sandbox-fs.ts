@@ -18,9 +18,11 @@ export interface SandboxFs {
 	env(): NodeJS.ProcessEnv;
 	/**
 	 * Where the sandbox cannot forbid making a protected file (Linux, see `sandboxGuard`): taken
-	 * before a write, and `restore` after it removes what the write may not have made.
+	 * before a write, and `restore` after it removes what the write may not have made. A guard that
+	 * could not look through the whole tree says so (`uncertain`), and then no write happens: one that
+	 * cannot be checked is refused, not allowed.
 	 */
-	guard?(): { restore(): string[] } | undefined;
+	guard?(): { restore(): string[]; uncertain(): string | undefined } | undefined;
 }
 
 const MAX_READ = 50 * 1024 * 1024;
@@ -92,6 +94,13 @@ export function sandboxedFileTools(fs: SandboxFs, enabled: string[]): any[] {
 	/** A call that writes. What it made although the run may not make it is gone again afterwards, and the call fails. */
 	const writing = async (file: string, argv: string[], stdin?: string) => {
 		const guard = fs.guard?.();
+		// A tree too large to look through cannot be checked before or after the write, so the write does not happen:
+		// the guard says why, and the answer reads like every other refusal here rather than like a failure of the command.
+		const vouched = () => {
+			const why = guard?.uncertain();
+			if (why) throw new Error(`${file}: not permitted. ${why}`);
+		};
+		vouched();
 		let r: Awaited<ReturnType<typeof sandboxExec>>;
 		let gone: string[] = [];
 		try {
@@ -99,6 +108,8 @@ export function sandboxedFileTools(fs: SandboxFs, enabled: string[]): any[] {
 		} finally {
 			gone = guard?.restore() ?? [];
 		}
+		// The look taken after the write may be the one that ran out of folders.
+		vouched();
 		if (gone.length) throw explain(file, "Operation not permitted");
 		if (r.code !== 0) throw explain(file, r.stderr);
 	};
