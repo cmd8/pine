@@ -12,6 +12,7 @@ import { type Board, type BoardItem, boardName, type BoardScope, MAX_FAILED_FINA
 import type { PineEvent, TaskResult } from "./types.ts";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
 import { addServer, findServer, mcpEnvName, piMcp, removeServer, splitCommand, validateServer } from "./mcp-config.ts";
+import { addDecision, checkDecision, decisionsText, removeDecision, signInTypesafe, signOutTypesafe, TYPESAFE, usersOf, whereIs } from "./decisions.ts";
 import { login, logout, type Prompter } from "./login.ts";
 import { setEnv } from "./env-file.ts";
 import { type ApprovalRequest, isInside, levelOf, realish } from "./security.ts";
@@ -533,7 +534,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					);
 					const asked = servers.length ? `\n\nWhat the model servers of your owner's own serve (asked just now):\n${servers.join("\n")}` : "";
 					const admin = agent.id === mainAgentId(cfg) ? `\n\nAs the main agent you set models up: add_model_server and add_model add, configure_model changes context, longest answer, pictures, reasoning and how many run at a time (runs; without a number of its own a model shares pine's ${cfg.limits.maxConcurrentRuns}), remove_model and remove_model_server take out.` : "";
-					return ok(`${all.length} model${all.length === 1 ? "" : "s"}:\n${lines.join("\n")}${all.length > 60 ? `\n... and ${all.length - 60} more` : ""}\n\nsubagent takes one of them as "model", for sub-tasks another model does better than yours. Your own model is changed by your owner${agent.id === mainAgentId(cfg) ? " or by you with update_agent" : ` or by the main agent (${mainAgentId(cfg)})`}, not by you.${asked}${admin}`);
+					return ok(`${all.length} model${all.length === 1 ? "" : "s"}:\n${lines.join("\n")}${all.length > 60 ? `\n... and ${all.length - 60} more` : ""}\n\nsubagent takes one of them as "model", for sub-tasks another model does better than yours. Your own model is changed by your owner${agent.id === mainAgentId(cfg) ? " or by you with update_agent" : ` or by the main agent (${mainAgentId(cfg)})`}, not by you.${asked}${admin}${Object.keys(cfg.decisions).length ? `\n\nDecision models (they answer the typed questions of routes, as ask_model, in a fraction of a second; no agent runs on one):\n${decisionsText(cfg)}` : ""}`);
 				},
 			}),
 		);
@@ -913,7 +914,6 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					const all = host.list();
 					const senders = host.senders(agent.id, session);
 					const readers = host.readers(agent.id, session);
-					const deciders = host.deciders();
 					const lines = mine.map((s) => {
 						const info = all.find((x) => x.name === s.name && (x.scope === agent.id || x.scope === "global"));
 						const state = `${info?.error ? `not running: ${info.error}` : info?.running ? `running${info.last ? `, last event ${new Date(info.last.ts).toLocaleString("sv-SE")}` : ", no events yet"}` : "idle"}${info?.status ? `. ${info.status}` : ""}`;
@@ -925,8 +925,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 						];
 						const sends = senders.find((x) => x.name === s.name);
 						const reads = readers.find((x) => x.name === s.name);
-						const decides = info?.scope === "global" ? deciders.find((x) => x.name === s.name) : undefined;
-						return `${s.name} (${s.type}${s.description ? `: ${s.description}` : ""}) - ${state}\n${subs.length ? subs.join("\n") : "    nobody of yours is subscribed"}${sends ? `\n    can send (tool: send): ${sends.sends}` : ""}${reads ? `\n    can be read (tool: read_source): ${reads.reads}` : ""}${decides ? `\n    answers typed questions of routes (add_route with ask_source): ${decides.decides}` : ""}`;
+						return `${s.name} (${s.type}${s.description ? `: ${s.description}` : ""}) - ${state}\n${subs.length ? subs.join("\n") : "    nobody of yours is subscribed"}${sends ? `\n    can send (tool: send): ${sends.sends}` : ""}${reads ? `\n    can be read (tool: read_source): ${reads.reads}` : ""}`;
 					});
 					const hereToo = mine.filter((s) => s.local || (session === "main" && (s.agent || s.global))).length;
 					const lead = session === "main" ? "" : hereToo ? "" : " THIS conversation is not subscribed to anything: to be woken here, subscribe (without a scope), also to a source your main conversation already listens to.";
@@ -1637,12 +1636,20 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					label: "Sign in to a model provider",
 					description: `Sign pine in to a model provider when your owner asks: with an account or subscription in the browser (Claude, ChatGPT, GitHub Copilot), or with an API key (OpenAI, Gemini, Mistral, OpenRouter and the other providers pine knows). pine runs the sign-in itself. Your owner confirms it, then pine's own dialog shows them the page to open, or a field to type the key into. What they type goes to pine and never to you: never ask for a key in the conversation, and never take one from it. Afterwards the provider's models can be used, and if the agents had no model that answers, pine chooses one of the new ones. Not possible in a conversation that has read outside content.`,
 					parameters: Type.Object({
-						provider: Type.String({ description: "The provider's id: anthropic (Claude), openai-codex (ChatGPT), github-copilot, openai, google, mistral, openrouter, and so on. A wrong one is answered with the list" }),
+						provider: Type.String({ description: "The provider's id: anthropic (Claude), openai-codex (ChatGPT), github-copilot, openai, google, mistral, openrouter, and so on. A wrong one is answered with the list. typesafe: TypeSafe, for its decision model Jev (a key)" }),
 						way: Type.Optional(Type.Union([Type.Literal("browser"), Type.Literal("key")], { description: "browser: sign in with an account or subscription; key: with an API key. Left out: the provider's usual way" })),
 					}),
 					execute: async (_id, p, signal) => {
 						run();
 						if (live.tainted) throw new Error(`This conversation has read outside content (${live.tainted}), and no sign-in is started from such a conversation. Tell your owner: in a new conversation you can do it, or they sign in under Settings > Models, or with: pine login ${p.provider}`);
+						if (p.provider === "typesafe") {
+							const asked = await confirm("sign_in", `sign pine in to TypeSafe, for its decision model Jev\nA key from ${TYPESAFE.console}. What you type goes to pine, not to the agent; pine checks it with TypeSafe and keeps it in pine's .env file, which no agent can read. Routes that ask a decision model at TypeSafe send it the event's data.`, "this lets routes send events to TypeSafe in your name", signal, [{ name: "key", label: `TypeSafe API key (${TYPESAFE.console})`, secret: true }]);
+							if (!asked.allow) throw new Error(`not signed in (${asked.by}). Do not retry; tell your owner they can sign in under Settings > Models, or with: pine login typesafe`);
+							const key = String(asked.values?.key ?? "").trim();
+							manager.sources?.keepOut([key]);
+							await signInTypesafe(cfg, key);
+							return ok(`Signed in to TypeSafe.${Object.values(cfg.decisions).some((d) => d.server === "typesafe") ? "" : ' To use Jev, add it as a decision model: add_decision_model with server "typesafe".'}`);
+						}
 						const known = manager.models.getProviders().map((x: any) => String(x.id));
 						if (!known.includes(p.provider)) throw new Error(`there is no provider "${p.provider}". Known: ${known.sort().join(", ")}`);
 						const type = p.way === "browser" ? ("oauth" as const) : p.way === "key" ? ("api_key" as const) : undefined;
@@ -1672,6 +1679,13 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					execute: async (_id, p, signal) => {
 						run();
 						if (live.tainted) throw new Error(`This conversation has read outside content (${live.tainted}), and no sign-in is removed from such a conversation. Tell your owner: they sign out under Settings > Models, or with: pine logout ${p.provider}`);
+						if (p.provider === "typesafe") {
+							const at = Object.entries(cfg.decisions).filter(([, d]) => d.server === "typesafe").map(([n]) => n);
+							const gone = await confirm("sign_out", `sign pine out of TypeSafe\nThe key is taken out of pine's .env file.${at.length ? ` The decision models ${at.join(", ")} fail until pine is signed in again.` : ""}`, `this takes TypeSafe away from pine${careful()}`, signal);
+							if (!gone.allow) throw new Error(`not signed out (${gone.by}). Do not retry; tell your owner they can sign out under Settings > Models, or with: pine logout typesafe`);
+							signOutTypesafe(cfg);
+							return ok("Signed out of TypeSafe.");
+						}
 						const known = manager.models.getProviders().map((x: any) => String(x.id));
 						if (!known.includes(p.provider)) throw new Error(`there is no provider "${p.provider}". Known: ${known.sort().join(", ")}`);
 						const on = (m: string | undefined) => Boolean(m?.startsWith(`${p.provider}/`));
@@ -1888,8 +1902,7 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 						call_system: Type.Optional(Type.String({ description: "The instructions for that one call" })),
 						call_model: Type.Optional(Type.String({ description: "The model for that call, as provider/model. Default: pine's default model" })),
 						ask_questions: Type.Optional(Type.String({ description: 'Typed questions about each event, as JSON, each under a name: {"urgent": {"type": "yesno", "question": "Does this need an answer today?"}, "kind": {"type": "choice", "question": "What is it?", "options": {"invoice": "a bill to pay", "other": "anything else"}}, "mood": {"type": "score", "question": "How upset is the sender?", "levels": ["calm", "annoyed", "angry"]}}. Fixed text: no {{...}}. The event published carries payload.answers.urgent.yes (0 to 1), payload.answers.kind.choice, payload.answers.mood.level and .score (0 is the lowest), and payload.of, the event asked about. With set instead of publish_topic, {{answers}} goes into shared state: how to try a route (state_set on agent/<you>/..., then state_get)' })),
-						ask_model: Type.Optional(Type.String({ description: "The model that answers, as provider/model. Default: pine's default model" })),
-						ask_source: Type.Optional(Type.String({ description: "Instead of a model: a source of all agents that answers typed questions" })),
+						ask_model: Type.Optional(Type.String({ description: "What answers: a decision model by its name (the models list shows them: fast, calibrated, for real time), or a chat model as provider/model (slower). Default: pine's default model" })),
 						run_command: Type.Optional(Type.String({ description: 'Run this command, with no model, in run_agent\'s sandbox and workspace: a script that acts on the event, e.g. "python3 ui/answer.py". Fixed text: it is given the event (and the answers or the model\'s answer) as JSON on stdin; what it prints is {{output}}. The way to react without waking an agent' })),
 						run_agent: Type.Optional(Type.String({ description: "The agent in whose sandbox and workspace run_command runs. Default: the main agent" })),
 						ask_data: Type.Optional(Type.String({ description: 'What the questions are about, for example "{{payload.subject}}\n{{payload.text}}". Default: the whole event' })),
@@ -1900,11 +1913,53 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					execute: async (_id, p, signal) => {
 						run();
 						notHere("adding a route");
-						const checked = checkRoute(cfg, p, p.call_model || p.ask_model ? await manager.availableModels() : [], manager.sources?.deciders() ?? []);
+						const checked = checkRoute(cfg, p, p.call_model || p.ask_model ? await manager.availableModels() : []);
 						const decision = await confirm("add_route", `add the route "${p.name}"\n${checked.lines.join("\n")}`, `this adds a rule to pine's configuration that acts on events by itself${checked.wider ? `. Note: ${checked.wider}` : ""}`, signal);
 						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what you proposed.`);
 						manager.router?.add(addRoute(cfg, checked.entry));
 						return ok(`Your owner confirmed it. The route "${p.name}" is added and works from now on:\n${checked.lines.join("\n")}\nTo change it, remove it and add it again.`);
+					},
+				}),
+				defineTool({
+					name: "add_decision_model",
+					label: "Add a decision model",
+					description: `Add a decision model when your owner asks: a model that answers typed questions about a text (how likely yes is, which option, which level) in a fraction of a second, for routes (add_route with ask_model set to its name). Not a chat model: no agent runs on one. Where it is: "server" names a model server pine has that also serves it (such as Pinecone; the models tool lists the servers), with the server's name for it as "model"; or "typesafe" for TypeSafe's Jev (sign_in typesafe first); or "url" for another server that speaks TypeSafe's API. Your owner confirms it.`,
+					parameters: Type.Object({
+						name: Type.String({ description: 'Its name, which a route gives in ask_model: lowercase letters, digits, - and _, e.g. "decider"' }),
+						server: Type.Optional(Type.String({ description: 'A model server pine has that serves it, e.g. "studio", or "typesafe" for TypeSafe' })),
+						model: Type.Optional(Type.String({ description: 'The server\'s name for the model, e.g. "decider". For TypeSafe: leave out for jev-latest' })),
+						url: Type.Optional(Type.String({ description: "Instead of server: the address of another server that speaks TypeSafe's API, without /v1" })),
+						local: Type.Optional(Type.Boolean({ description: "With url: the server is on your owner's network under a name that does not say so (a Tailscale name)" })),
+						key: Type.Optional(Type.Boolean({ description: "With url: true if that server wants a key. Your owner types it into pine's dialog, never into the conversation" })),
+					}),
+					execute: async (_id, p, signal) => {
+						run();
+						notHere("adding a decision model");
+						const checked = checkDecision(cfg, p);
+						if (checked.needsKey) throw new Error("pine is not signed in to TypeSafe. Call sign_in with provider typesafe first (your owner types the key into pine's dialog), then this again");
+						const decision = await confirm("add_decision_model", `add the decision model "${p.name}"\n${checked.lines.join("\n")}`, "routes can then send events to it", signal, p.url && p.key ? [{ name: "key", label: `the key of ${new URL(p.url).host}`, secret: true }] : undefined);
+						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what you proposed.`);
+						const key = p.url && p.key ? String(decision.values?.key ?? "").trim() || undefined : undefined;
+						if (key) manager.sources?.keepOut([key]);
+						const made = addDecision(cfg, p.name, checked.entry, key);
+						return ok(`Added the decision model "${p.name}": ${made.model}, ${whereIs(made)}. A route asks it with add_route ask_model "${p.name}" and ask_questions; to see it answer, try a route as the manual says ("Trying a route").`);
+					},
+				}),
+				defineTool({
+					name: "remove_decision_model",
+					label: "Remove a decision model",
+					description: "Remove a decision model when your owner asks. Not while a route asks it: remove that route first. Your owner confirms it.",
+					parameters: Type.Object({ name: Type.String({ description: "Its name, as the models tool lists it" }) }),
+					execute: async (_id, p, signal) => {
+						run();
+						notHere("removing a decision model");
+						if (!cfg.decisions[p.name]) throw new Error(`there is no decision model "${p.name}". ${Object.keys(cfg.decisions).join(", ") || "There is none"}`);
+						const users = usersOf(cfg, p.name);
+						if (users.length) throw new Error(`the route${users.length === 1 ? "" : "s"} ${users.join(", ")} ask${users.length === 1 ? "s" : ""} "${p.name}". Remove ${users.length === 1 ? "it" : "them"} first (remove_route), if your owner wants that`);
+						const decision = await confirm("remove_decision_model", `remove the decision model "${p.name}" (${whereIs(cfg.decisions[p.name])})`, "this takes a decision model out of pine's configuration", signal);
+						if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner.`);
+						removeDecision(cfg, p.name);
+						return ok(`Removed the decision model "${p.name}".`);
 					},
 				}),
 				defineTool({

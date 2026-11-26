@@ -83,7 +83,7 @@ unless a conversation is subscribed to it anyway.
 | `set` | Write shared state: `{ "house/mode": "{{payload.value}}" }`. `null`, or a value that is exactly one `{{path}}` that finds nothing, deletes the key. |
 | `publish` | Publish another event: `{ "topic": "...", "payload": {...} }`. Without `payload` the original payload is passed on; after a `call` it is `{ "text": <the answer>, "of": <the original payload> }`. |
 | `call` | One model call: `{ "prompt": "...", "system": "...", "model": "provider/id" }`. Its answer is `{{result}}`. |
-| `ask` | Typed questions about the event: `{ "questions": {...}, "data": "...", "model": "provider/id" }` or `"source": "<name>"` instead of `model`. Its answers are `{{answers.<name>}}`; without a `payload` of its own, `publish` sends `{ "answers": ..., "of": <the original payload> }`. With `ask`, `set` runs after the answers, so it can write them into shared state. See "Typed questions" below. |
+| `ask` | Typed questions about the event: `{ "questions": {...}, "data": "...", "model": "decider" }`, where `model` is a decision model by its name or a chat model as `provider/id`. Its answers are `{{answers.<name>}}`; without a `payload` of its own, `publish` sends `{ "answers": ..., "of": <the original payload> }`. With `ask`, `set` runs after the answers, so it can write them into shared state. See "Typed questions" below. |
 | `run` | Run a command, with no model: `{ "command": "python3 ui/answer.py", "agent": "main", "timeout": "30s" }`. It runs in that agent's sandbox and workspace (default: the main agent) and is given the event as JSON on stdin; what it prints is `{{output}}`. See "Running a script" below. |
 | `agent` | Give an agent a task. |
 | `prompt` | The task text. Default: the payload's `text`, or the payload as JSON. |
@@ -107,7 +107,7 @@ that is written. An agent builds it once; from then on each event costs the scri
 
 ```json
 { "name": "desk", "on": "source/ui@main/message",
-  "ask": { "source": "decider", "data": "{{payload.value.text}}",
+  "ask": { "model": "decider", "data": "{{payload.value.text}}",
            "questions": { "urgent": { "type": "yesno", "question": "Is it urgent?" } } },
   "run": { "command": "python3 ui/answer.py" } }
 ```
@@ -131,18 +131,18 @@ To see what a route does without waiting for a real event, write shared state. E
 event on `state/<key>`, and an agent may write keys under `agent/<its id>/`. So a route on
 `state/agent/main/try` fires when the main agent writes `agent/main/try` with `state_set`, and
 `{{payload.value}}` is what it wrote. To read what the route did, let it write that into shared
-state too, and read it with `state_get` a few seconds later. To try a decision source:
+state too, and read it with `state_get` a few seconds later. To try a decision model:
 
 ```json
 { "name": "try-decider", "on": "state/agent/main/try",
-  "ask": { "source": "decider", "data": "{{payload.value}}",
+  "ask": { "model": "decider", "data": "{{payload.value}}",
            "questions": { "overdue": { "type": "yesno", "question": "Is the invoice past its due date?" } } },
   "set": { "agent/main/try-answer": "{{answers}}" } }
 ```
 
 `state_set` `agent/main/try` to a sample text, then `state_get` `agent/main/try-answer`:
-`{"overdue": {"yes": 0.999}}`. When nothing arrives, the route failed: for a source, the `sources`
-tool shows its status, which says why. Remove the route afterwards (`remove_route`).
+`{"overdue": {"yes": 0.999}}`. When nothing arrives in a few seconds, the route failed. Remove the
+route afterwards (`remove_route`).
 
 ### Templates
 
@@ -253,16 +253,13 @@ write to that topic can do.
 What goes where: with a model, the `data` goes to that model, as with `call`; with a local model
 nothing leaves the computer.
 
-**A decision model of a service.** Instead of `model`, `source` names a source whose type
-answers typed questions: a service that sells decision models, set up as a source of all agents
-like any other connection ([source-types.md](source-types.md)). Its type says in one line where
-what it is asked about goes, which the owner is shown before confirming the source and the
-route; the address is in the type's code, and its key is a secret option kept in `.env`. Its
-answers are checked as a model's are. pine has one such type, `typesafe`, named after the API it speaks: TypeSafe's Jev, a model server
-pine already has that also serves a decision model (`server`, such as Pinecone on your Mac), or with
-`url` any other server that answers the same way ([source-types.md](source-types.md#typesafe)). A decision model may also say how sure it is
+**Decision models.** `model` names a decision model as well as a chat model: one of the
+`decisions` of `pine.json` ([configuration.md](configuration.md), "Decision models"), such as a
+model Pinecone serves on your Mac or TypeSafe's Jev. It answers in a fraction of a second, with
+probabilities of its own; what it says is checked the same way. It may also say how sure it is
 (`confidence`, 0 to 1, on a `choice` and a `score`) and give a score between two levels (`1.7`;
-`level` is then the nearest).
+`level` is then the nearest). What a route asks it about goes to where it is, which you are told
+when you confirm the route.
 
 Text from untrusted events is prefixed for the agent with a line saying where it came from and
 that it is data, and is cut at `limits.maxEventChars`. That line is a courtesy; the protection

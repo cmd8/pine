@@ -295,8 +295,12 @@ export interface SourceInfo {
 	topic: string;
 	last?: { ts: number; topic: string };
 	events: number;
-	/** A source of all agents that answers routes' typed questions: where what it is asked about goes. */
-	decides?: string;
+}
+
+/** Decision models (src/decisions.ts): by name, where each is, and which routes ask it; whether pine is signed in to TypeSafe. */
+export interface Decisions {
+	typesafe: { signedIn: boolean; console: string };
+	models: Array<{ name: string; model: string; server?: string; host?: string; where: string; routes: string[] }>;
 }
 
 export interface McpServer {
@@ -383,8 +387,8 @@ export interface Route {
 	set?: Record<string, unknown>;
 	publish?: { topic: string; payload?: unknown };
 	call?: { prompt: string; system?: string; model?: string };
-	/** Typed questions (src/ask.ts): answered by `model` or by the source `source`. */
-	ask?: { questions: Record<string, AskQuestion>; model?: string; source?: string; data?: unknown };
+	/** Typed questions (src/ask.ts): answered by `model`, a decision model by its name or a chat model. */
+	ask?: { questions: Record<string, AskQuestion>; model?: string; data?: unknown };
 	/** A command run in an agent's sandbox with no model, given the event as JSON on stdin. */
 	run?: { command: string; agent?: string };
 	trust?: string;
@@ -613,6 +617,11 @@ export const api = {
 	limitModel: (name: string, model: string, limit: number | null) => post<{ name: string; model: string; limit?: number; runs: number }>("/models/servers/limit", { name, model, limit }),
 	removeModelServer: (name: string) => post<{ removed: boolean }>("/models/servers/remove", { name }),
 	providers: () => get<Provider[]>("/models/providers"),
+	decisions: () => get<Decisions>("/decisions"),
+	addDecision: (body: { name: string; server?: string; url?: string; model?: string; local?: boolean; key?: string }) => post<{ name: string; model: string; where: string; lines: string[] }>("/decisions", body),
+	removeDecision: (name: string) => post<{ removed: boolean }>("/decisions/remove", { name }),
+	typesafeSignIn: (key: string) => post<{ signedIn: boolean }>("/decisions/typesafe", { key }),
+	typesafeSignOut: () => post<{ signedIn: boolean }>("/decisions/typesafe/remove", {}),
 	login: (provider: string, type?: "api_key" | "oauth") => post<{ id: string }>("/models/login", { provider, type }),
 	loginState: (id: string) => get<LoginState>(`/models/login/${e(id)}`),
 	loginAnswer: (id: string, body: { answer: string } | { cancel: true }) => post<{ ok: boolean }>(`/models/login/${e(id)}`, body),

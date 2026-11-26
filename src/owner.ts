@@ -16,6 +16,7 @@ import { browserReady } from "./browser-build.ts";
 import { type AgentConfig, loadConfig, mainAgentId, ownText, PINE_ROOT, type PineConfig, purposeOf, SHARED_FILES, WORKSPACE_FILES } from "./config.ts";
 import { login, logout, type Prompter } from "./login.ts";
 import { findServer, piMcp, serverStates } from "./mcp-config.ts";
+import { addDecision, checkDecision, removeDecision, signInTypesafe, signOutTypesafe, TYPESAFE, typesafeSignedIn, usersOf, whereIs } from "./decisions.ts";
 import { addModelServer, checkServerName, listModelServers, lookAt, modelKeys, modelServerUsers, removeModelServer, serverUrl } from "./models.ts";
 import type { Router } from "./router.ts";
 import { audit, isInside, realish, sandboxAvailable } from "./security.ts";
@@ -317,6 +318,11 @@ export class OwnerApi {
 		if (at === "routes") return cfg.routes.map((r) => ({ name: r.name, on: r.on, when: r.when, throttleMs: r.throttleMs, debounceMs: r.debounceMs, agent: r.agent, prompt: r.prompt, session: r.session, set: r.set, publish: r.publish, call: r.call, ask: r.ask, run: r.run, trust: r.trust }));
 		if (at === "sources/types") return this.need(this.sources, "event sources").typeList().map((t) => ({ name: t.name, summary: t.summary, options: t.options, own: t.name in cfg.sourceTypes }));
 		// (Each model with its own number of runs at a time, where it has one; and what holds for the others.)
+		if (at === "decisions")
+			return {
+				typesafe: { signedIn: typesafeSignedIn(cfg), console: TYPESAFE.console },
+				models: Object.entries(cfg.decisions).map(([name, d]) => ({ name, model: d.model, server: d.server, host: d.url ? new URL(d.url).host : undefined, where: whereIs(d), routes: usersOf(cfg, name) })),
+			};
 		if (at === "models/servers") return listModelServers(cfg.home).map((x) => ({ ...x, models: x.models.map((m) => ({ ...m, ...(cfg.limits.models[`${x.name}/${m.id}`] !== undefined ? { limit: cfg.limits.models[`${x.name}/${m.id}`] } : {}) })), runs: cfg.limits.maxConcurrentRuns }));
 		if (at === "models/providers") {
 			// What pi says of each provider. `signedIn` is "pi has a credential or a key for it", which
@@ -337,7 +343,7 @@ export class OwnerApi {
 	/** A POST request. Undefined: not one of these. `long` is called by a request that takes as long as a person does. */
 	async post(parts: string[], body: any, long: () => void = () => {}): Promise<unknown | undefined> {
 		const at = parts.join("/");
-		const mine = ["settings", "shared", "skills", "skills/remove", "schedules", "schedules/remove", "routes", "routes/remove", "sources", "sources/propose", "sources/remove", "models/servers", "models/servers/remove", "models/servers/limit", "models/model", "models/model/set", "models/model/remove", "models/login", "models/logout", "mcp/login"].includes(at) || (parts[0] === "models" && parts[1] === "login" && parts.length === 3) || (parts[0] === "agents" && parts[2] === "view" && (parts[3] === "write" || parts[3] === "files") && parts.length === 4);
+		const mine = ["settings", "shared", "skills", "skills/remove", "schedules", "schedules/remove", "routes", "routes/remove", "decisions", "decisions/remove", "decisions/typesafe", "decisions/typesafe/remove", "sources", "sources/propose", "sources/remove", "models/servers", "models/servers/remove", "models/servers/limit", "models/model", "models/model/set", "models/model/remove", "models/login", "models/logout", "mcp/login"].includes(at) || (parts[0] === "models" && parts[1] === "login" && parts.length === 3) || (parts[0] === "agents" && parts[2] === "view" && (parts[3] === "write" || parts[3] === "files") && parts.length === 4);
 		if (!mine) return undefined;
 		try {
 			return await this.change(at, parts, body ?? {}, long);
@@ -426,7 +432,7 @@ export class OwnerApi {
 
 		if (at === "routes") {
 			const input = body as RouteInput;
-			const checked = checkRoute(cfg, input, input.call_model || input.ask_model ? await manager.availableModels() : [], manager.sources?.deciders() ?? []);
+			const checked = checkRoute(cfg, input, input.call_model || input.ask_model ? await manager.availableModels() : []);
 			this.router?.add(addRoute(cfg, checked.entry));
 			return { name: String(checked.entry.name), lines: checked.lines, ...(checked.wider ? { wider: checked.wider } : {}) };
 		}
@@ -470,6 +476,45 @@ export class OwnerApi {
 			return gone;
 		}
 
+		// Decision models: the owner's own hand, with the checks of add_decision_model, remove_decision_model and sign_in.
+		if (at === "decisions") {
+			const input = { name: String(body.name ?? ""), server: body.server ? String(body.server) : undefined, url: body.url ? String(body.url) : undefined, model: body.model ? String(body.model) : undefined, local: body.local === true };
+			const checked = (() => {
+				try {
+					return checkDecision(cfg, input);
+				} catch (e) {
+					throw new Refusal(400, errText(e));
+				}
+			})();
+			if (checked.needsKey) throw new Refusal(409, "pine is not signed in to TypeSafe: sign in first, with a key from console.typesafe.ai", { signIn: "typesafe" });
+			const key = input.url && typeof body.key === "string" && body.key.trim() ? body.key.trim() : undefined;
+			if (key) manager.sources?.keepOut([key]);
+			const made = addDecision(cfg, input.name, checked.entry, key);
+			return { name: input.name, model: made.model, where: whereIs(made), lines: checked.lines };
+		}
+		if (at === "decisions/remove") {
+			const name = String(body.name ?? "");
+			if (!cfg.decisions[name]) throw new Refusal(404, `there is no decision model "${name}"`);
+			const users = usersOf(cfg, name);
+			if (users.length) throw new Refusal(409, `the route${users.length === 1 ? "" : "s"} ${users.join(", ")} ask${users.length === 1 ? "s" : ""} "${name}". Remove ${users.length === 1 ? "it" : "them"} first, under Events`, { users });
+			removeDecision(cfg, name);
+			return { removed: true };
+		}
+		if (at === "decisions/typesafe") {
+			const key = String(body.key ?? "").trim();
+			if (!key) throw new Refusal(400, "the key is empty");
+			manager.sources?.keepOut([key]);
+			try {
+				await signInTypesafe(cfg, key);
+			} catch (e) {
+				throw new Refusal(409, errText(e));
+			}
+			return { signedIn: true };
+		}
+		if (at === "decisions/typesafe/remove") {
+			signOutTypesafe(cfg);
+			return { signedIn: false };
+		}
 		if (at === "models/servers") {
 			const baseUrl = serverUrl(String(body.url ?? ""));
 			const name = String(body.name ?? "");

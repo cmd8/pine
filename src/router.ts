@@ -11,6 +11,7 @@ export interface CompleteOptions {
 	schema?: Record<string, unknown>;
 	signal?: AbortSignal;
 }
+import { askDecision } from "./decisions.ts";
 import { answerSchema, type AskAnswers, type AskConfig, askPrompt, checkAnswers, dataText } from "./ask.ts";
 import type { Bus, State } from "./store.ts";
 import type { ImageRef, PineEvent, Trust } from "./types.ts";
@@ -176,16 +177,14 @@ export class Router {
 		return this.decide(a, a.data !== undefined ? renderDeep(a.data, ctx) : e.payload);
 	}
 
-	/** Typed questions about `data`, as a route asks them: by its model or its source, the answers checked. */
+	/** Typed questions about `data`, as a route asks them: by a decision model or a chat model, the answers checked. */
 	async decide(a: AskConfig, data: unknown): Promise<AskAnswers> {
 		const text = truncate(dataText(data), this.cfg.limits.maxEventChars);
 		const signal = AbortSignal.timeout(ASK_TIMEOUT_MS);
-		if (a.source) {
-			const sources = this.manager.sources;
-			if (!sources) throw new Error("sources are not running");
-			// A source is handed the data as it is, unless it is long: then the same text a model would read.
+		if (a.model && this.cfg.decisions[a.model]) {
+			// A decision model is handed the data as it is, unless it is long: then the same text a chat model would read.
 			const given = text.length < this.cfg.limits.maxEventChars ? data : text;
-			return checkAnswers(await sources.decide(a.source, { questions: a.questions, data: given }, signal), a.questions);
+			return checkAnswers(await askDecision(this.cfg, a.model, a.questions, given, signal), a.questions);
 		}
 		const { system, user } = askPrompt(a.questions, text);
 		let wrong: unknown;

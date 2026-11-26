@@ -76,7 +76,7 @@ const routes: Route[] = [
 	{ name: "mode", on: ["source/house/message"], when: { "payload.topic": "house/mode" }, set: { "house/mode": "{{payload.value}}" } },
 	{ name: "classify", on: ["source/cam/added"], debounceMs: 4000, call: { prompt: "Camera file {{payload.file}}", system: "Answer PERSON, VEHICLE, ANIMAL or NOTHING." }, publish: { topic: "cam/classified" } },
 	{ name: "intruder", on: ["cam/classified"], when: { "payload.text": { regex: "^PERSON" }, "state.house/mode": "away" }, agent: "main", session: "new", prompt: "The camera saw somebody while the house is empty: {{payload.text}}" },
-	{ name: "mail-judge", on: ["source/inbox/mail"], ask: { source: "jev", data: "{{payload.subject}} {{payload.text}}", questions: { kind: { type: "choice", question: "What is it?", options: { invoice: "A bill to pay", other: "Anything else" } } } }, publish: { topic: "mail/judged" } },
+	{ name: "mail-judge", on: ["source/inbox/mail"], ask: { model: "decider", data: "{{payload.subject}} {{payload.text}}", questions: { kind: { type: "choice", question: "What is it?", options: { invoice: "A bill to pay", other: "Anything else" } } } }, publish: { topic: "mail/judged" } },
 	{ name: "smoke", on: ["source/house/message", "hook/smoke"], throttleMs: 300_000, agent: "scout", trust: "owner" },
 ];
 
@@ -105,8 +105,8 @@ const answers: Record<string, unknown> = {
 	"/mcp": mcp,
 	"/mcp/states": { linear: "needs sign-in", notes: "connected" },
 	"/routes": routes,
-	// A source of all agents that decides, offered beside the models under "Decided by".
-	"/sources": [{ name: "jev", scope: "global", type: "typesafe", trust: "untrusted", running: true, status: "answers with jev-latest", subscribers: [], topic: "source/jev", events: 0, decides: "what a route asks about goes to TypeSafe (api.typesafe.ai)" }],
+	// Decision models: one on a model server of the owner's own, which a route asks; TypeSafe not signed in.
+	"/decisions": { typesafe: { signedIn: false, console: "https://console.typesafe.ai" }, models: [{ name: "decider", model: "decider", server: "studio", where: "the model server studio", routes: ["mail-judge"] }] },
 	"/schedules": schedules,
 	// The files for all agents, under the list on the Agents page: one written, two still empty.
 	"/shared": [

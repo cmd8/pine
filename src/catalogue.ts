@@ -59,7 +59,7 @@ const GROUPS: Array<[id: string, name: string, about: string, tools: string[]]> 
 		"settings",
 		"pine_settings",
 		"Changes to pine's settings, routes (rules for events that arrive, such as: a source's events wake another agent), models and model servers (add, configure, remove) and sign-ins to model providers.",
-		["set_setting", "add_route", "remove_route", "add_model_server", "remove_model_server", "add_model", "configure_model", "remove_model", "sign_in", "sign_out"],
+		["set_setting", "add_route", "remove_route", "add_decision_model", "remove_decision_model", "add_model_server", "remove_model_server", "add_model", "configure_model", "remove_model", "sign_in", "sign_out"],
 	],
 	[
 		"board",
@@ -121,6 +121,8 @@ const BRIEF: Record<string, string> = {
 	routes: "pine's routes: rules for what happens when an event arrives. What agents subscribe to is not here (that is sources)",
 	add_route: 'add a rule for arriving events, only for what a subscription or a schedule cannot do: run a script on each event with no model (run_command, the fast way to react), write shared state from an event (set), publish another event, wake an agent only when a condition holds (when). For an agent to react to a source, add_source or subscribe with "agent" instead',
 	remove_route: "remove a route",
+	add_decision_model: "add a decision model, which answers routes' typed questions fast: a model a model server of pine's serves (Pinecone), TypeSafe's Jev, or a server at an address",
+	remove_decision_model: "remove a decision model",
 	add_model_server: "add a model server your owner names (an OpenAI-compatible address); not for looking: agents shows which models are in use",
 	remove_model_server: "remove a model server",
 	add_model: "add a model that a server your owner added already serves and pine does not have yet, as server/model",

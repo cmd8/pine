@@ -78,6 +78,7 @@ export const PLACES: Static[] = [
 	{ id: "default-model", section: "models", title: "Default model", about: "The model all agents use unless an agent has its own.", words: "fallback llm", find: "[data-setting=fallback-model]" },
 	{ id: "providers", section: "models", title: "Subscriptions and API keys", about: "Sign in to a provider on the internet.", words: "sign in login account key token claude chatgpt openai anthropic gemini mistral openrouter copilot", find: at("providers") },
 	{ id: "model-servers", section: "models", title: "Models on your own computer", about: "Connect a model you run yourself.", words: "local llama.cpp llama ollama lm studio server offline limit runs at the same time at once parallel concurrent slots", find: at("model-servers") },
+	{ id: "decision-models", section: "models", title: "Decision models", about: "Models that answer routes' questions fast: a probability, an option, a level.", words: "decision decide typesafe jev pinecone classify classifier probability judge triage urgent route ask", find: at("decision-models") },
 
 	{ id: "add-mcp", section: "mcp", title: "Add an MCP server", words: "tools connect integration plugin" },
 	{ id: "new-skill", section: "skills", title: "New skill", words: "add write recipe how-to" },

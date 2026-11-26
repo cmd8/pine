@@ -64,7 +64,7 @@ export interface SourceConfig {
 	options: Record<string, any>;
 }
 
-export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "telegram", "http", "command", "feed", "calendar", "stream", "mail", "slack", "matrix", "discord", "zulip", "smtp", "syslog", "system", "presence", "modbus", "serial", "onvif", "typesafe"];
+export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "telegram", "http", "command", "feed", "calendar", "stream", "mail", "slack", "matrix", "discord", "zulip", "smtp", "syslog", "system", "presence", "modbus", "serial", "onvif"];
 
 /**
  * The types an agent is told about with all their options, in the description of its add_source
@@ -104,6 +104,23 @@ export interface SubscriptionConfig {
 	separate: boolean;
 	/** Replaces the standard text the agent is woken with. Templates as in routes. */
 	prompt?: string;
+}
+
+/**
+ * A model that answers typed questions over TypeSafe's API (POST /v1/systemone), by the name a route's
+ * `ask.model` gives. On a model server pine has (`server`, its address and key), at TypeSafe itself
+ * (`server: "typesafe"`, the key from signing in), or at an address of its own (`url`, `key`).
+ */
+export interface DecisionModel {
+	server?: string;
+	url?: string;
+	/** For `url`: its key, from .env. For TypeSafe: the key pine was signed in with. */
+	key?: string;
+	/** For `url`: on the owner's network under a name that does not say so. */
+	local?: boolean;
+	/** The server's name for the model. */
+	model: string;
+	timeoutMs?: number;
 }
 
 export interface RouteConfig {
@@ -372,6 +389,8 @@ export interface PineConfig {
 	ui: { theme?: string; view?: string };
 	/** Values that must never leave the daemon in events or messages. */
 	secrets: string[];
+	/** Decision models by name (src/decisions.ts): what a route's `ask.model` can name besides a chat model. */
+	decisions: Record<string, DecisionModel>;
 	mcp: Record<string, McpServerConfig>;
 	/** Event sources every agent can subscribe to (or the agents an entry lists). */
 	sources: Record<string, SourceConfig>;
@@ -682,6 +701,7 @@ export function loadConfig(home = defaultHome()): PineConfig {
 		},
 		ui: { theme: typeof raw.ui?.theme === "string" && raw.ui.theme ? raw.ui.theme : undefined, view: typeof raw.ui?.view === "string" && raw.ui.view ? raw.ui.view : undefined },
 		secrets: Object.values(fileEnv).filter((v) => v.length >= 8),
+		decisions: loadDecisions(raw.decisions, raw.sources, env, problems),
 		mcp: raw.mcp ?? {},
 		sources: loadSources(raw.sources, home, "pine.json: sources", problems, Object.keys(sourceTypes)),
 		sourceTypes,
@@ -903,6 +923,29 @@ export function toPiMcp(name: string, server: McpServerConfig, extraOptions: Rec
 
 const SOURCE_KEYS = ["type", "use", "description", "agents", "trust", "start", "enabled", "session"];
 
+/** The decision models in pine.json, and the sources of the old `typesafe` type (pine 0.63's previews), which are decision models now. */
+function loadDecisions(raw: any, sources: any, env: Record<string, string | undefined>, problems: string[]): Record<string, DecisionModel> {
+	const out: Record<string, DecisionModel> = {};
+	const one = (name: string, v: any, where: string) => {
+		if (!/^[a-z][a-z0-9_-]{0,39}$/.test(name)) return problems.push(`${where}: a decision model's name is lowercase letters, digits, - and _`);
+		if (!v || typeof v !== "object") return problems.push(`${where} must be an object: {"server": "studio", "model": "decider"}`);
+		if (!v.server === !v.url) return problems.push(`${where} needs "server" (a model server pine has, or "typesafe") or "url" (another server that speaks TypeSafe's API)`);
+		const model = typeof v.model === "string" && v.model ? v.model : v.server === "typesafe" ? "jev-latest" : "";
+		if (!model) return problems.push(`${where} needs "model": the server's name for the decision model`);
+		const key = v.server === "typesafe" ? env.TYPESAFE_API_KEY || undefined : typeof v.key === "string" && v.key ? v.key : undefined;
+		const timeout = v.timeout !== undefined ? parseDuration(v.timeout) : undefined;
+		out[name] = { ...(v.server ? { server: String(v.server) } : { url: String(v.url).replace(/\/+$/, "").replace(/\/v1$/, "") }), model, ...(key ? { key } : {}), ...(v.local === true ? { local: true } : {}), ...(timeout ? { timeoutMs: timeout } : {}) };
+	};
+	if (raw !== undefined && (typeof raw !== "object" || Array.isArray(raw) || raw === null)) problems.push('pine.json: decisions is an object of named decision models: {"decider": {"server": "studio", "model": "decider"}}');
+	else for (const [name, v] of Object.entries<any>(raw ?? {})) one(name, v, `pine.json: decisions.${name}`);
+	// What was a source of the type typesafe for a while is a decision model now; loadSources leaves it out.
+	for (const [name, v] of Object.entries<any>(sources && typeof sources === "object" ? sources : {})) {
+		if (v?.type !== "typesafe" || out[name]) continue;
+		one(name, v.server ? v : v.url ? v : { ...v, server: "typesafe" }, `pine.json: sources.${name}`);
+	}
+	return out;
+}
+
 function loadSources(raw: unknown, base: string, where: string, problems: string[], own: string[] = []): Record<string, SourceConfig> {
 	const types = [...SOURCE_TYPES, ...own];
 	const out: Record<string, SourceConfig> = {};
@@ -912,6 +955,8 @@ function loadSources(raw: unknown, base: string, where: string, problems: string
 		return out;
 	}
 	for (const [name, v] of Object.entries<any>(raw)) {
+		// A decision model now (loadDecisions): no source.
+		if (v?.type === "typesafe" && where === "pine.json: sources") continue;
 		if (!/^[a-z][a-z0-9_-]{0,39}$/.test(name)) problems.push(`${where}.${name}: a source name is lowercase letters, digits, - and _`);
 		if (!v || typeof v !== "object") {
 			problems.push(`${where}.${name} must be an object`);

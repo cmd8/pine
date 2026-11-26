@@ -3,7 +3,6 @@ import { StringDecoder } from "node:string_decoder";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { AskQuestions } from "./ask.ts";
 import { EXT, loadConfig, mainAgentId, type PineConfig, rawSubscriptions, type RouteConfig, type SourceConfig, sourceFor, SOURCE_TYPES, type SubscriptionConfig, subscriptionFrom } from "./config.ts";
 import crypto from "node:crypto";
 import os from "node:os";
@@ -11,7 +10,6 @@ import { Value } from "typebox/value";
 import { parseEnv } from "node:util";
 import { secretName, setEnv, unsetEnv } from "./env-file.ts";
 import { editJson } from "./mcp-config.ts";
-import { listModelServers, serverKey } from "./models.ts";
 import type { SourcePlan, SourceType } from "./source-types.ts";
 import type { Router } from "./router.ts";
 import { type Approvals, realish, type Redactor, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, sandboxKind, shellEnv } from "./security.ts";
@@ -70,19 +68,6 @@ export interface SourceApi {
 	 * set up for. What it returns is outside content.
 	 */
 	onRead(handler: (query: Record<string, any>) => string | Promise<string>): void;
-	/**
-	 * For a source whose type `decides`: called with a route's typed questions and the data they are
-	 * about, and returns the answers, an object with one entry per question ({ yes }, { choice },
-	 * { level }). pine checks them against the questions; anything else is refused. Throw to refuse.
-	 */
-	onDecide(handler: (ask: { questions: AskQuestions; data: unknown; signal: AbortSignal }) => unknown | Promise<unknown>): void;
-	/**
-	 * A model server pine has (models.json), by its name: its address without /v1 and the key pine sends
-	 * it, read anew at each call, so that a source that uses one follows when the owner changes it. For a
-	 * type that reaches something such a server also serves (a decision model behind Pinecone). Throws
-	 * when there is none.
-	 */
-	modelServer(name: string): { url: string; key?: string };
 	/**
 	 * Say in one line how things stand, for whoever lists the sources: who it is connected to,
 	 * what it is waiting for. Call it again when that changes.
@@ -185,8 +170,6 @@ export interface SourceInfo {
 	topic: string;
 	last?: { ts: number; topic: string };
 	events: number;
-	/** A source of all agents whose type answers routes' typed questions: where what it is asked about goes. */
-	decides?: string;
 }
 
 interface Running {
@@ -194,7 +177,6 @@ interface Running {
 	hook?: (req: { headers: Record<string, string | string[] | undefined>; body: Buffer }) => void | Promise<void>;
 	send?: (message: Record<string, any>) => void | string | Promise<void | string>;
 	read?: (query: Record<string, any>) => string | Promise<string>;
-	decide?: (ask: { questions: AskQuestions; data: unknown; signal: AbortSignal }) => unknown | Promise<unknown>;
 }
 
 /** The settings every source has, whatever its type. A type's options cannot have these names. */
@@ -609,12 +591,6 @@ export class SourceHost {
 			},
 			onSend: (handler) => void (run.send = handler),
 			onRead: (handler) => void (run.read = handler),
-			onDecide: (handler) => void (run.decide = handler),
-			modelServer: (server) => {
-				const found = listModelServers(this.cfg.home).find((s) => s.name === server);
-				if (!found) throw new Error(`there is no model server "${server}". The models tool lists them`);
-				return { url: found.baseUrl.replace(/\/+$/, "").replace(/\/v1$/, ""), key: serverKey(this.cfg.home, server) };
-			},
 			status: (line) => void this.statuses.set(key, String(line).slice(0, 300)),
 			on: (pattern, handler) => void run.stops.push(this.bus.subscribe(pattern, async (e) => {
 				try {
@@ -872,37 +848,6 @@ export class SourceHost {
 		return String(await read(query));
 	}
 
-	/** The sources of all agents that answer a route's typed questions, with where what they are asked about goes. */
-	deciders(): Array<{ name: string; type: string; decides: string }> {
-		return Object.entries(this.cfg.sources).flatMap(([name, s]) => {
-			const decides = this.decidesOf(s);
-			return decides ? [{ name, type: s.type!, decides }] : [];
-		});
-	}
-
-	/** Where what a source that decides is asked about goes, in one line: its type says so, from the source's options where they name the address. */
-	private decidesOf(source: SourceConfig): string | undefined {
-		const decides = source.type ? this.types.get(source.type)?.type?.decides : undefined;
-		if (typeof decides !== "function") return decides;
-		try {
-			return decides(source.options);
-		} catch {
-			return "what a route asks about goes to the address in the source's options";
-		}
-	}
-
-	/**
-	 * Put a route's typed questions to a source that decides, started if it is not running. Only a source
-	 * of all agents: routes are pine's, not an agent's. What comes back is unchecked; the router checks it.
-	 */
-	async decide(name: string, ask: { questions: AskQuestions; data: unknown }, signal: AbortSignal): Promise<unknown> {
-		if (!this.deciders().some((s) => s.name === name)) throw new Error(`"${name}" is not a source that answers typed questions. ${this.deciders().map((s) => s.name).join(", ") || "There is none: leave ask.source out, and a model answers"}`);
-		await this.ensure(name);
-		const decide = this.running.get(name)?.decide;
-		if (!decide) throw new Error(`${name} ${this.running.has(name) ? "cannot answer as it is set up" : `is not running${this.errors.get(name) ? `: ${this.errors.get(name)}` : ""}`}`);
-		return await decide({ ...ask, signal });
-	}
-
 	/** Whether sending through this source reaches the owner and nobody else. The source's type says so, never the call. */
 	tellsOwner(agentId: string, name: string, session = "main"): boolean {
 		return this.senders(agentId, session).some((s) => s.name === name && s.toOwner);
@@ -946,7 +891,6 @@ export class SourceHost {
 				topic: `source/${key}`,
 				last: seen ? { ts: seen.ts, topic: seen.topic } : undefined,
 				events: seen?.count ?? 0,
-				decides: scope === "global" ? this.decidesOf(source) : undefined,
 			};
 		});
 	}

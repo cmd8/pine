@@ -140,6 +140,7 @@ asked you for it (`pine model add`, `add_model_server`); `models.json` names it 
 | `extensions` | `[]` | Paths of pi extensions loaded into every agent's sessions. |
 | `skills` | `[]` | Further folders of skills for every agent, for skills that lie outside pine's home. Not needed for `skills/` in pine's home: what is there is for every agent without an entry, and so is what the main agent adds with `add_skill`. Agents cannot replace or remove a skill that is named here. |
 | `routes` | `[]` | See [events.md](events.md). |
+| `decisions` | `{}` | Decision models by name, which a route's `ask` names in `model`. See "Decision models" below. |
 | `schedules` | `[]` | What happens at a time. One with a `task` wakes every agent with it; one without only publishes an event. The main agent adds entries with `add_schedule`. See [events.md](events.md). |
 
 Three things that older setups had are configuration errors now, each reported with what to
@@ -330,3 +331,45 @@ STUDIO_API_KEY=...
 - Only `apiKey` is filled in from `.env`. A `$NAME` in `headers` is read by pi from the
   daemon's environment; `pine check` says so when a header names an `.env` entry.
 - `"apiKey": "none"` (or any text without a `$`) is sent as it is, for a server without a key.
+
+## Decision models
+
+A decision model answers typed questions about a text, not with text: how likely yes is, which
+of named options fits, which of several levels. It does that in a fraction of a second, with
+probabilities it works out rather than numbers a chat model states, which is what a route needs
+that acts on every event ([events.md](events.md), "Typed questions"). No agent runs on one.
+
+pine keeps them by name under `decisions` in `pine.json`, beside the chat models of
+`models.json`. Each speaks TypeSafe's API (`POST /v1/systemone`), and each is one of three:
+
+```json
+"decisions": {
+  "decider": { "server": "studio", "model": "decider" },
+  "jev": { "server": "typesafe" },
+  "other": { "url": "http://box.tail1234.ts.net:8080", "model": "judge-7b", "key": "${PINE_DECISION_OTHER_KEY}", "local": true }
+}
+```
+
+| Key | |
+|---|---|
+| `server` | A model server pine has (`models.json`) that also serves the decision model, such as Pinecone on your Mac: pine uses that server's address and key, read at each request, so a new address or key for it covers the decision model too. Or `"typesafe"`: TypeSafe's own service, Jev, with the key pine is signed in with. |
+| `model` | The server's name for the decision model (for Pinecone, the resource's name). At TypeSafe: `jev-latest` unless given. |
+| `url` | Instead of `server`: another server that speaks the same API, without `/v1`. Over `http://` only on your own network. |
+| `key` | With `url`: its key, from `.env` (`add_decision_model` and Settings ask you for it and keep it as `PINE_DECISION_<NAME>_KEY`). |
+| `local` | With `url`: the server is on your network under a name that does not say so (a Tailscale name). |
+| `timeout` | How long one request may take, loading the model included: `20s` at TypeSafe, `120s` elsewhere. |
+
+**TypeSafe.** Sign in with a key from [console.typesafe.ai](https://console.typesafe.ai): under
+Settings > Models, Decision models, with `pine login typesafe`, or by asking the main agent
+(`sign_in` with `typesafe`, a key you type into pine's own dialog). The key is checked with TypeSafe
+and kept in `.env` as `TYPESAFE_API_KEY`; `pine logout typesafe` takes it out. Then add Jev as a
+decision model: `{ "server": "typesafe" }`.
+
+**Adding one.** Settings > Models, Decision models, or ask the main agent ("add the decider model
+my studio serves as a decision model": `add_decision_model`). One on a model server pine has asks
+for nothing more. What a route asks a decision model about goes to that server, which you are
+told when you confirm it and each route that asks it.
+
+A chat model can answer typed questions too (`"ask": { "model": "provider/model" }`): pine asks it
+to keep to the answer's form and checks what it says, but it takes seconds and its numbers are its
+own guess. For anything that runs on every event, a decision model.

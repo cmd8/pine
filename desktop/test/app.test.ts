@@ -1247,6 +1247,19 @@ test("settings: a setting is changed, an agent made, a schedule added, a provide
 	const decision = JSON.parse(fs.readFileSync(path.join(home, "pine.json"), "utf8")).routes.find((r: { name: string }) => r.name === "mail-judge");
 	assert.deepEqual(decision, { name: "mail-judge", on: "source/inbox/mail", ask: { questions: { kind: { type: "choice", question: "What is it?", options: { invoice: "A bill to pay", other: "Anything else" } } }, data: "{{payload.subject}}" }, publish: { topic: "mail/judged" } });
 	await shot("08b-settings-routes");
+	// Models: a decision model at an address of its own, which a route can then name.
+	await page.click("[role=navigation] [data-sidebar=menu-button] >> text=Models");
+	await page.locator("[data-slot=settings-page]").getByRole("button", { name: "Add a decision model" }).click();
+	const decisionForm = page.locator("[data-slot=dialog-content]");
+	await decisionForm.getByLabel("Where it is").click();
+	await page.getByRole("option", { name: "Another server, by its address" }).click();
+	await decisionForm.getByLabel("Address").fill("http://127.0.0.1:9");
+	await decisionForm.getByLabel("Model", { exact: true }).fill("judge-7b");
+	await decisionForm.getByLabel("Name", { exact: true }).fill("judge");
+	await decisionForm.getByRole("button", { name: "Add decision model" }).click();
+	await page.waitForSelector("[data-slot=dialog-content]", { state: "detached" });
+	await sees("[data-slot=settings-page] [data-find='decision:judge'] >> text=127.0.0.1:9");
+	assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, "pine.json"), "utf8")).decisions, { judge: { url: "http://127.0.0.1:9", model: "judge-7b" } });
 	// Models: sign in to a provider with a key. It is typed into a field of its own and not shown.
 	await page.click("[role=navigation] [data-sidebar=menu-button] >> text=Models");
 	// The usual providers are listed; any other is found by searching.

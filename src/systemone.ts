@@ -1,5 +1,5 @@
 import { type Agent, fetch } from "undici";
-import type { AskQuestions } from "../ask.ts";
+import type { AskQuestions } from "./ask.ts";
 
 // TypeSafe's System One API (https://docs.typesafe.ai/api/system-one.md), which the `typesafe` type
 // speaks to TypeSafe and the `decider` type to a server of the owner's own that answers the same way

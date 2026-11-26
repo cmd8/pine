@@ -2,7 +2,7 @@
 //
 // The questions are the owner's own text, fixed in the configuration: nothing of the event goes into
 // them. What the event carries is the data the questions are about. Whoever answers (a model the owner
-// configured, or a source whose type decides) is held to the question's type: a probability of yes,
+// configured, or a decision model: src/decisions.ts) is held to the question's type: a probability of yes,
 // one of the owner's option names, one of the owner's levels. An answer that is anything else is no
 // answer, and nothing is published. So no text of the event passes through the answers, and what is
 // published keeps the event's trust (docs/adr/0006-typed-questions.md).
@@ -33,10 +33,8 @@ export type AskAnswers = Record<string, AskAnswer>;
 /** What a route's "ask" is in pine.json. */
 export interface AskConfig {
 	questions: AskQuestions;
-	/** The model that answers, as provider/model. Default: pine's default model. */
+	/** What answers: a decision model by its name (pine.json's decisions), or a chat model as provider/model. Default: pine's default model. */
 	model?: string;
-	/** Or a source whose type answers typed questions (`decides`), by its name. */
-	source?: string;
 	/** What the questions are about, as a template. Default: the event's payload. */
 	data?: unknown;
 }
@@ -48,9 +46,8 @@ const TEMPLATE = /\{\{/;
 export function askProblem(ask: unknown): string | undefined {
 	if (!ask || typeof ask !== "object" || Array.isArray(ask)) return 'ask is an object: {"questions": {...}}';
 	const a = ask as Record<string, unknown>;
-	if (a.model !== undefined && (typeof a.model !== "string" || !a.model)) return "ask.model is a model as provider/model";
-	if (a.source !== undefined && (typeof a.source !== "string" || !a.source)) return "ask.source is the name of a source that answers typed questions";
-	if (a.model !== undefined && a.source !== undefined) return "ask goes to a model or to a source, not both";
+	if (a.model !== undefined && (typeof a.model !== "string" || !a.model)) return "ask.model is a decision model by its name, or a chat model as provider/model";
+	if (a.source !== undefined) return 'ask.source is gone: a decision model is named in ask.model now ({"model": "decider"}), and kept under "decisions"';
 	return questionsProblem(a.questions);
 }
 

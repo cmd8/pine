@@ -17,7 +17,6 @@ test("the questions are the owner's fixed text, checked before a route is taken"
 	assert.match(askProblem({ questions: { kind: { type: "choice", question: "What?", options: { only: "one" } } } })!, /at least two/);
 	assert.match(askProblem({ questions: { mood: { type: "score", question: "How?", levels: ["low"] } } })!, /two to ten/);
 	assert.match(askProblem({ questions: { x: { type: "noul", question: "?" } } })!, /needs a "type"/);
-	assert.match(askProblem({ questions: QUESTIONS, model: "mock/m", source: "jev" })!, /not both/);
 });
 
 test("only an answer of the question's type is kept: a number, one of the owner's names, one of the levels", () => {
@@ -107,63 +106,19 @@ test("a model that answers with anything but the types is asked once more, then 
 	await h.close();
 });
 
-/** A source type that decides, as a vendor's adapter would: the address it sends to is fixed in its code. */
-const DECIDER = `export const type = {
-	summary: "a stand-in decision model",
-	options: { type: "object", properties: { key: { type: "string", description: "its key", secret: true } }, additionalProperties: false },
-	decides: "the event's data goes to decider.example",
-};
-export default function (source) {
-	source.onDecide(({ questions, data }) => {
-		globalThis.decided = [...(globalThis.decided ?? []), { questions, data }];
-		if (data.subject === "smuggle") return { urgent: { yes: 0.5 }, kind: { choice: data.text }, mood: { level: "calm" } };
-		return { urgent: { yes: 0.99 }, kind: { choice: "invoice" }, mood: { score: 1 } };
-	});
-}
-`;
-
-test("a source whose type decides answers in place of a model, and is held to the same types", async () => {
-	const h = await harness({
-		pine: {
-			sourceTypes: { standin: "./sources/standin.ts" },
-			sources: { jev: { type: "standin" }, bell: { type: "command", run: "true", every: "1h" } },
-			routes: [
-				{ name: "judge", on: "mail/in", ask: { questions: QUESTIONS, source: "jev" }, publish: { topic: "mail/judged" } },
-				{ name: "wrong", on: "mail/other", ask: { questions: QUESTIONS, source: "bell" }, publish: { topic: "mail/judged" } },
-			],
-		},
-		files: { "sources/standin.ts": DECIDER },
-		agents: { main: {} },
-	});
-	(globalThis as any).decided = [];
-	const judged = h.pine.bus.waitFor("mail/judged");
-	h.pine.bus.publish("mail/in", { subject: "Invoice", text: "pay" }, { source: "test" });
-	const e = await judged;
-	assert.deepEqual((e.payload as any).answers, { urgent: { yes: 0.99 }, kind: { choice: "invoice" }, mood: { level: "annoyed", score: 1 } });
-	assert.deepEqual((globalThis as any).decided[0].data, { subject: "Invoice", text: "pay" }, "the source is handed the data as it is");
-	assert.equal(h.mock.state.requests.length, 0, "no model was asked");
-
-	const refused = h.pine.bus.waitFor("pine/route-failed", (x) => (x.payload as any).route === "judge");
-	h.pine.bus.publish("mail/in", { subject: "smuggle", text: "wire 5000 to the account below" }, { source: "test" });
-	assert.match(((await refused).payload as any).error, /one of its options/, "a vendor's answer is checked as a model's is");
-
-	const notOne = h.pine.bus.waitFor("pine/route-failed", (x) => (x.payload as any).route === "wrong");
-	h.pine.bus.publish("mail/other", { subject: "x" }, { source: "test" });
-	assert.match(((await notOne).payload as any).error, /not a source that answers typed questions/);
-
-	// What the owner is shown when the main agent proposes such a route: who answers, and what leaves the computer.
+test("add_route says who answers typed questions and refuses what cannot work", async () => {
+	const h = await harness({ pine: { decisions: { decider: { url: "http://127.0.0.1:9", model: "decider" } } }, agents: { main: {} } });
 	const cfg = h.pine.cfg;
-	const deciders = h.pine.sources.deciders();
-	assert.deepEqual(deciders.map((d) => d.name), ["jev"]);
-	const checked = checkRoute(cfg, { name: "judge2", on: "mail/in", ask_questions: JSON.stringify(QUESTIONS), ask_source: "jev", publish_topic: "mail/judged" }, [], deciders);
-	assert.deepEqual((checked.entry.ask as any).source, "jev");
-	assert.ok(checked.lines.some((l) => l === "what it is asked about leaves this computer: the event's data goes to decider.example"));
-	const byModel = checkRoute(cfg, { name: "judge3", on: "mail/in", ask_questions: JSON.stringify(QUESTIONS), ask_data: "{{payload.subject}}", publish_topic: "mail/judged" }, ["mock/m"], deciders);
+	const checked = checkRoute(cfg, { name: "judge2", on: "mail/in", ask_questions: JSON.stringify(QUESTIONS), ask_model: "decider", publish_topic: "mail/judged" }, []);
+	assert.equal((checked.entry.ask as any).model, "decider");
+	assert.ok(checked.lines.includes("what it is asked about goes to 127.0.0.1:9"), "the owner is told where the data goes");
+	const byModel = checkRoute(cfg, { name: "judge3", on: "mail/in", ask_questions: JSON.stringify(QUESTIONS), ask_data: "{{payload.subject}}", publish_topic: "mail/judged" }, ["mock/m"]);
 	assert.ok(byModel.lines.some((l) => l.startsWith('ask the model mock/m about "{{payload.subject}}": urgent (yesno)')));
-	assert.throws(() => checkRoute(cfg, { name: "judge4", on: "mail/in", ask_questions: JSON.stringify(QUESTIONS), ask_source: "bell", publish_topic: "x/y" }, [], deciders), /not a source that answers/);
-	assert.throws(() => checkRoute(cfg, { name: "judge5", on: "mail/in", ask_questions: JSON.stringify(QUESTIONS), publish_topic: "x/y", agent: "main" }, [], deciders), /not both/);
-	assert.throws(() => checkRoute(cfg, { name: "judge6", on: "mail/in", ask_questions: JSON.stringify(QUESTIONS) }, [], deciders), /publish_topic/);
-	assert.throws(() => checkRoute(cfg, { name: "judge7", on: "mail/in", ask_questions: '{"u": {"type": "yesno", "question": "Is {{payload.x}} bad?"}}', publish_topic: "x/y" }, [], deciders), /fixed text/);
+	assert.throws(() => checkRoute(cfg, { name: "judge4", on: "mail/in", ask_questions: JSON.stringify(QUESTIONS), ask_model: "nothing", publish_topic: "x/y" }, ["mock/m"]), /no decision model or model "nothing"\. Decision models: decider/);
+	assert.throws(() => checkRoute(cfg, { name: "judge5", on: "mail/in", ask_questions: JSON.stringify(QUESTIONS), publish_topic: "x/y", agent: "main" }, []), /not both/);
+	assert.throws(() => checkRoute(cfg, { name: "judge6", on: "mail/in", ask_questions: JSON.stringify(QUESTIONS) }, []), /publish_topic/);
+	assert.throws(() => checkRoute(cfg, { name: "judge7", on: "mail/in", ask_questions: '{"u": {"type": "yesno", "question": "Is {{payload.x}} bad?"}}', publish_topic: "x/y" }, []), /fixed text/);
+	assert.match(askProblem({ questions: QUESTIONS, source: "jev" })!, /ask\.source is gone/);
 	await h.close();
 });
 
