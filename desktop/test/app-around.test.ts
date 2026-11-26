@@ -204,6 +204,23 @@ test("the tabs are reached with the keyboard: the arrows go from one to the next
 	await page.click("[data-slot=tab]:has([data-slot=tab-name]:text-is('Events')) button[aria-label='Close this tab']");
 });
 
+test("the search after the tabs lists every tab of the row, the one in front checked, finds one by name and brings it to the front", async () => {
+	await menu("events");
+	await sees("[data-slot=tab][data-active] [data-slot=tab-name] >> text=Events");
+	const bar = "[data-slot=group-bar]:has([data-slot=tab][data-active])";
+	const names = await page.$$eval(`${bar} [data-slot=tab] [data-slot=tab-name]`, (all) => all.map((e) => e.textContent));
+	await page.click(`${bar} [data-slot=tab-list]`);
+	await page.locator("[data-slot=combobox-content] input").waitFor();
+	assert.deepEqual(await page.$$eval("[data-slot=combobox-item] [data-slot=tab-name]", (all) => all.map((e) => e.textContent)), names);
+	assert.equal(await page.textContent("[data-slot=combobox-item][aria-selected=true] [data-slot=tab-name]"), "Events");
+	// The keyboard is in the search: a name narrows the list, and Enter takes the first that matches.
+	await page.keyboard.type(names[0]!);
+	await page.keyboard.press("Enter");
+	await page.locator("[data-slot=combobox-content]").waitFor({ state: "detached" });
+	await sees(`[data-slot=tab][data-active] [data-slot=tab-name] >> text=${names[0]}`);
+	await page.click("[data-slot=tab]:has([data-slot=tab-name]:text-is('Events')) button[aria-label='Close this tab']");
+});
+
 test("a right click on an agent renames it in place, colors it, and offers to remove it, and never the main agent", async () => {
 	const port = /http listening on 127\.0\.0\.1:(\d+)/.exec(fs.readFileSync(path.join(home, "data", "pine.log"), "utf8"))![1];
 	const token = fs.readFileSync(path.join(home, "data", "http-token"), "utf8").trim();
