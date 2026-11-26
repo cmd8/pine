@@ -552,22 +552,34 @@ your account is in `auto`, one that should stay in its folders is in `safe`. pin
 and program are closed in every mode, and a run that an event from outside started works in
 the sandbox and is never asked, whatever the agent's mode.
 
-The same actions in each mode:
+The same actions in each mode. "After outside content" means after the conversation has read
+a web page, a message from somebody else or other outside content.
 
-| Action | `bypass` | `auto` | `safe` | `manual` |
-|---|---|---|---|---|
-| `ls`, `cat`, `git status`, reading files | runs | runs | runs | runs |
-| `npm install`, `git commit`, editing a project file in your home | runs | runs | asks once for access to that folder, then runs | asks |
-| `curl`, `git push`, anything that needs the network | runs | runs | asks once for network access, then runs | asks |
-| Writing a file in its own workspace | runs | runs | runs | asks |
-| `sudo`, a force push, `git reset --hard`, `curl ... \| sh`, shell startup files, ssh keys | runs | asks | asks | asks |
-| Sending an event or an MQTT message after it has read a web page | asks, because bypass is paused then (below) | asks | asks | asks |
-| A Telegram message to you, also after a web page | runs | runs | runs | asks |
-| Writing its own `MEMORY.md` or `AGENTS.md` after it has read a web page | runs | runs | asks once for the conversation | asks |
+| Action | `bypass` | `auto` | `safe` | `manual` | `plan` |
+|---|---|---|---|---|---|
+| `ls`, `cat`, `git status`, reading files, web search and reading pages | runs | runs | runs | runs | runs |
+| Writing a file in its own workspace | runs | runs | runs | asks | refused |
+| `npm install`, `git commit`, editing a project file in your home | runs | runs | asks once for access to that folder, then runs | asks | refused |
+| `curl`, `git push`, anything that needs the network from the shell | runs | runs | asks once for network access, then runs | asks | refused |
+| `sudo`, a force push, `git reset --hard`, `curl ... \| sh`, shell startup files, ssh keys | runs | asks | asks | asks | refused |
+| A tool on the agent's `approve` list | runs | asks | asks | asks | asks if it only looks, else refused |
+| Sending an event, an MQTT or Slack message, a task for another agent | runs | runs | runs | asks | refused |
+| The same after outside content | asks, because bypass is paused then (below) | asks | asks | asks | refused |
+| A Telegram message to you, also after outside content | runs | runs | runs | asks | refused |
+| Writing its own `MEMORY.md`, `AGENTS.md`, `SOUL.md` or `TOOLS.md` | runs | runs | runs | asks | refused |
+| The same after outside content | runs | runs | asks once for the conversation ("Its own memory and instructions after outside content") | asks | refused |
+| Writing `CLAUDE.md`, `.pi/`, `.agents/`, a git hook or a repository's configuration after outside content | file tools refuse; the shell runs | file tools refuse; the shell runs, and a command that names a hook or a repository's configuration asks | refused | refused | refused |
+| Opening an address on this computer or your network in the browser | runs | asks once for that address | asks once for that address | asks once for that address | refused |
+| Operating your apps (`computer` server) | runs | asks once for each app | not available: it needs your whole account | not available | looking at an app runs (after your yes for it), acting refused |
+| Starting sub-agents | runs | runs | runs | asks | refused |
 
-So `auto` asks rarely, `safe` asks whenever the agent has to leave its own folders, and
-`manual` asks every time. Once a conversation in `bypass` has read outside content, bypass
-is paused and it behaves like `auto`, in every row.
+So `auto` asks rarely, `safe` asks whenever the agent has to leave its own folders, `manual`
+asks every time, and `plan` does nothing but look. Once a conversation in `bypass` has read
+outside content, bypass is paused and it behaves like `auto`, in every row. Where a row asks,
+a sub-agent does not: the call is refused and its conversation can ask. A run started from
+outside works in `safe` whatever the mode, asks nothing (what would ask is refused), and
+writes none of the agent's own files. The main agent starts in `auto`, every other agent in
+`safe`.
 
 `request_access` is how an agent in the sandbox gets at something outside its
 workspace: it names a path (read, or read and write) or asks for network access from its shell,
