@@ -17,6 +17,8 @@ import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
+import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import { type AgentInfo, api, type Conversation as Conv } from "./api.ts";
 import { bridge } from "./bridge.ts";
 import { CodePanel } from "./CodePanel.tsx";
@@ -902,6 +904,28 @@ function PaneLabel({ which }: { which: Beside }) {
 }
 
 /**
+ * What a tab shows of itself: its icon (or what calls for the owner: a question, work, something unread) and its name.
+ * Drawn on the tab and on its line in the tab list.
+ */
+function TabFace({ item }: { item: string }) {
+	const s = store;
+	const tab = s.tabOf(item);
+	useModel(tab ?? s);
+	const pane = paneOf(item);
+	if (!tab && !pane) return null;
+	return (
+		<>
+			<span className="grid size-5 flex-none place-items-center">
+				{!tab ? (pane === "code" ? <PanelRightIcon /> : <RadarIcon />) : tab.approvals.size ? <Badge variant="destructive" className="size-4 p-0">!</Badge> : tab.busy ? <Pulse /> : tab.unread ? <Badge className="size-2 p-0" /> : tab.kind === "events" ? <AudioLinesIcon /> : tab.kind === "settings" ? <SettingsIcon /> : tab.kind === "task" ? <ListIcon /> : <AgentAvatar agent={{ id: tab.agent, color: s.agent(tab.agent)?.color, main: s.agent(tab.agent)?.main }} size="sm" className="data-[size=sm]:size-5" />}
+			</span>
+			<span data-slot="tab-name" className="flex-1 truncate">
+				{pane ? <PaneLabel which={pane} /> : tab!.kind === "events" ? "Events" : tab!.kind === "settings" ? "Settings" : tab!.kind === "task" ? <>{tab!.agent} #{tab!.task}</> : tab!.session === "main" ? tab!.agent : <>{tab!.agent} · <Title agent={tab!.agent} session={tab!.session} /></>}
+			</span>
+		</>
+	);
+}
+
+/**
  * A tab in a group's row: a tab of the window (a conversation, a task, the events, the settings) or one of the two
  * panes. Clicked, it comes to the front; dragged, it goes before or after another tab, into another group, or to an
  * edge of one, where it gets a group of its own. A conversation's tab can also go to another window, or out of every
@@ -988,12 +1012,7 @@ function DockTab({ item, row, index, end }: { item: string; row: string[]; index
 					onAuxClick={(e) => e.button === 1 && close()}
 					title={tab ? (tab.kind === "chat" ? `${tab.agent} · ${tab.session}${tab.folder ? ` · ${tab.folder}` : ""}` : tab.kind === "task" ? `task #${tab.task}` : tab.kind) : pane === "code" ? "The side panel: the files, changes, output, terminal and browser of the conversation last in front" : "The view of all of pine"}
 				>
-					<span className="grid size-5 flex-none place-items-center">
-						{!tab ? (pane === "code" ? <PanelRightIcon /> : <RadarIcon />) : tab.approvals.size ? <Badge variant="destructive" className="size-4 p-0">!</Badge> : tab.busy ? <Pulse /> : tab.unread ? <Badge className="size-2 p-0" /> : tab.kind === "events" ? <AudioLinesIcon /> : tab.kind === "settings" ? <SettingsIcon /> : tab.kind === "task" ? <ListIcon /> : <AgentAvatar agent={{ id: tab.agent, color: s.agent(tab.agent)?.color, main: s.agent(tab.agent)?.main }} size="sm" className="data-[size=sm]:size-5" />}
-					</span>
-					<span data-slot="tab-name" className="flex-1 truncate">
-						{pane ? <PaneLabel which={pane} /> : tab!.kind === "events" ? "Events" : tab!.kind === "settings" ? "Settings" : tab!.kind === "task" ? <>{tab!.agent} #{tab!.task}</> : tab!.session === "main" ? tab!.agent : <>{tab!.agent} · <Title agent={tab!.agent} session={tab!.session} /></>}
-					</span>
+					<TabFace item={item} />
 					{kept && tab?.session !== "main" ? <StarIcon className="text-warn" /> : null}
 					{/* No stop of its own: a row of tabs is one stop, and ⌘W closes the tab in front. */}
 					<Button variant="ghost" size="icon-xs" tabIndex={-1} aria-label={pane ? `Close the ${pane === "code" ? "side panel" : "view"}` : "Close this tab"} className={cn("size-5", !on && !front && "opacity-0 group-hover/tab:opacity-100")} onClick={(e) => (e.stopPropagation(), close())}><XIcon className="size-3" /></Button>
@@ -1046,24 +1065,63 @@ function NewConversationButton({ group }: { group?: string }) {
 	const s = store;
 	const with_ = s.agentInFront();
 	const say = with_ ? `New conversation with ${with_}` : "New conversation: you are asked with which agent";
-	return <HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className="shrink-0 [-webkit-app-region:no-drag]" onClick={() => (group && s.focusGroup(group), void s.newConversation())} aria-label={say} />}><PlusIcon /></TooltipTrigger><TooltipContent>{say}<Kbd>{shortcut("⌘T")}</Kbd></TooltipContent></HoverTooltip>;
+	return <HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon-xs" className="shrink-0 text-muted-foreground [-webkit-app-region:no-drag]" onClick={() => (group && s.focusGroup(group), void s.newConversation())} aria-label={say} />}><PlusIcon /></TooltipTrigger><TooltipContent>{say}<Kbd>{shortcut("⌘T")}</Kbd></TooltipContent></HoverTooltip>;
+}
+
+/** A tab's name as text, for the tab list's search: what its face shows. */
+function tabLabel(item: string): string {
+	const s = store;
+	const pane = paneOf(item);
+	if (pane) return pane === "code" ? "Side panel" : "View";
+	const tab = s.tabOf(item);
+	if (!tab) return item;
+	if (tab.kind === "events") return "Events";
+	if (tab.kind === "settings") return "Settings";
+	if (tab.kind === "task") return `${tab.agent} #${tab.task}`;
+	return tab.session === "main" ? tab.agent : `${tab.agent} · ${s.titleOf(tab.agent, tab.session)}`;
+}
+
+/**
+ * The list of a row's tabs, after its last tab, before the new conversation's button: stock's combobox in a popup, a
+ * search over the tabs' names above every tab, the one in front checked, so that a tab the row has scrolled out of
+ * sight is a few letters away. Beside the new conversation's button while the row has two tabs or more: after the
+ * tabs, it moves none of them when it comes or goes. No shortcut of its own: ⇧⌘A, the browsers' key for it, attaches
+ * files here, and the palette (⌘K) finds any tab by name.
+ */
+function TabListButton({ items, front }: { items: string[]; front?: string }) {
+	const say = "Search the tabs";
+	return (
+		<Combobox<string> items={items} autoHighlight value={front ?? null} onValueChange={(item) => void (item && store.front(item))} itemToStringLabel={tabLabel}>
+			<HoverTooltip>
+				<TooltipTrigger render={<ComboboxPrimitive.Trigger render={<Button variant="ghost" size="icon-xs" data-slot="tab-list" className="shrink-0 text-muted-foreground [-webkit-app-region:no-drag]" aria-label={say} />} />}><ChevronDownIcon /></TooltipTrigger>
+				<TooltipContent>{say}</TooltipContent>
+			</HoverTooltip>
+			<ComboboxContent align="end" className="w-72">
+				{/* Stock means no ring in a combobox's popup, where the search always has the keyboard, but its focus-visible ring wins. */}
+				<ComboboxInput showTrigger={false} placeholder="Search tabs" className="has-[[data-slot=input-group-control]:focus-visible]:border-input/30 has-[[data-slot=input-group-control]:focus-visible]:ring-0" />
+				<ComboboxEmpty>No tab is called that.</ComboboxEmpty>
+				<ComboboxList>{(item: string) => <ComboboxItem key={item} value={item} data-item={item}><TabFace item={item} /></ComboboxItem>}</ComboboxList>
+			</ComboboxContent>
+		</Combobox>
+	);
 }
 
 /**
  * A row of tabs: a group's in a wide window, every tab of the window in a narrow one. Where nothing is to click, a
  * tab let go there goes to its end, and on the window's top row the bar moves the window. The stock tabs, one stop
  * for the keyboard: the arrows go from tab to tab, Enter brings one to the front. The row scrolls without a bar; the
- * fade at a cut end says there is more. The padding is the room for the line stock draws under a tab (hidden in this
- * variant, but there): without it the row is taller than its room.
+ * fade at a cut end says there is more. The padding below is the room for the line stock draws under a tab (hidden in
+ * this variant, but there): without it the row is taller than its room. The same above centres the tabs on the bar.
  */
 function TabRow({ items, group, front }: { items: string[]; group?: string; front?: string }) {
 	const s = useModel(store);
 	const [end, setEnd] = useState(false);
 	const dragging = s.dragging !== undefined || s.tabDragIn;
+	// The row and its end are one box, so that the end, which takes no room, takes no gap of the bar either.
 	return (
-		<>
+		<div data-slot="tab-row" className="flex min-w-0 items-center">
 			<ScrollArea className="flex min-h-0 min-w-0 flex-col *:data-[slot=scroll-area-viewport]:scroll-fade-x">
-				<Tabs className="pb-0.5" value={front ?? null} onValueChange={(item) => typeof item === "string" && store.front(item)}>
+				<Tabs className="py-0.5" value={front ?? null} onValueChange={(item) => typeof item === "string" && store.front(item)}>
 					<TabsList aria-label="Tabs" className="gap-1">
 						{items.map((item, i) => <DockTab key={item} item={item} row={items} index={i} end={end && i === items.length - 1} />)}
 					</TabsList>
@@ -1072,7 +1130,7 @@ function TabRow({ items, group, front }: { items: string[]; group?: string; fron
 			{/* The end of the row takes no room: while a tab is dragged it reaches over the gap and the new conversation's
 			button, and the last tab draws its own line after itself, so that one place shows one line. An empty row draws it here. */}
 			{group ? <span data-slot="row-end" className="relative h-8 w-0 flex-none">{dragging ? <span
-				className={cn("absolute inset-y-0 -left-1 z-10 w-10 [-webkit-app-region:no-drag]", end && !items.length && "before:absolute before:inset-y-1 before:left-1 before:w-1 before:rounded-full before:bg-primary")}
+				className={cn("absolute inset-y-0 left-0 z-10 w-10 [-webkit-app-region:no-drag]", end && !items.length && "before:absolute before:inset-y-1 before:left-1 before:w-1 before:rounded-full before:bg-primary")}
 				onDragOver={(e) => {
 					if (!tabDragKind(e)) return;
 					e.preventDefault();
@@ -1082,7 +1140,7 @@ function TabRow({ items, group, front }: { items: string[]; group?: string; fron
 				onDragLeave={() => setEnd(false)}
 				onDrop={(e) => (setEnd(false), landed(e, { group }))}
 			/> : null}</span> : null}
-		</>
+		</div>
 	);
 }
 
@@ -1096,18 +1154,27 @@ function GroupBar({ g, sides, column }: { g: dock.Group; sides: dock.Sides; colu
 	const items = g.items.filter((i) => !paneOf(i) || (paneOf(i) === "view" ? s.hasView : true));
 	const lead = sides.top && sides.left && !column;
 	const tail = sides.top && sides.right;
-	// The last control ends as far inside the pane's frame as the first tab starts: `pl-0.5` and the tab list's own 3px.
+	// The tab list's button and the new conversation's go together, side by side without the bar's gap, on a row that
+	// holds a conversation: a row of the panes alone (two tabs at most) has neither, an empty row only the new conversation's.
+	const talks = items.some((i) => !paneOf(i));
+	// The bar has no padding: the last control ends on the edge of the pane's frame below, and the first tab starts the
+	// tab list's own 3px inside the other, room for its focus ring.
 	return (
 		<header
 			data-slot="group-bar"
 			data-group={g.id}
-			className={cn("flex flex-none items-center gap-1 text-sm", sides.top ? "h-11 [-webkit-app-region:drag]" : "h-9", lead ? "pl-window-buttons" : "pl-0.5", !tail ? "pr-0.5" : s.platform === "darwin" ? "pr-1.25" : "pr-window-controls")}
+			className={cn("flex flex-none items-center gap-1 text-sm", sides.top ? "h-11 [-webkit-app-region:drag]" : "h-9", lead && "pl-window-buttons", tail && s.platform !== "darwin" && "pr-window-controls")}
 		>
 			{lead ? <HoverTooltip><TooltipTrigger render={<SidebarTrigger size="icon" className="shrink-0 [-webkit-app-region:no-drag]" aria-label="Show the sidebar" />} /><TooltipContent>Show the sidebar<Kbd>{shortcut("⌘B")}</Kbd></TooltipContent></HoverTooltip> : null}
 			<TabRow items={items} group={g.id} front={g.front} />
-			{items.some((i) => !paneOf(i)) || !items.length ? <NewConversationButton group={g.id} /> : null}
-			<span className="min-w-0 flex-1" />
-			{tail ? <WindowControls column={column} /> : null}
+			{talks || !items.length ? (
+				<div className="flex shrink-0 items-center">
+					{talks && items.length > 1 ? <TabListButton items={items} front={g.front} /> : null}
+					<NewConversationButton group={g.id} />
+				</div>
+			) : null}
+			{/* Only before the window's controls: at the end of the bar an empty span would still take a gap. */}
+			{tail ? <><span className="min-w-0 flex-1" /><WindowControls column={column} /></> : null}
 		</header>
 	);
 }
@@ -1119,13 +1186,16 @@ export function TitleBar() {
 	useMediaQuery(ROOM);
 	const { isMobile } = useSidebar();
 	const column = s.sidebar && !isMobile;
-	// This row runs to the window's edge, the pane's frame below stops `pr-1.5` short of it: the last control ends as far
-	// inside that frame as the first tab starts (`pl-0.5` and the tab list's own 3px), so 1.5 + 1.25.
+	// This row runs to the window's edge, the pane's frame below stops `pr-1.5` short of it: the last control ends on that
+	// frame's edge, and the first tab starts the tab list's own 3px inside its other, as in a group's bar.
 	return (
-		<header className={cn("flex h-11 flex-none items-center gap-1 text-sm [-webkit-app-region:drag]", s.platform === "darwin" ? "pr-2.75" : "pr-window-controls", column ? "pl-0.5" : "pl-window-buttons")}>
+		<header className={cn("flex h-11 flex-none items-center gap-1 text-sm [-webkit-app-region:drag]", s.platform === "darwin" ? "pr-1.5" : "pr-window-controls", !column && "pl-window-buttons")}>
 			{column ? null : <HoverTooltip><TooltipTrigger render={<SidebarTrigger size="icon" className="shrink-0 [-webkit-app-region:no-drag]" aria-label="Show the sidebar" />} /><TooltipContent>Show the sidebar<Kbd>{shortcut("⌘B")}</Kbd></TooltipContent></HoverTooltip>}
 			<TabRow items={s.ordered.map((t) => t.item)} front={s.active?.item} />
-			<NewConversationButton />
+			<div className="flex shrink-0 items-center">
+				{s.ordered.length > 1 ? <TabListButton items={s.ordered.map((t) => t.item)} front={s.active?.item} /> : null}
+				<NewConversationButton />
+			</div>
 			<span className="min-w-0 flex-1" />
 			<WindowControls column={column} />
 		</header>
