@@ -34,8 +34,8 @@ pkgbase = pine-desktop-bin
 	source = LICENSE-0.62.0::https://raw.githubusercontent.com/pmndre/pine/v0.62.0/LICENSE
 	sha256sums = SKIP
 	source_x86_64 = Pine-0.62.0-amd64.deb::https://github.com/pmndre/pine/releases/download/v0.62.0/Pine-0.62.0-amd64.deb
-	sha256sums_x86_64 = dd21d825a85d6d5bf6750d5cffe8b09de439d43d921679b754220086fadb238e
+	sha256sums_x86_64 = 2662160d5a4a7aacef094b751d369f1ae0f3b057c7fb87ab65224c06bba10ca3
 	source_aarch64 = Pine-0.62.0-arm64.deb::https://github.com/pmndre/pine/releases/download/v0.62.0/Pine-0.62.0-arm64.deb
-	sha256sums_aarch64 = 47f4045bfe1292f22e122e9cd5d5f644115d9806602515f9ab2bcb3c468ac616
+	sha256sums_aarch64 = 5decb7cf44d04ab3a1b586be38144f2a181efb1f72cc15a61bdd69b9f8a7b6a9
 
 pkgname = pine-desktop-bin
