@@ -85,7 +85,10 @@ read as instructions" below.
 
 Other agents get the three files of pine's home in their prompt but cannot open or change
 them; they tell you when something belongs there. A conversation that has read outside content
-writes these files as before, without a question ([security.md](security.md)).
+(a web page, a message from somebody else) changes these files only after your yes in `safe`
+mode: the first change asks, once for the conversation, and a sub-agent has its conversation's
+answer and never asks. In `auto` and `bypass` mode it writes them as before, without a question
+([security.md](security.md), "Its own memory and instructions after outside content").
 
 ### What holds for all agents
 
@@ -634,6 +637,8 @@ delegate(agent, task, wait?, thread?, worktree?)
 - Once the caller has read outside content, every delegation is put to you, whoever it is for:
   the answer can carry that agent's files to where somebody else may be steering
   ([security.md](security.md), "What asks you").
+  The other agent's run is marked too: in `safe` mode its first change to its own memory or
+  instructions asks you again, once for that task.
 - `worktree: true` (in your own conversations, when they have a folder): the other agent does
   the task in a worktree of its own of the conversation's folder, and its work comes back as a
   branch to merge, as for sub-agents below. Not with `thread` or `wait: false`.

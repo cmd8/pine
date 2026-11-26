@@ -309,10 +309,15 @@ These are invariants. A change that breaks one needs a test that shows why it is
    the main agent the files for all agents in pine's home (`AGENTS.md`, `TOOLS.md`, `USER.md`:
    `SHARED_FILES` in `src/config.ts`), the only files there an agent may write, and text for
    every agent's prompt. A new file of that kind goes into that list and nowhere else. A
-   conversation of the owner's writes them also after it has handled outside content, and
-   nothing checks what it writes there: the manual says so under "What is not solved"
-   (`ownFiles` and `roots.ownOpen` in `src/security.ts` open exactly these files in the
-   sandbox, and nothing else that is read as instructions). A run started from outside never does.
+   conversation of the owner's writes them also after it has handled outside content: in
+   `safe` and `manual` mode only after the owner's yes, asked once for the conversation
+   (`ownAsks` in `coreExtension`, rule 5), in `auto` and `bypass` mode without a question,
+   where there is no sandbox to hold a command to a no. Once written, nothing checks what it
+   wrote there: the manual says so under "What is not solved" (`ownFiles` and `roots.ownOpen`
+   in `src/security.ts` open exactly these files in the sandbox, and nothing else that is read
+   as instructions; `ownOpenNow` keeps them closed there until the owner's yes). The yes is kept with the outside-content mark (`keep:` in the store, which
+   reset, rename, undo and `eraseAgent` already carry), a no and the yes of a conversation that
+   is not kept in `ownAnswer`. A run started from outside never writes them.
    Skills are instructions too, and need no configuration entry: where the folder lies says
    whom it is for (`src/skills.ts`). They are written by `add_skill` into pine's home, which
    the agent reads and cannot write. In a tainted conversation `add_skill` is put to the
@@ -415,14 +420,18 @@ These are invariants. A change that breaks one needs a test that shows why it is
    reads to `LOOK_TOOLS`. No model judges a call: pine has no reviewer, and
    none is to be added. What asks is the owner, and the list is short on purpose: a `critical`
    call in every conversation, a `send` call (and `subscribe`) after outside content, the
-   owner's own `approve` list, and everything in manual mode. A `send` through a source whose
+   owner's own `approve` list, everything in manual mode, and in `safe` mode an `own` call
+   that changes the agent's memory or instructions after outside content, once for the
+   conversation (`ownAsks`: a shell command that names such a file is class `own` too, through
+   `ownWrites`, and the sandbox holds every other command to the answer). A `send` through a source whose
    type reaches the owner and nobody else (`toOwner`, Telegram) is class `tell`, not `send`:
    a message to the owner is not information leaving, and an agent that watches something
    has to be able to say what it saw with nobody there. Do not make `tell` ask outside manual
    mode and the `approve` list, and do not give `toOwner` to a type that can reach anybody else. "Always here" is offered wherever
    the same question would come again; for a critical call it is kept by the kind of action
-   (`action.note`), not for the whole tool. Do not make `reach`, `local` or `own` ask outside
-   manual mode. A sub-agent never waits for the owner: where anything would ask, a sub-agent's
+   (`action.note`), not for the whole tool. Do not make `reach` or `local` ask outside manual
+   mode, nor `own` outside manual mode and that one question of `safe` mode. Do not make it
+   ask in `auto` or `bypass`, where no sandbox holds the shell to the answer. A sub-agent never waits for the owner: where anything would ask, a sub-agent's
    session is refused with `SUBAGENT_CANNOT_ASK` (`lone` in `coreExtension`, `profile.leaf` in
    `src/tools.ts`), and its conversation can ask. A new place that asks does the same. A
    sub-agent differs from its conversation in the model it runs on and how much it reasons
@@ -1261,7 +1270,9 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
 - The approval gate lives in one place, the `tool_call` handler in `coreExtension`
   (`src/agents.ts`). Plan mode comes before all of it: a call that is not class `look` is
   refused there and never asked about. Before that, for a shell without a sandbox, what is pine's own
-  (`pineOwn`) is refused in every mode, bypass included. Then the order: bypass, then what is configured to always ask, then
+  (`pineOwn`) is refused in every mode, bypass included. Right after plan mode, in `safe` and
+  `manual` mode, the question about the agent's own memory and instructions after outside
+  content (`ownAsks`). Then the order: bypass, then what is configured to always ask, then
   what is critical, then what never asks (read-only tools, a remembered "always"), then manual
   mode, then what sends something out after outside content.
 - Keep the documentation in `docs/references/` in step with behaviour changes, and add new

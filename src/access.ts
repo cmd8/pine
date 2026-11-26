@@ -318,7 +318,7 @@ export function verbs(command: string): string[] {
 
 /**
  * The paths a command line names that are written out: absolute ones, and ones in a home folder
- * (~, $HOME). This is reading, not running: what a variable or a script holds is not seen, and
+ * (~, $HOME); with `relative`, plain names too, taken where the command starts. This is reading, not running: what a variable or a script holds is not seen, and
  * need not be, because the sandbox decides what the command reaches. It is only how pine knows
  * whom to ask before the command fails.
  */
@@ -335,7 +335,7 @@ export function windowsPath(text: string): string | undefined {
 
 const WINDOWS = process.platform === "win32";
 
-export function reaches(command: string, where: { cwd: string; shellHome: string; ownerHome: string }): Reach[] {
+export function reaches(command: string, where: { cwd: string; shellHome: string; ownerHome: string }, opts: { relative?: boolean } = {}): Reach[] {
 	const out: Reach[] = [];
 	for (const simple of words(command.length > 20_000 ? command.slice(0, 20_000) : command)) {
 		const args = simple.filter((w) => !w.redirect);
@@ -364,7 +364,12 @@ export function reaches(command: string, where: { cwd: string; shellHome: string
 				home = true;
 				text = text.slice(tilde[1].length).replace(/^\//, "");
 			} else if (text.startsWith("../") || text === "..") text = path.join(where.cwd, text);
-			else if (!text.startsWith("/")) continue;
+			// A name without a folder lies where the command starts: only asked for where what is in the
+			// agent's own folders counts (its memory and instructions, `ownWrites` in src/agents.ts).
+			else if (!text.startsWith("/")) {
+				if (!opts.relative || !text || text.startsWith("-") || /^[A-Za-z][\w+.-]*:/.test(text)) continue;
+				text = path.join(where.cwd, text);
+			}
 			// A pattern, or a name made at run time: the folder it is looked for in.
 			const parts = text.split("/");
 			const cut = parts.findIndex((p) => /[*?[{$`]/.test(p));

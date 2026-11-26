@@ -23,7 +23,7 @@ import { Limiter, type Slot } from "./limiter.ts";
 import { modelRuntime } from "./models.ts";
 import { families, NOT_A_SUBAGENTS, SUBAGENT_CANNOT_ASK, serverTool } from "./catalogue.ts";
 import { type Occupant, type Page, SlotBook } from "./slots.ts";
-import { type Approvals, checkPath, denialTools, gitForWindows, globMatch, grantable, grantPath, isInside, isOpen, levelOf, matchesToolPattern, outsidePath, ownFileOf, realish, received, type Roots, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, type SandboxVariant, shellEnv, shellRefuses, shq, toolSubject } from "./security.ts";
+import { type Approvals, checkPath, denialTools, gitForWindows, globMatch, grantable, grantPath, isInside, isOpen, levelOf, matchesToolPattern, outsidePath, ownFileOf, ownFiles, realish, received, type Roots, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, type SandboxVariant, shellEnv, shellRefuses, shq, toolSubject } from "./security.ts";
 import { type AgentChange, applyAgentChange, checkAgentChange, checkAgentId, countFiles, eraseAgent, renameAgent } from "./admin.ts";
 import { createAgent, type NewAgent } from "./agent-admin.ts";
 import type { Router } from "./router.ts";
@@ -434,6 +434,13 @@ export class AgentManager {
 	private warnedNoSandbox = new Set<string>();
 	/** Conversations ("agent:session") where the owner chose bypass although they have read outside content. */
 	private bypassAnyway = new Set<string>();
+	/**
+	 * The owner's answer, in safe and manual mode, on whether a conversation that has read outside content may
+	 * change the agent's own memory and instructions ("agent:session" -> yes or no). A no is kept here until a reset
+	 * or a restart. A yes of a conversation that is kept is in the store with its mark (`keep:`), where undo,
+	 * reset and rename find it; here only that of a conversation that is not kept (a task handed on, `_t`).
+	 */
+	private ownAnswer = new Map<string, boolean>();
 	private readonly views: BrowserViews;
 	/** Until when a UI of the owner's counts as showing the browser itself (browserEmbedded). */
 	private embedUntil = 0;
@@ -2083,7 +2090,7 @@ export class AgentManager {
 		const done = renameAgent(this.cfg, { kv: this.kv, tasks: this.tasks, boards: this.boards }, from, to);
 		// What the owner allowed its conversations, and what they were refused, is theirs under the new name too.
 		const moved = (key: string) => `${to}${key.slice(from.length)}`;
-		for (const map of [this.allowed, this.grants, this.refused] as Array<Map<string, unknown>>) {
+		for (const map of [this.allowed, this.grants, this.refused, this.ownAnswer] as Array<Map<string, unknown>>) {
 			for (const key of [...map.keys()].filter(ours)) {
 				map.set(moved(key), map.get(key));
 				map.delete(key);
@@ -2177,7 +2184,7 @@ export class AgentManager {
 				this.kv.set(`${mark}:${agentId}:${a}${end}`, null);
 				if (had !== undefined && had !== null) this.kv.set(`${mark}:${agentId}:${b}${end}`, had);
 			}
-			for (const map of [this.allowed, this.grants] as Array<Map<string, any>>) {
+			for (const map of [this.allowed, this.grants, this.ownAnswer] as Array<Map<string, any>>) {
 				const had = map.get(`${agentId}:${a}${end}`);
 				map.delete(`${agentId}:${a}${end}`);
 				if (had !== undefined) map.set(`${agentId}:${b}${end}`, had);
@@ -3028,6 +3035,8 @@ export class AgentManager {
 				if (live.tainted || cfg.security.taint === "off") return;
 				live.tainted = reason;
 				if (persistTaint) this.kv.set(`taint:${agent.id}:${live.key}`, reason);
+				// In safe mode its own memory and instructions close with the mark, until the owner says yes.
+				live.syncGrants();
 				this.log.info(`session ${agent.id}/${live.key} is now tainted: ${reason}`);
 			},
 			restricted: () => live.trust === "untrusted" || Boolean(live.tainted),
@@ -3303,6 +3312,7 @@ export class AgentManager {
 	private dropGrants(perm: string): void {
 		if (this.todos(perm).length) this.kv.set(`todos:${perm}`, []);
 		this.grants.delete(perm);
+		this.ownAnswer.delete(perm);
 		this.handed.delete(perm);
 		this.refused.delete(perm);
 		this.toldHome.delete(perm);
@@ -3324,6 +3334,24 @@ export class AgentManager {
 		const jail = sandboxed ? (variant: SandboxVariant = live.variant(), tag?: string) => (isOpen(variant) ? [] : (sourceFiles(), sandboxArgv(cfg, agent, roots, variant, network, tag))) : undefined;
 		/** Whether the call that is about to run meets a sandbox. */
 		const boxed = () => Boolean(jail) && !isOpen(live.variant());
+		// Its own memory and instructions (MEMORY.md, AGENTS.md, SOUL.md, TOOLS.md; for the main agent the
+		// files for all agents): read into every later conversation, so what is written there outlives this
+		// one. In safe and manual mode a conversation that has read outside content changes them only after
+		// the owner's yes, which the sandbox holds it to. In auto and bypass there is no sandbox to hold
+		// the shell back, and they stay open as before ("What is not solved"). A sub-agent has its
+		// conversation's answer (the same `perm`).
+		const keptSession = !live.perm.slice(agent.id.length + 1).startsWith("_t") && cfg.security.taint === "session";
+		const ownKept = () => this.ownAnswer.get(live.perm) ?? (keptSession && this.kv.get(`keep:${live.perm}`) === true ? true : undefined);
+		const ownAsks = () => live.trust === "owner" && Boolean(live.tainted) && !unsandboxed(this.effectiveLevel(agent, live)) && ownKept() !== true;
+		const ownOpenNow = () => live.trust === "owner" && !ownAsks();
+		const decideOwn = (keep: boolean) => {
+			if (keep && keptSession) this.kv.set(`keep:${live.perm}`, true);
+			else this.ownAnswer.set(live.perm, keep);
+			for (const other of this.lives.values()) if (other.perm === live.perm) other.syncGrants();
+			this.log.info(`conversation ${live.perm} has read outside content and ${keep ? "may" : "may not"} change the agent's own memory and instructions`);
+		};
+		/** The own file a shell command writes, as far as its words say. */
+		const ownWrites = (command: string) => reaches(command, where(), { relative: true }).find((r) => r.write && ownFiles(roots).includes(realish(r.path)))?.path;
 		// What the conversation was granted before this session existed (a sub-agent starting later, or
 		// the conversation's own session coming back after a pause) applies from the start.
 		const sync = () => {
@@ -3333,8 +3361,7 @@ export class AgentManager {
 				for (const p of g.read) if (!roots.read.includes(p)) roots.read.push(p);
 				for (const p of g.write) if (!roots.write.includes(p)) roots.write.push(p);
 			}
-			// Its own memory and instructions stay its own to write in the owner's conversations, also after outside content.
-			roots.ownOpen = live.trust === "owner";
+			roots.ownOpen = ownOpenNow();
 		};
 		sync();
 		live.sandboxed = sandboxed;
@@ -3530,7 +3557,7 @@ export class AgentManager {
 				wants.length && !result.given.length && !result.refused.length && !result.open.length ? "You have that access now. Run the command again." : "",
 				pine.length ? `${short(pine)}: part of pine itself, which is closed to every agent in every mode. Do not look for another way. What pine holds for you, your tools tell you (sources, schedules, mcp_servers, skills, manual).` : "",
 				other.length ? `${short(other)}: another agent's files. Hand that agent the task with delegate instead.` : "",
-				frozen.length ? `${short(frozen)}: your own instructions or memory, or a repository's hooks and configuration. A command cannot change them in a conversation that has read outside content.` : "",
+				frozen.length ? `${short(frozen)}: your own instructions or memory, or a repository's hooks and configuration. A command cannot change them in a conversation that has read outside content.${frozen.some((p) => ownFiles(roots).includes(p)) && ownAsks() && !lone ? " For your own memory or instructions, use the write or edit tool: your owner is asked." : ""}` : "",
 				bad && quiet.length ? `Not writable for the command: ${short(quiet)}. A program that wants a folder for a cache or settings can be given one in your workspace or in your home (${roots.sandboxHome}).` : "",
 				failed && services.length && !wants.length && !pine.length && !other.length && !frozen.length ? `The command asked for system services it does not get in your sandbox (${short(services)}). If that is why it failed, it cannot be changed from here: tell your owner what you were trying to do.` : "",
 			].filter(Boolean);
@@ -3834,6 +3861,8 @@ export class AgentManager {
 				const run = live.current;
 				if (!run) return { block: true, reason: "no task is running in this session" };
 				sourceFiles();
+				// The mode may have changed since the last call, and with it whether its own files are open.
+				roots.ownOpen = ownOpenNow();
 				// The folder as it is before the first thing a message does there: what the owner's undo goes back to (src/undo.ts).
 				await this.turns.touching(run.task);
 
@@ -3856,14 +3885,8 @@ export class AgentManager {
 					if (own) return { block: true, reason: pineOwnRefusal(own) };
 				}
 				const fileKind = FILE_TOOLS[tool];
-				// A conversation of the owner's that has now read outside content: somebody else may be
-				// steering. One question settles what it keeps, asked with the first call that needs it:
-				// the whole account and the network (for an agent that has them), and the agent's own
-				// memory and instructions, which are read into every later conversation. A yes holds until
-				// the conversation is reset. A no holds until then or a restart. No answer is no answer:
-				// this call runs without, and the next one asks again.
+				// The owner has said yes to this very call (and manual mode does not ask about it again).
 				let answered = false;
-				const own = fileKind === "write" && typeof input.path === "string" ? ownFileOf(roots, input.path, agent.workspace) : undefined;
 				// A tool of the bundled app control server, by its own name ("app_click").
 				const appServer = prefixes.find((p) => tool.startsWith(p.prefix) && profile.mcp[p.name]?.pine === "computer");
 				const appTool = appServer ? tool.slice(appServer.prefix.length) : undefined;
@@ -3882,6 +3905,45 @@ export class AgentManager {
 						reachable: () => false,
 					});
 					if (planned.cls !== "look") return { block: true, reason: PLAN_REFUSAL };
+				}
+				// Its own memory and instructions, in safe and manual mode, once the conversation has read outside
+				// content: the first change is put to the owner, and the answer holds for the conversation (a yes
+				// until it is reset, a no until then or a restart). No answer is no answer: the next change asks
+				// again. A sub-agent has its conversation's answer and does not ask.
+				if (ownAsks()) {
+					const ownCall = classify(tool, input, { roots, cwd: agent.workspace, shellReaches: true, sends: false, reachable: () => false, ownWrites: tool === "bash" ? ownWrites : undefined });
+					const file = ownCall.cls === "own" && tool !== "add_skill" ? (fileKind ? (ownFileOf(roots, String(input.path ?? ""), agent.workspace) ?? "") : (ownWrites(String(input.command ?? "")) ?? "")) : undefined;
+					if (file !== undefined) {
+						const name = path.basename(file);
+						const refusal = (by: string) => `Not done: ${name} is your own memory or instructions, which every later conversation reads, and this conversation has read content from outside. Your owner has not let it change them (${by}). Do not retry and do not look for another way: go on without it, or tell your owner what you wanted to write and why.`;
+						if (ownKept() === false) return { block: true, reason: refusal("they said no in this conversation") };
+						if (lone) return { block: true, reason: `Not done: ${name} is your own memory or instructions, and this conversation has read content from outside, so changing them needs your owner's yes. ${SUBAGENT_CANNOT_ASK}` };
+						let by = "nobody answered";
+						let mine = false;
+						// Calls issued side by side wait for the one question.
+						await this.askOnce(`own:${live.perm}`, async () => {
+							mine = true;
+							const decision = await run.slot.suspend(() =>
+								this.approvals.request(
+									{
+										agent: agent.id,
+										task: run.task.id,
+										root: run.task.meta.root ?? run.task.id,
+										tool,
+										summary: `${tool === "bash" ? `bash: ${truncate(String(input.command ?? ""), 300)}` : tool} -> ${name}, ${agent.id}'s own ${name === "MEMORY.md" ? "memory" : "instructions"}${tool === "bash" ? "" : `\n${truncate(typeof input.content === "string" ? input.content : JSON.stringify(input.edits ?? input), 900)}`}`,
+										why: `this conversation has read content from outside (${live.tainted}), which may try to steer the agent. ${name} is read in every later conversation, so what is written there stays after this one is reset. Yes: the agent may change its own memory and instructions in this conversation until it is reset. No: it may not, in this conversation`,
+										holds: "this conversation",
+									},
+									ctx?.signal,
+								),
+							);
+							by = decision.by;
+							if (decision.allow || !["timeout", "aborted", "shutdown"].includes(decision.by)) decideOwn(decision.allow);
+						});
+						roots.ownOpen = ownOpenNow();
+						if (!roots.ownOpen) return { block: true, reason: refusal(ownKept() === false ? "they said no" : by) };
+						if (mine) answered = true;
+					}
 				}
 				if (fileKind) {
 					const target = typeof input.path === "string" && input.path ? input.path : ".";
@@ -4143,6 +4205,9 @@ export class AgentManager {
 				// Who it can still tell without a question: said by name, so that a watcher does not hold back what its owner has to hear.
 				const owners = (this.sources?.senders(agent.id, conversationOf(agent.id, live.perm)) ?? []).filter((s) => s.toOwner).map((s) => s.name);
 				lines.push(`You keep working as before. Sending something out (an event, a message or a command through an event source, a task for an agent that can send) asks your owner first from here on.${owners.length ? ` A message to your owner themself does not: the send tool through ${owners.join(" or ")} goes out at once, so tell them what your instructions say they should hear.` : ""}`);
+				// In safe mode its own files wait for the owner's yes (`ownAsks` in coreExtension). Said until the yes is there.
+				const kept = this.ownAnswer.get(live.perm) ?? this.kv.get(`keep:${live.perm}`) === true;
+				if (mode === "safe" && live.trust === "owner" && !live.leaf && kept !== true) lines.push(kept === false ? "Your owner said no to changing your own memory and instructions (MEMORY.md, AGENTS.md, SOUL.md, TOOLS.md) in this conversation: leave them as they are." : "Changing your own memory or instructions (MEMORY.md, AGENTS.md, SOUL.md, TOOLS.md) asks your owner once first. Use the write or edit tool for them.");
 			}
 		}
 		// A memory that only ever grows is read again with every message. Past a size, say so once per thousand characters.

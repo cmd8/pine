@@ -151,6 +151,8 @@ export interface ActionContext {
 	reachable(url: unknown): boolean;
 	/** For a shell without a sandbox: why a command is critical because of what it names (pine's own program files), or undefined. */
 	names?(command: string): string | undefined;
+	/** The agent's own memory or instruction file a shell command writes, as far as its words say (`reaches`), or undefined. */
+	ownWrites?(command: string): string | undefined;
 }
 
 export interface Action {
@@ -186,6 +188,7 @@ export function classify(tool: string, input: any, ctx: ActionContext): Action {
 		const command = String(input?.command ?? "");
 		const critical = criticalCommand(command) ?? (readOnlyCommand(command) ? undefined : ctx.names?.(command));
 		if (critical) return { cls: "critical", note: critical };
+		if (ctx.ownWrites?.(command)) return { cls: "own", note: "the agent's own memory or instructions" };
 		if (readOnlyCommand(command)) return { cls: "look" };
 		return { cls: ctx.shellReaches ? "reach" : "local" };
 	}

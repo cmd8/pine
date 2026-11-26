@@ -330,10 +330,13 @@ test("after a session has seen outside content, actions that send things out nee
 	await h.close();
 });
 
-test("after outside content an agent keeps its own memory and instructions, and nothing else that is read as instructions can be written; a run from outside writes neither", { skip: !sandboxAvailable() }, async () => {
-	const h = await harness({ agents: { main: { agent: { mcp: { feed }, untrusted: { tools: ["read", "write"] } }, files: { "AGENTS.md": "RULES\n" } } } });
+test("after outside content, in safe mode, the agent's own memory and instructions are put to the owner once, and nothing else that is read as instructions can be written; a run from outside writes neither", { skip: !sandboxAvailable() }, async () => {
+	const h = await harness({ pine: { security: { approvalTimeout: "5s" } }, agents: { main: { agent: { mcp: { feed }, untrusted: { tools: ["read", "write"] } }, files: { "AGENTS.md": "RULES\n" } } } });
 	const asked: any[] = [];
-	h.pine.bus.subscribe("approval/requested", (e) => void asked.push(e.payload));
+	h.pine.bus.subscribe("approval/requested", (e) => {
+		asked.push(e.payload);
+		h.pine.approvals.decide((e.payload as any).id, true, "test");
+	});
 	const ws = h.workspace("main");
 	await h.pine.agents.run({
 		agent: "main",
@@ -353,9 +356,11 @@ test("after outside content an agent keeps its own memory and instructions, and 
 		...owner,
 	});
 	const out = h.toolResults().slice(-5);
-	// Its own files are its own, by tool and by command, and nobody is asked.
+	// Its own files: one question for the calls of the step, and after the yes by tool and by command.
 	assert.deepEqual([fs.readFileSync(path.join(ws, "AGENTS.md"), "utf8"), fs.readFileSync(path.join(ws, "MEMORY.md"), "utf8")], ["RULES v2\n", "LEARNED\nMORE\n"]);
-	assert.equal(asked.length, 0);
+	assert.equal(asked.length, 1, asked.map((a) => a.summary).join(" | "));
+	assert.match(asked[0].summary, /main's own (memory|instructions)/);
+	assert.match(asked[0].why, /read content from outside/);
 	// What somebody else would read as instructions is not written: the file tools refuse it, and the sandbox refuses the command.
 	assert.ok(/holds agent instructions/.test(out[2]) && /holds agent instructions/.test(out[3]), out.join(" | "));
 	// (On Linux a file that did not exist cannot be forbidden, only taken away again after the command: see the check below.)
@@ -372,6 +377,76 @@ test("after outside content an agent keeps its own memory and instructions, and 
 	await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools: forAll.map((f) => ({ name: "write", args: { path: f, content: "EVIL" } })) }]), trust: "untrusted" } as any);
 	for (const r of h.toolResults().slice(-3)) assert.match(r, /holds agent instructions and cannot be changed in a run that has handled outside content/);
 	assert.deepEqual(forAll.map((f) => fs.readFileSync(f, "utf8")), before);
+	await h.close();
+});
+
+test("own memory and instructions after outside content: a no holds for the conversation and keeps the shell out, a reset asks again, a sub-agent does not ask, and auto and plan mode are as before", { skip: !sandboxAvailable() }, async () => {
+	const h = await harness({ pine: { security: { approvalTimeout: "5s" } }, agents: { main: { agent: { mcp: { feed } }, files: { "MEMORY.md": "OLD\n" } } } });
+	const ws = h.workspace("main");
+	const memory = () => fs.readFileSync(path.join(ws, "MEMORY.md"), "utf8");
+	const asked: any[] = [];
+	let answer = false;
+	h.pine.bus.subscribe("approval/requested", (e) => {
+		asked.push(e.payload);
+		h.pine.approvals.decide((e.payload as any).id, answer, "test");
+	});
+	const read = { name: "mcp__feed__echo", args: { text: "x" } };
+	const write = (content: string) => ({ name: "write", args: { path: "MEMORY.md", content } });
+	const run = (steps: any[], session?: string) => h.pine.agents.run({ agent: "main", session, prompt: mockMsg(steps), ...owner });
+
+	// Before outside content nobody is asked.
+	await run([{ tools: [write("CLEAN\n")] }]);
+	assert.equal(asked.length, 0);
+	assert.equal(memory(), "CLEAN\n");
+
+	// A command that names its memory asks as the write tool does. A no holds for the conversation: the tool
+	// is refused without a second question, and the sandbox keeps out a command that writes it unnamed.
+	await run([{ tools: [read] }, { tools: [{ name: "bash", args: { command: "echo PLANTED | tee -a MEMORY.md" } }] }, { tools: [write("PLANTED\n")] }, { tools: [{ name: "bash", args: { command: "f=MEMORY; echo PLANTED | tee -a $f.md; echo after" } }] }]);
+	assert.equal(asked.length, 1, "one question for the conversation");
+	assert.match(asked[0].summary, /^bash: echo PLANTED \| tee -a MEMORY\.md -> MEMORY\.md, main's own memory/);
+	const out = h.toolResults().slice(-3);
+	assert.match(out[0], /MEMORY\.md is your own memory or instructions.*has not let it change them \(they said no\)/);
+	assert.match(out[1], /has not let it change them \(they said no in this conversation\)/);
+	assert.ok(refused.test(out[2]) && out[2].includes("after"), out[2]);
+	assert.equal(memory(), "CLEAN\n");
+
+	// A reset gives a clean conversation: nothing is asked until it reads outside content again, and then it is.
+	await h.pine.agents.resetSession("main");
+	await run([{ tools: [write("AFTER-RESET\n")] }]);
+	assert.equal(asked.length, 1);
+	answer = true;
+	await run([{ tools: [read] }, { tools: [write("KEPT\n")] }]);
+	assert.equal(asked.length, 2, "asked again after the reset");
+	assert.equal(memory(), "KEPT\n");
+
+	// A sub-agent never waits for the owner: without its conversation's yes it is refused, with it it writes.
+	h.mock.state.scripts.sub = [{ tools: [write("FROM-SUB\n")] }];
+	await run([{ tools: [read] }, { tools: [{ name: "subagent", args: { tasks: ["@@REF:sub@@"] } }] }], "other");
+	assert.equal(asked.length, 2, "nobody is asked on a sub-agent's behalf");
+	assert.ok(h.toolResults().some((r) => /MEMORY\.md is your own memory or instructions.*You are a sub-agent: your owner is not asked on your behalf/s.test(r)), h.toolResults().slice(-3).join(" | "));
+	assert.equal(memory(), "KEPT\n");
+	await run([{ tools: [write("FROM-OTHER\n")] }, { tools: [{ name: "subagent", args: { tasks: ["@@REF:sub@@"] } }] }], "other");
+	assert.equal(asked.length, 3);
+	assert.equal(memory(), "FROM-SUB\n", "the conversation's yes is its sub-agents' too");
+
+	// The yes is kept with the conversation's mark, also after a restart.
+	await h.restart();
+	h.pine.bus.subscribe("approval/requested", (e) => {
+		asked.push(e.payload);
+		h.pine.approvals.decide((e.payload as any).id, false, "test");
+	});
+	await run([{ tools: [write("AFTER-RESTART\n")] }]);
+	assert.equal(asked.length, 3);
+	assert.equal(memory(), "AFTER-RESTART\n");
+
+	// Plan mode refuses the change and does not ask. Auto mode has no sandbox to hold the shell back: nothing is asked there, as before.
+	h.pine.agents.setMode("main", "plan");
+	await run([{ tools: [read] }, { tools: [write("PLANNED\n")] }], "plan");
+	assert.match(h.toolResults().at(-1)!, /plan mode/);
+	h.pine.agents.setMode("main", "auto");
+	await run([{ tools: [read] }, { tools: [write("AUTO\n")] }], "auto");
+	assert.equal(asked.length, 3, "neither plan nor auto mode asks");
+	assert.equal(memory(), "AUTO\n");
 	await h.close();
 });
 

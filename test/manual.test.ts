@@ -185,6 +185,8 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["my owner was asked to let me read a folder although I never asked for it", /^(security#(when-a-call-needs-something-outside|modes-how-much-an-agent-does-without-asking)|operations#problems)/],
 		["ls says no such file for a folder in my owner's home that I wrote with ~", /^(security#when-a-call-needs-something-outside|operations#problems)/],
 		["a command was refused a file it did not name, what happens then", /^security#when-a-call-needs-something-outside/],
+		["why was my owner asked before I could save a note in my memory after reading a web page", /^security#(its-own-memory-and-instructions-after-outside-content|4-taint-and-approvals)$/],
+		["a sub-agent was not allowed to change MEMORY.md", /^security#its-own-memory-and-instructions-after-outside-content$/],
 		["how do I turn off the question pine asks itself when a command needs a folder outside the sandbox", /^(configuration#pine-json|security#when-a-call-needs-something-outside)/],
 		["how do I see what the model was thinking before it answered", /^tui#what-a-model-thinks/],
 		["the conversation is cluttered with tool calls, can they be collapsed so that I only see the answer", /^tui#the-tool-calls-of-a-turn/],

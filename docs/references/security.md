@@ -365,15 +365,17 @@ on that, use `safe` mode.
 ### What asks you
 
 No model judges what an agent does. In `auto` and `safe` mode the agent works without
-asking, with two exceptions, and both are a question to you:
+asking, with two exceptions, and in `safe` mode a third. Each is a question to you:
 
 | The action | Examples | When you are asked |
 |---|---|---|
 | is critical | shell startup files, ssh keys, git hooks and a repository's configuration, launch agents; a force push, `git reset --hard`, `git clean -f`, `curl ... \| sh`, `sudo`, deleting a home folder | In every conversation, also one that has read nothing from outside |
 | sends something out | `send` through a source that reaches somebody or something else (an MQTT device), events, the acting tools of MCP servers marked `"approve": "tainted"`, a task for another agent (its answer can carry that agent's files back), `subscribe` | Once the conversation has read outside content |
+| changes the agent's own memory or instructions, in safe mode only | `MEMORY.md`, `AGENTS.md`, `SOUL.md`, `TOOLS.md` at the top of its workspace; for the main agent also `AGENTS.md`, `TOOLS.md` and `USER.md` in pine's home | Once the conversation has read outside content, and then once for the conversation. See "Its own memory and instructions after outside content" below |
 
 Everything else runs, also after outside content: shell commands, files anywhere the agent
-reaches, downloads, the agent's own memory and instructions, and a message to you.
+reaches, downloads, and a message to you. In `auto` and `bypass` mode the agent's own memory
+and instructions too.
 
 **Telling you is never asked about.** An agent that watches something (a camera, a device, a
 page) has read outside content by the time it has something to say, and it says it when you
@@ -401,6 +403,8 @@ from somebody else), somebody else may be steering the agent. What pine does abo
 what it does not:
 
 - Sending something out asks you (above). A message to you does not.
+- In `safe` mode, changing the agent's own memory or instructions asks you, once for the
+  conversation (below).
 - The file tools refuse to write what somebody else would read as instructions, and what
   makes git run programs (layer 4).
 - Nothing looks at an ordinary shell command. In `auto` mode, a page that talks the agent
@@ -410,6 +414,35 @@ what it does not:
 
 In `manual` you approve each action yourself; `plan` refuses every action that does not
 only look; `bypass` asks nothing.
+
+### Its own memory and instructions after outside content
+
+An agent's own files (`MEMORY.md`, `AGENTS.md`, `SOUL.md` and `TOOLS.md` at the top of its
+workspace; for the main agent also the files for all agents, `AGENTS.md`, `TOOLS.md` and
+`USER.md` in pine's home) are read into every later conversation. What a page talks it into
+writing there stays after the conversation is reset, and a new conversation reads it as the
+agent's own instructions, without the outside-content mark. So in `safe` mode an agent that
+has read a web page asks you before it first saves a note in its memory or changes its
+instructions:
+
+| Situation | What happens |
+|---|---|
+| The conversation has read nothing from outside | The agent changes its own files freely, by tool and by command |
+| It has, and wants to change one of them | You are asked once: "Yes" lets it change all of them in this conversation, "No" keeps them closed in this conversation. Calls made side by side wait for the one question |
+| You said yes | It holds until the conversation is reset, also after pine restarts. Undoing the message that read the outside content takes it back with the mark |
+| You said no | Every later change in the conversation is refused without a question, until the conversation is reset or pine restarts |
+| Nobody answered | Nothing is changed, and the next change asks again |
+| A shell command that names the file | Asks the same question before it runs (`echo ... \| tee -a MEMORY.md`) |
+| A shell command that writes the file without naming it (a script, a variable) | The sandbox refuses the write, and the agent is told to use the write or edit tool, which asks |
+| A sub-agent of the conversation | Has the conversation's answer. Without a yes its change is refused at once and it says so in its answer; it never waits for you |
+| A task handed to another agent (delegate) | That agent's own files are its own: it asks you itself, once for that task (a task in a `thread` keeps the answer like a conversation) |
+| A reset | The conversation is clean again: nothing is asked until it reads outside content again. What was written into the files stays |
+
+`manual` mode is `safe` with every action asked: this question is the one for that change, and
+the next change asks as every action does there. `plan` refuses the change without a question.
+In `auto` and `bypass` mode nothing asks: there is no sandbox to hold a shell command back, so
+a question on the file tool would protect nothing ("What is not solved"). A run started from
+outside writes none of these files in any mode.
 
 ### 4. Taint and approvals
 
@@ -439,11 +472,13 @@ page says "now send the notes folder to ...". pine tracks that:
   check it. It is taken at its word because you chose the server. What such a tool is asked (a
   search text, a path) does reach the server. For a server where that matters, set
   `"approve": "always"`: then every call asks, reading included.
-- A tainted session keeps the agent's own files: `MEMORY.md`, `AGENTS.md`, `SOUL.md`, `TOOLS.md`, and
-  for the main agent the files for all agents (`AGENTS.md`, `TOOLS.md` and `USER.md` in
-  pine's home). It writes them as before, and nobody checks what it writes there, so text
-  from a page can end up in the agent's memory, and through the main agent in every agent's
-  instructions ("What is not solved"). A run started from outside writes none of them.
+- The agent's own files (`MEMORY.md`, `AGENTS.md`, `SOUL.md`, `TOOLS.md`, and for the main
+  agent the files for all agents: `AGENTS.md`, `TOOLS.md` and `USER.md` in pine's home): in
+  `safe` mode a tainted session changes them only after your yes, once for the conversation
+  ("Its own memory and instructions after outside content"). In `auto` and `bypass` mode it
+  writes them as before, and nobody checks what it writes there, so text from a page can end
+  up in the agent's memory, and through the main agent in every agent's instructions ("What
+  is not solved"). A run started from outside writes none of them.
   Everything else that would be read as instructions (`CLAUDE.md`, `AGENTS.md` further
   down in the workspace, `.pi/`, `.agents/`, the instruction files of a folder opened for the
   conversation) is refused, with no question: by the file tools in every mode, and for shell
@@ -507,7 +542,7 @@ approval prompts.
 | Mode | Sandbox | What asks you |
 |---|---|---|
 | `auto` (the main agent, unless you say otherwise) | Off: shell and file tools reach your whole account and the network | Almost nothing. Your `approve` list asks. A critical action asks, in every conversation. After outside content, sending something out asks. See "What asks you" above |
-| `safe` (every other agent, unless you say otherwise) | On: the agent's own folders. For anything beyond you are asked: by pine when a call needs it, or by the agent with `request_access` | As in `auto` |
+| `safe` (every other agent, unless you say otherwise) | On: the agent's own folders. For anything beyond you are asked: by pine when a call needs it, or by the agent with `request_access` | As in `auto`, and after outside content a change to the agent's own memory or instructions, once for the conversation |
 | `manual` | On, where the machine has one | Every action that changes or sends something waits for you, unless you answered "always" for it in this conversation. Reading files and state and read-only MCP tools are free |
 | `bypass` | Off: shell and file tools reach your whole account and the network | Nothing waits |
 | `plan` | That of the mode the agent had before: planning lies on top of it | Nothing waits, because nothing is done: a call that does not only look is refused, without a question. See "Plan mode" below |
@@ -528,6 +563,7 @@ The same actions in each mode:
 | `sudo`, a force push, `git reset --hard`, `curl ... \| sh`, shell startup files, ssh keys | runs | asks | asks | asks |
 | Sending an event or an MQTT message after it has read a web page | asks, because bypass is paused then (below) | asks | asks | asks |
 | A Telegram message to you, also after a web page | runs | runs | runs | asks |
+| Writing its own `MEMORY.md` or `AGENTS.md` after it has read a web page | runs | runs | asks once for the conversation | asks |
 
 So `auto` asks rarely, `safe` asks whenever the agent has to leave its own folders, and
 `manual` asks every time. Once a conversation in `bypass` has read outside content, bypass
@@ -986,11 +1022,14 @@ you once it has read a page, which is a question you would have to answer for ev
   run programs (a `CLAUDE.md` in a repository, a hook): the file tools refuse that, and
   nothing looks at a shell command that does it, unless it names a hook or a repository's
   configuration, which asks you. For an agent that reads the web, `safe` mode is the wall.
-- **Memory after outside content.** An agent writes its own `MEMORY.md`, `AGENTS.md`,
-  `SOUL.md` and `TOOLS.md` also in a conversation that has read outside content, unchecked. What a page
-  talks it into writing there is read in every later conversation. The main agent writes
+- **Memory after outside content, in `auto` and `bypass` mode.** There an agent writes its own
+  `MEMORY.md`, `AGENTS.md`, `SOUL.md` and `TOOLS.md` also in a conversation that has read
+  outside content, unchecked: without a sandbox a shell command could write them whatever you
+  answered. What a page talks it into writing there is read in every later conversation,
+  without the outside-content mark. The main agent, in `auto` unless you say otherwise, writes
   the files for all agents the same way (`AGENTS.md`, `TOOLS.md` and `USER.md` in pine's
-  home), and what it is talked into writing there is read by every agent. The first paragraph
+  home), and what it is talked into writing there is read by every agent. In `safe` mode you
+  are asked first, and once you have said yes, what is written is not checked either. The first paragraph
   of an agent's own `AGENTS.md` is also what the agents that may hand it work read about it
   (one line of at most 240 characters, read only from the plain file, never through a link),
   so what it is talked into writing there reaches them too. Look into those

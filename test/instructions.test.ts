@@ -89,16 +89,19 @@ test("instructions: an agent writes its own files and sees them from its next me
 	await h.close();
 });
 
-test("instructions: a conversation that has read outside content still keeps the agent's own files, and only those", mac, async () => {
-	const h = await harness({ files: { "USER.md": "OWNER-V1\n" }, agents: { main: { agent: { mcp: { feed } }, files: { "SOUL.md": "SOUL-V1\n", "MEMORY.md": "MEMORY-V1\n" } } } });
+test("instructions: a conversation that has read outside content keeps the agent's own files after one yes of the owner's, and only those", mac, async () => {
+	const h = await harness({ pine: { security: { approvalTimeout: "5s" } }, files: { "USER.md": "OWNER-V1\n" }, agents: { main: { agent: { mcp: { feed } }, files: { "SOUL.md": "SOUL-V1\n", "MEMORY.md": "MEMORY-V1\n" } } } });
 	const ws = h.workspace("main"), user = path.join(h.home, "USER.md"), tools = path.join(h.home, "TOOLS.md");
 	const asked: any[] = [];
-	h.pine.bus.subscribe("approval/requested", (e) => void asked.push(e.payload));
+	h.pine.bus.subscribe("approval/requested", (e) => {
+		asked.push(e.payload);
+		h.pine.approvals.decide((e.payload as any).id, true, "test");
+	});
 	const run = (tools: any[]) => h.pine.agents.run({ agent: "main", prompt: mockMsg([{ tools }]), ...owner });
 	await run([call("mcp__feed__echo", { text: "x" })]);
 	await run([call("write", { path: "MEMORY.md", content: "LEARNED: the server is installed\n" }), call("edit", { path: "MEMORY.md", edits: [{ oldText: "installed", newText: "installed and signed in" }] }), call("write", { path: user, content: "OWNER-V2\n" }), call("write", { path: tools, content: "VOICE-V2\n" })]);
 	await run([call("bash", { command: "echo MORE | tee -a MEMORY.md; echo EVIL | tee CLAUDE.md .pi" }), call("write", { path: "CLAUDE.md", content: "EVIL" })]);
-	assert.equal(asked.length, 0, "its own memory is its own: nobody is asked");
+	assert.equal(asked.length, 1, "one question for the conversation, its own files and the files for all agents alike");
 	assert.equal(fs.readFileSync(path.join(ws, "MEMORY.md"), "utf8"), "LEARNED: the server is installed and signed in\nMORE\n");
 	assert.equal(fs.readFileSync(user, "utf8"), "OWNER-V2\n");
 	assert.equal(fs.readFileSync(tools, "utf8"), "VOICE-V2\n");
