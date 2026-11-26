@@ -53,7 +53,11 @@ name: Release
 # The apps of a release (the disk images and the APK) can be built again by hand, without publishing
 # anything: Actions > Release > Run workflow, from main, with the release's version (gh workflow run
 # release.yml -f version=0.38.0). They are built from that release's tag and attached to that
-# release, in place of what is there.
+# release, but only what the release does not have yet: a file that is there already is kept as it
+# is, and the log says so. Its bytes are what Homebrew, winget, Scoop and the AUR pin by their hash,
+# so a repair that replaced it would break them. "apps" builds only the apps it names, a comma list
+# without spaces of mac, linux, windows and android (-f apps=android for the APK alone; empty is
+# all). "replace" (-f replace=true) replaces the files that are there, for when that is meant.
 #
 # The Windows app's signing can be tried from any branch without a release: Run workflow with
 # "signing_trial" checked (gh workflow run release.yml --ref <branch> -f version=0.0.1 -f
@@ -77,11 +81,43 @@ on:
         description: Only try the Windows app's signing, from this branch, with SignPath's test certificate (the version is a label then; nothing is attached to a release)
         type: boolean
         default: false
+      apps:
+        description: Build only these apps, a comma list without spaces of mac, linux, windows, android (empty is all of them)
+        default: ''
+      replace:
+        description: Replace the files the release has already (without it, only what is missing is attached)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+# Whether an upload replaces a file the release has already. A push makes a new release, which has
+# none yet, and uploads as it always did; a run by hand replaces nothing unless "replace" says so.
+env:
+  CLOBBER: ${{ github.event_name == 'push' || inputs.replace }}
+
 jobs:
+  # A run by hand names its apps: a name that is not one of them would build nothing and say nothing.
+  check-apps:
+    if: github.event_name == 'workflow_dispatch' && inputs.apps != ''
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          APPS: ${{ inputs.apps }}
+        run: |
+          # The jobs look for ",<app>," in ",$APPS,": a space would hide the name from them.
+          case "$APPS" in
+            *[[:space:]]*) echo "::error::\"$APPS\": separate the apps by commas without spaces (mac,android)."; exit 1 ;;
+          esac
+          for app in $(printf '%s' "$APPS" | tr ',' ' '); do
+            case "$app" in
+              mac|linux|windows|android) ;;
+              *) echo "::error::\"$app\" is not an app of a release: name mac, linux, windows or android, separated by commas without spaces."; exit 1 ;;
+            esac
+          done
+          echo "Building: $APPS"
+
   release:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
@@ -120,7 +156,7 @@ jobs:
   app:
     needs: release
     # After a release from main, or by hand for a release there already is (the release job is then skipped).
-    if: always() && !inputs.signing_trial && (github.event_name == 'workflow_dispatch' || needs.release.outputs.channel == 'latest')
+    if: always() && !inputs.signing_trial && (github.event_name == 'workflow_dispatch' || needs.release.outputs.channel == 'latest') && (!inputs.apps || contains(format(',{0},', inputs.apps), ',mac,'))
     strategy:
       fail-fast: false
       matrix:
@@ -209,10 +245,25 @@ jobs:
         # The disk image, and what the apps in the field update from: the app zipped after its ticket was
         # attached, and the feed that points at that zip on this release's tag (desktop/scripts/update-feed.ts).
         run: |
-          gh release upload "v$VERSION" --clobber \
-            "desktop/release/Pine-$VERSION-${{ matrix.arch }}.dmg" \
-            "desktop/release/Pine-$VERSION-${{ matrix.arch }}.zip" \
-            "desktop/release/Pine-${{ matrix.arch }}.json"
+          files=("desktop/release/Pine-$VERSION-${{ matrix.arch }}.dmg" "desktop/release/Pine-$VERSION-${{ matrix.arch }}.zip" "desktop/release/Pine-${{ matrix.arch }}.json")
+          if [ "$CLOBBER" = true ]; then
+            gh release upload "v$VERSION" --clobber "${files[@]}"
+          else
+            # By hand: only what the release does not have yet. What it has is what was published, and
+            # what Homebrew, winget, Scoop and the AUR pinned by its hash.
+            have="$(gh release view "v$VERSION" --json assets --jq '.assets[].name')"
+            kept=""
+            for file in "${files[@]}"; do
+              name="$(basename "$file")"
+              if printf '%s\n' "$have" | grep -Fxq "$name"; then
+                echo "::notice::Kept as it was: $name is on v$VERSION already (replace=true replaces it)."
+                kept="$kept $name"
+              else
+                gh release upload "v$VERSION" "$file"
+              fi
+            done
+            echo "Kept as they were:${kept:- nothing}"
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
       - if: always()
@@ -223,7 +274,7 @@ jobs:
   # release's SHA256SUMS and GitHub's attestation of where it was built say.
   app-linux:
     needs: release
-    if: always() && !inputs.signing_trial && (github.event_name == 'workflow_dispatch' || needs.release.outputs.channel == 'latest')
+    if: always() && !inputs.signing_trial && (github.event_name == 'workflow_dispatch' || needs.release.outputs.channel == 'latest') && (!inputs.apps || contains(format(',{0},', inputs.apps), ',linux,'))
     strategy:
       fail-fast: false
       matrix:
@@ -269,7 +320,26 @@ jobs:
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: desktop/release/Pine-*
-      - run: gh release upload "v$VERSION" desktop/release/Pine-$VERSION-*.AppImage desktop/release/*.deb desktop/release/SHA256SUMS-linux-${{ matrix.arch }} --clobber
+      - run: |
+          files=(desktop/release/Pine-"$VERSION"-*.AppImage desktop/release/*.deb "desktop/release/SHA256SUMS-linux-${{ matrix.arch }}")
+          if [ "$CLOBBER" = true ]; then
+            gh release upload "v$VERSION" --clobber "${files[@]}"
+          else
+            # By hand: only what the release does not have yet. What it has is what was published, and
+            # what Homebrew, winget, Scoop and the AUR pinned by its hash.
+            have="$(gh release view "v$VERSION" --json assets --jq '.assets[].name')"
+            kept=""
+            for file in "${files[@]}"; do
+              name="$(basename "$file")"
+              if printf '%s\n' "$have" | grep -Fxq "$name"; then
+                echo "::notice::Kept as it was: $name is on v$VERSION already (replace=true replaces it)."
+                kept="$kept $name"
+              else
+                gh release upload "v$VERSION" "$file"
+              fi
+            done
+            echo "Kept as they were:${kept:- nothing}"
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -278,7 +348,8 @@ jobs:
   # stays as it is; the AUR's copy is the one that follows the releases.
   aur:
     needs: [release, app-linux]
-    if: always() && !inputs.signing_trial && needs.app-linux.result == 'success'
+    # Only when this run built the Linux app: a run by hand that names other apps leaves the AUR alone.
+    if: always() && !inputs.signing_trial && needs.app-linux.result == 'success' && (!inputs.apps || contains(format(',{0},', inputs.apps), ',linux,'))
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -356,7 +427,8 @@ jobs:
   # about them ("More info", then "Run anyway" installs one) until the release they are signed in.
   app-windows:
     needs: release
-    if: always() && (github.event_name == 'workflow_dispatch' || needs.release.outputs.channel == 'latest')
+    # A signing trial is the Windows jobs alone, whatever "apps" says.
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.release.outputs.channel == 'latest') && (inputs.signing_trial || !inputs.apps || contains(format(',{0},', inputs.apps), ',windows,'))
     strategy:
       fail-fast: false
       matrix:
@@ -582,17 +654,55 @@ jobs:
           path: desktop/release/out/
           retention-days: 3
       - if: steps.signing.outputs.ready == 'true' && env.TRIAL != 'true'
-        run: gh release upload "v$VERSION" "desktop/release/$FROM/Pine-$VERSION-x64-setup.exe" "desktop/release/$FROM/Pine-$VERSION-arm64-setup.exe" --clobber
+        id: upload
+        run: |
+          files=("desktop/release/$FROM/Pine-$VERSION-x64-setup.exe" "desktop/release/$FROM/Pine-$VERSION-arm64-setup.exe")
+          if [ "$CLOBBER" = true ]; then
+            gh release upload "v$VERSION" --clobber "${files[@]}"
+          else
+            # By hand: only what the release does not have yet. What it has is what was published, and
+            # what Homebrew, winget, Scoop and the AUR pinned by its hash.
+            have="$(gh release view "v$VERSION" --json assets --jq '.assets[].name')"
+            kept=""
+            for file in "${files[@]}"; do
+              name="$(basename "$file")"
+              if printf '%s\n' "$have" | grep -Fxq "$name"; then
+                echo "::notice::Kept as it was: $name is on v$VERSION already (replace=true replaces it)."
+                kept="$kept $name"
+              else
+                gh release upload "v$VERSION" "$file"
+              fi
+            done
+            echo "Kept as they were:${kept:- nothing}"
+            echo "kept=$kept" >> "$GITHUB_OUTPUT"
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
           FROM: ${{ steps.signing.outputs.sign == 'true' && 'out' || 'installers' }}
+      # Only once the release's installers are the ones signed here: not when a run by hand kept
+      # the ones it had, which may not be.
+      - if: steps.signing.outputs.sign == 'true' && env.TRIAL != 'true' && steps.upload.outputs.kept == ''
+        name: The release's notes say that the app is signed
+        # SignPath Foundation, which signs the Windows app, asks that every download page links the code signing policy.
+        run: |
+          sentence="The Pine app for Windows is signed: [code signing policy](https://github.com/pmndre/pine#code-signing-policy)."
+          gh release view "v$VERSION" --json body --jq .body > "$RUNNER_TEMP/notes.md"
+          if grep -Fq "$sentence" "$RUNNER_TEMP/notes.md"; then
+            echo "The notes of v$VERSION say so already."
+          else
+            printf '\n%s\n' "$sentence" >> "$RUNNER_TEMP/notes.md"
+            gh release edit "v$VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   # The WinGet package pmndre.Pine: a pull request to microsoft/winget-pkgs with the release's two
   # installers, made by komac from the version already there. It works only once a first version of
   # pmndre.Pine is in winget-pkgs. The pull request comes from abernier's fork of winget-pkgs.
   winget:
     needs: [release, app-windows-sign]
-    if: always() && !inputs.signing_trial && needs.app-windows-sign.result == 'success'
+    # Only when this run built the Windows app: a run by hand that names other apps leaves WinGet alone.
+    if: always() && !inputs.signing_trial && needs.app-windows-sign.result == 'success' && (!inputs.apps || contains(format(',{0},', inputs.apps), ',windows,'))
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -624,7 +734,7 @@ jobs:
   android:
     needs: release
     # As the app job: after a release from main, or by hand for a release there already is.
-    if: always() && !inputs.signing_trial && (github.event_name == 'workflow_dispatch' || needs.release.outputs.channel == 'latest')
+    if: always() && !inputs.signing_trial && (github.event_name == 'workflow_dispatch' || needs.release.outputs.channel == 'latest') && (!inputs.apps || contains(format(',{0},', inputs.apps), ',android,'))
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -736,7 +846,26 @@ jobs:
             exit 1
           fi
       - if: steps.signing.outputs.ready == 'true'
-        run: gh release upload "v$VERSION" "Pine-$VERSION.apk" --clobber
+        run: |
+          files=("Pine-$VERSION.apk")
+          if [ "$CLOBBER" = true ]; then
+            gh release upload "v$VERSION" --clobber "${files[@]}"
+          else
+            # By hand: only what the release does not have yet. What it has is what was published, and
+            # what Homebrew, winget, Scoop and the AUR pinned by its hash.
+            have="$(gh release view "v$VERSION" --json assets --jq '.assets[].name')"
+            kept=""
+            for file in "${files[@]}"; do
+              name="$(basename "$file")"
+              if printf '%s\n' "$have" | grep -Fxq "$name"; then
+                echo "::notice::Kept as it was: $name is on v$VERSION already (replace=true replaces it)."
+                kept="$kept $name"
+              else
+                gh release upload "v$VERSION" "$file"
+              fi
+            done
+            echo "Kept as they were:${kept:- nothing}"
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
       - if: always()
