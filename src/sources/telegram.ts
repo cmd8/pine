@@ -216,7 +216,7 @@ export default async function telegram(source: SourceApi): Promise<void> {
 	const api = async (method: string, body: Record<string, unknown> = {}, timeoutMs = 20_000): Promise<any> => {
 		const res = await fetch(`${base}/bot${token}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.any([stop.signal, AbortSignal.timeout(timeoutMs)]) });
 		const json: any = await res.json().catch(() => ({}));
-		if (!json.ok) throw new Error(`Telegram refused ${method}: ${json.description ?? res.status}`);
+		if (!json.ok) throw Object.assign(new Error(`Telegram refused ${method}: ${json.description ?? res.status}`), { code: Number(json.error_code ?? res.status) });
 		return json.result;
 	};
 	// A wrong token is found out here, and shows as the reason the source is not running.
@@ -448,10 +448,17 @@ export default async function telegram(source: SourceApi): Promise<void> {
 		const pollSec = 25;
 		let offset = source.kv.get<number>("offset") ?? 0;
 		let backoff = 1000;
+		// Telegram hands a bot's messages to one reader only: with a second one (another pine with this
+		// token, a script) this bot gets nothing, which is said where the sources are listed, in pine's words.
+		let conflict = false;
 		while (!stop.signal.aborted) {
 			try {
 				const updates: any[] = await api("getUpdates", { offset, timeout: pollSec, allowed_updates: ["message", "callback_query"] }, (pollSec + 10) * 1000);
 				backoff = 1000;
+				if (conflict) {
+					conflict = false;
+					say();
+				}
 				for (const u of updates) {
 					offset = u.update_id + 1;
 					source.kv.set("offset", offset);
@@ -461,6 +468,10 @@ export default async function telegram(source: SourceApi): Promise<void> {
 				}
 			} catch (e) {
 				if (stop.signal.aborted) break;
+				if ((e as any)?.code === 409 && !conflict) {
+					conflict = true;
+					source.status(`@${me.username} gets no messages: another program reads this bot's messages, and Telegram gives them to one only. Stop that one (another pine with this bot's token, a script), or make a new token for the bot with BotFather (/revoke) and set this source up again with it`);
+				}
 				source.log.warn(`asking Telegram for messages failed, trying again in ${backoff} ms`, errText(e));
 				await sleep(backoff);
 				backoff = Math.min(backoff * 2, 60_000);
