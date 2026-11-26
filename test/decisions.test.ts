@@ -7,7 +7,7 @@ import { loadConfig } from "../src/config.ts";
 import { checkDecision, decisionPace, TYPESAFE } from "../src/decisions.ts";
 import { audit } from "../src/security.ts";
 import { decisionServer as systemOne, KEY } from "./support/decision-server.ts";
-import { type Harness, harness, mockMsg } from "./support/harness.ts";
+import { type Harness, harness, mockMsg, notesOf } from "./support/harness.ts";
 
 
 const QUESTIONS: AskQuestions = {
@@ -164,5 +164,16 @@ test("decisions: what is proposed is checked, and a source of the old typesafe t
 	assert.throws(() => checkDecision(cfg, { name: "b", server: "typesafe", url: tailnet }), /one of them/);
 	assert.throws(() => checkDecision(cfg, { name: "c", url: "http://user:pw@127.0.0.1:8080", model: "m" }), /no user name, password/);
 	assert.throws(() => checkDecision(cfg, { name: "d", url: tailnet, local: true }), /"model" is needed/);
+	await h.close();
+});
+
+test("decisions: every agent is told which decision models there are and what they are for, without looking it up", async () => {
+	const h = await harness({ pine: { main: "main", decisions: { decider: { server: "studio", model: "decider" } } }, agents: { main: {}, helper: {} } });
+	await h.pine.agents.run({ agent: "main", prompt: "hello", trust: "owner" });
+	await h.pine.agents.run({ agent: "helper", prompt: "hello", trust: "owner" });
+	// One request each, in turn.
+	const note = (agent: string) => notesOf(h.mock.state.requests.at(agent === "main" ? 0 : -1)).join("\n");
+	assert.match(note("main"), /Decision models: decider \(the model server studio\)\. A decision model answers typed questions .* You set routes up \(add_route with ask_model\)/);
+	assert.match(note("helper"), /Decision models: decider .* The main agent \(main\) sets routes up/);
 	await h.close();
 });

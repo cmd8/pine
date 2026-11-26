@@ -18,6 +18,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
 import { dropConversationSkills, renameConversationSkills, skillDirs } from "./skills.ts";
+import { whereIs } from "./decisions.ts";
 import { type AgentConfig, loadConfig, agentSkillsDir, conversationsDir, delegateTargets, effectiveMcp, type Level, mainAgentId, type McpServerConfig, mcpTaints, type Mode, MODES, ownText, PINE_ROOT, type PineConfig, purposeOf, sharedFiles, stricter, toPiMcp, unsandboxed, WORKSPACE_FILES } from "./config.ts";
 import { Limiter, type Slot } from "./limiter.ts";
 import { modelRuntime } from "./models.ts";
@@ -4197,6 +4198,12 @@ export class AgentManager {
 			const theirOwn = new Set(this.sources?.ownTypes().map((t) => t.name));
 			const ownTypes = live.trust === "owner" && !live.leaf ? (this.sources?.typeList() ?? []).filter((t) => theirOwn.has(t.name)) : [];
 			if (ownTypes.length) lines.push(`Kinds of event source this pine has besides the built-in ones: ${ownTypes.map((t) => `${t.name} (${t.summary}. Options: ${describeOptions(t.options)})`).join("; ")}`);
+		}
+		// Which decision models there are changes, and an agent that is not told does not know they exist: said here, in general words.
+		const decisions = live.trust === "owner" && !live.leaf ? Object.entries(this.cfg.decisions) : [];
+		if (decisions.length) {
+			const main = mainAgentId(this.cfg);
+			lines.push(`Decision models: ${decisions.map(([name, d]) => `${name} (${whereIs(d)})`).join("; ")}. A decision model answers typed questions about a text in a fraction of a second (how likely yes is, which of named options, which level), not in words, and no agent runs on one. A route asks one about every event of a kind and acts on the answers with no model turn: a script, an event, or waking an agent only when an answer says so. ${agent.id === main ? "You set routes up (add_route with ask_model)" : `The main agent (${main}) sets routes up`}; the manual has it under "Typed questions".`);
 		}
 		// What its commands left running, so that it knows without looking and can stop it.
 		const running = live.trust === "owner" ? this.programs.list(live.perm) : [];
