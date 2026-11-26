@@ -882,7 +882,9 @@ test("an approval is asked in a dialog and answered from it, and so is a questio
 	await shot("03-question");
 	// The line for the owner's own words is named for a screen reader, not only by its placeholder.
 	assert.equal(await page.locator("role=dialog[name=/ asks$/]").getByRole("textbox", { name: "Or answer in your own words" }).count(), 1);
-	await page.keyboard.press("2");
+	// A number answers from the answer field, which has the keyboard once the dialog is open (pressed on it: on a slow
+	// computer a key sent the moment the dialog shows would arrive before the field has it).
+	await page.locator("role=dialog[name=/ asks$/]").getByRole("textbox", { name: "Or answer in your own words" }).press("2", { timeout: 10_000 });
 	await sees('[data-item="approval"][data-state="allowed"] >> text=Answered');
 	await page.waitForSelector("[data-slot=dialog-content]", { state: "detached" });
 	await sees("[data-slot=markdown] >> text=done");
@@ -1477,8 +1479,9 @@ test("a theme picked in Settings draws the window and is pine's setting; a VS Co
 test("beside a conversation, the panel's Agent view says what the agent has been given", async () => {
 	// Here: what the settings above set up for all agents.
 	await page.click("[data-slot=tab] >> nth=0");
-	if (!(await page.$("[data-slot=code-panel]"))) await page.click(CODE_TOGGLE);
-	await page.locator("[data-slot=code-panel]").getByRole("tab", { name: "Agent" }).click();
+	// The menu's item opens the side panel on its Agent view whatever state the panel is in (a toggle could close it).
+	await menu("code-agent");
+	await sees("[data-slot=code-panel] [role=tab][aria-selected=true] >> text=Agent");
 	await sees("[data-slot=code-panel] [data-slot=item-title] >> text=invoices");
 	await sees("[data-slot=code-panel] [data-slot=item-title] >> text=morning");
 	assert.match(await page.textContent("[data-slot=code-panel]"), /Nothing wakes it by itself\. 1 event source could/);

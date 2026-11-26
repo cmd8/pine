@@ -25,8 +25,9 @@ test("the side bar is the agents: one made elsewhere appears, a group folds away
 	assert.match((await page.locator("[data-slot=sidebar-menu-item]:has([data-slot=agent-label])", { has: page.locator("[data-slot=agent-label] > :first-child", { hasText: /^test$/ }) }).textContent()) ?? "", /Made outside the app/);
 	// Beside a conversation, the panel's Agent view. (What it says an agent was given is app.test.ts's, after its settings.)
 	await page.click("[data-slot=tab] >> nth=0");
-	if (!(await page.$("[data-slot=code-panel]"))) await page.click(CODE_TOGGLE);
-	await page.locator("[data-slot=code-panel]").getByRole("tab", { name: "Agent" }).click();
+	// The menu's item opens the side panel on its Agent view whatever state the panel is in (a toggle could close it).
+	await menu("code-agent");
+	await sees("[data-slot=code-panel] [role=tab][aria-selected=true] >> text=Agent");
 	// The side bar is as wide as it is dragged.
 	const before = await page.$eval("#sidebar-panel [data-slot=sidebar]", (el: Element) => el.getBoundingClientRect().width);
 	const edge = await page.$eval(SIDE_EDGE, (el: Element) => el.getBoundingClientRect());
@@ -759,8 +760,9 @@ test("the panel's Agent view scrolls up and down only, however narrow the panel 
 	// A memory with a line no space breaks, and a description as long: the view wraps them, it is never pushed sideways.
 	write(path.join(home, "agents", "main", "workspace", "MEMORY.md"), `# Memory\n\n${"x".repeat(240)}\n${"https://example.com/".repeat(12)}\n${"- a line to remember\n".repeat(60)}`);
 	await page.click("[data-slot=tab] >> nth=0");
-	if (!(await page.$("[data-slot=code-panel]"))) await page.click(CODE_TOGGLE);
-	await page.locator("[data-slot=code-panel]").getByRole("tab", { name: "Agent" }).click();
+	// The menu's item opens the side panel on its Agent view whatever state the panel is in (a toggle could close it).
+	await menu("code-agent");
+	await sees("[data-slot=code-panel] [role=tab][aria-selected=true] >> text=Agent");
 	await sees("[data-slot=code-panel] [data-slot=scroll-area] >> text=What it remembers");
 	const width = () => page.$eval("[data-slot=code-panel]", (el: Element) => el.getBoundingClientRect().width);
 	const was = await width();

@@ -11,7 +11,7 @@ import { after, before, test } from "node:test";
 import type { ElectronApplication, Page } from "playwright-core";
 import { mockMsg, startMock } from "../../baseline/tests/mock.mjs";
 import { sandboxMissing } from "../../src/security.ts";
-import { clickMenu, launchApp, waitForWindow, windowCount } from "./support/app.ts";
+import { clickMenu, launchApp, patient, waitForWindow, windowCount } from "./support/app.ts";
 
 let site: http.Server;
 let siteUrl: string;
@@ -27,7 +27,8 @@ const write = (file: string, content: string) => {
 };
 
 async function dismissBrowserAsk(p: Page): Promise<void> {
-	await p.waitForSelector("[data-slot=empty] h1, [data-slot=no-tab]", { timeout: 25_000 });
+	// The first window waits for the daemon the app starts, which beside other apps on a runner takes a while.
+	await p.waitForSelector("[data-slot=empty] h1, [data-slot=no-tab]", { timeout: Math.min(patient(25_000), 60_000) });
 	const btn = p.locator("[data-slot=dialog-footer]").getByRole("button", { name: "Not now" });
 	await btn.waitFor({ state: "visible", timeout: 8_000 }).catch(() => {});
 	if (await btn.isVisible().catch(() => false)) {
