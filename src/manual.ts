@@ -74,6 +74,8 @@ const SYNONYMS: string[][] = [
 	["forget", "unpair", "unpaired", "unlink", "revoke", "revoked"],
 	// How a scanned link opens the mobile app: App Links on Android, the `pine:` scheme on iOS.
 	["applinks", "applink", "deeplink", "deeplinks"],
+	// How an owner on a Mac says installing the app: Homebrew's own words for it.
+	["homebrew", "brew", "cask", "tap"],
 	["fingerprint", "hostkey", "known_hosts", "knownhosts"],
 	["rss", "atom", "podcast", "blog", "newsletter", "release", "changelog", "syndication"],
 	["calendar", "ical", "ics", "icalendar", "webcal", "caldav", "appointment", "meeting", "agenda"],

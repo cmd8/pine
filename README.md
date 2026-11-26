@@ -115,7 +115,18 @@ a settings panel for agents, models, MCP servers, skills and events. It starts p
 uses the one that runs ([desktop.md](docs/references/desktop.md)). Each
 [release](https://github.com/pmndre/pine/releases/latest) has it for macOS (a disk image for
 Apple silicon and one for Intel), Windows and Linux. It carries pine and the Node it runs on, so
-nothing else has to be installed, and it gives your shell the `pine` command. From a checkout:
+nothing else has to be installed, and it gives your shell the `pine` command. On a Mac with
+Homebrew:
+
+```bash
+brew tap pmndre/pine https://github.com/pmndre/pine
+```
+
+```bash
+brew install --cask pmndre-pine
+```
+
+From a checkout:
 
 ```bash
 npm run desktop

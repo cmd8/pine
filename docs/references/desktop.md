@@ -27,8 +27,25 @@ The app is attached to pine's releases, a file for each system and kind of proce
 
 On a Mac, open the image and drag Pine into Applications. Nothing else has to be installed: no
 Node, no `npm install`, no developer tools. It opens on the macOS the Node it carries runs on
-(13.5 or later with Node 24). The Mac app is signed and notarised, and the app
-carries on every system
+(13.5 or later with Node 24). The Mac app is signed and notarised.
+
+With Homebrew, the same disk image is installed for you: this repository is its own tap, and
+the cask is `pmndre-pine` (a cask named `pine` is another program).
+
+```bash
+brew tap pmndre/pine https://github.com/pmndre/pine
+```
+
+```bash
+brew install --cask pmndre-pine
+```
+
+The app then updates itself as one from the disk image does, so `brew upgrade` leaves it alone,
+and the cask may name an older release than the latest: a new install starts there and is
+brought up to date by the app at once. `brew uninstall --zap --cask pmndre-pine` also removes
+the app's own files under `~/Library`, never pine's home (`~/.pine`).
+
+The app carries on every system
 
 | | |
 |---|---|
