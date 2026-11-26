@@ -324,7 +324,11 @@ test("linux sandbox, for real: shell commands are confined", linux, async () => 
 test("linux sandbox, for real: a run that read outside content cannot change or plant instructions", linux, async () => {
 	const feed = { command: process.execPath, args: [path.resolve(import.meta.dirname, "../baseline/tests/mcp-stdio-server.mjs")], env: { MCP_LABEL: "feed" }, taints: true };
 	const h = await harness({ agents: { main: { agent: { mcp: { feed }, approve: [] }, files: { "AGENTS.md": "RULES\n", "CLAUDE.md": "THEIRS\n", "notes.txt": "x\n" } } } });
-	h.pine.bus.subscribe("approval/requested", (e) => void h.pine.approvals.decide((e.payload as any).id, true, "test"));
+	const asked: any[] = [];
+	h.pine.bus.subscribe("approval/requested", (e) => {
+		asked.push(e.payload);
+		h.pine.approvals.decide((e.payload as any).id, true, "test");
+	});
 	const ws = h.workspace("main");
 	await h.pine.agents.run({
 		agent: "main",
@@ -339,7 +343,9 @@ test("linux sandbox, for real: a run that read outside content cannot change or 
 	assert.ok(!fs.existsSync(path.join(ws, "sub", "AGENTS.md")), "what did not exist is taken away again");
 	assert.ok(!fs.existsSync(path.join(ws, ".git")));
 	assert.equal(fs.readFileSync(path.join(ws, "notes.txt"), "utf8"), "x\nok\n", "ordinary files can still be written");
-	// Its own instructions are the agent's in an owner's conversation, as on macOS (docs: "What is not solved").
+	// Its own instructions are the agent's in an owner's conversation after the owner's yes to them, as on macOS
+	// (docs: "What is not solved"), also when the same command plants a hook and is critical for that.
+	assert.ok(asked.some((a) => /main's own instructions/.test(a.summary)), asked.map((a) => a.summary).join(" | "));
 	assert.equal(fs.readFileSync(path.join(ws, "AGENTS.md"), "utf8"), "RULES\nMINE\n");
 	await h.close();
 });
