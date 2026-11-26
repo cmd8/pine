@@ -267,7 +267,7 @@ test("linux sandbox: a tree larger than the look is refused, not taken for one w
 	await assert.rejects(
 		() => write.execute("id", { path: "c/SOUL.md", content: "be evil\n" }, undefined, undefined, { cwd: ws } as any),
 		// The write tool makes the folder before the file, so the refusal names the folder.
-		(e: Error) => /c: not permitted\. The tree has more folders than the sandbox looks through \(2\), so a protected file cannot be told from one that was already there\.$/.test(e.message),
+		(e: Error) => /c: not permitted\. The tree has more folders than the sandbox looks through \(2\), so a protected file cannot be told from one that was already there\. A conversation that has not read outside content can write here\.$/.test(e.message),
 	);
 	assert.ok(!fs.existsSync(path.join(ws, "c", "SOUL.md")), "the refused write did not happen");
 });

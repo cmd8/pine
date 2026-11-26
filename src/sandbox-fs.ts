@@ -98,7 +98,7 @@ export function sandboxedFileTools(fs: SandboxFs, enabled: string[]): any[] {
 		// the guard says why, and the answer reads like every other refusal here rather than like a failure of the command.
 		const vouched = () => {
 			const why = guard?.uncertain();
-			if (why) throw new Error(`${file}: not permitted. ${why}`);
+			if (why) throw new Error(`${file}: not permitted. ${why} A conversation that has not read outside content can write here.`);
 		};
 		vouched();
 		let r: Awaited<ReturnType<typeof sandboxExec>>;

@@ -227,7 +227,7 @@ What differs from macOS:
 | | macOS | Linux |
 |---|---|---|
 | Your home folder, pine's home | Access is refused | They are empty, read-only folders: a command sees that they exist, and in them only the way to the folders it was given |
-| Instruction files, and a repository's hooks and configuration, in a run that read outside content (layer 4) | Cannot be written or created, at any depth | What exists is read-only. What did not exist can be created by a shell command, and pine removes it when the command ends. Both are looked for six folders deep, and not inside folders of installed packages or build output (`node_modules`, `.venv`, `dist`, `build`, `target` and the like) |
+| Instruction files, and a repository's hooks and configuration, in a run that read outside content (layer 4) | Cannot be written or created, at any depth | What exists is read-only. What did not exist can be created by a shell command, and pine removes it when the command ends. Both are looked for six folders deep, and not inside folders of installed packages or build output (`node_modules`, `.venv`, `dist`, `build`, `target` and the like), in at most 20000 folders. In a larger tree the file tools refuse to write, and a shell command runs with a note that what it made past the look may still be there |
 | Programs on the same machine (the session bus, the keyring, a container daemon, a terminal multiplexer, an editor's helper) | Without the network, no connection of any kind. Keychain, clipboard, AppleScript and launching apps are refused by name, also with the network | Without the network a command cannot make a socket to another program (a system call filter, on x86-64 and arm64; programs built for 32 bit do not run then). The session's folder (`/run/user`) is empty and the sockets in `/run` are covered, also with the network |
 | With the network granted | Addresses only: the internet and your local network. Socket files stay closed, except in the agent's own folders (not the shared temp folder), where its own programs talk to each other | Also programs that listen on a socket file where the agent can read outside `/run` (a tmux server or an ssh agent in the temp folder), and those that listen on a socket without a file (an X server does) |
 | Processes a command leaves in the background | Not ended by the sandbox ([coding.md](coding.md) says where they show) | The same without a sandbox (`auto`, `bypass`). In the sandbox they end with the command: its processes are a group of their own that ends with it |
@@ -1042,7 +1042,8 @@ you once it has read a page, which is a question you would have to answer for ev
   way out. For stronger isolation run the daemon under a separate user with no access to your
   files.
 - **Linux: new instruction files exist until the command ends**, and are looked for six
-  folders deep. See "On Linux" under layer 3.
+  folders deep and in at most 20000 folders. Past that, a shell command can leave one
+  behind; the file tools refuse to write instead. See "On Linux" under layer 3.
 - **Local users.** Another account on the machine that can read pine's home has everything.
   Keep the home at mode 700.
 - **Model quality.** A small quantised model follows hostile text more readily than a large one.

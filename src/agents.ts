@@ -3677,10 +3677,15 @@ export class AgentManager {
 							const gone = guard?.restore() ?? [];
 							if (gone.length) this.log.warn(`${agent.id}: a command made ${gone.join(", ")}, which a run that has read outside content may not; removed again`);
 						}
+						// A tree too large for the guard to look through: what the command made past its look may still be there. The
+						// command is not refused (a large repository is ordinary work), but this is not passed over in silence either.
+						const unseen = guard?.uncertain();
+						if (unseen) this.log.warn(`${agent.id}: ${unseen} What a command made past that was not taken away`);
 						// What its sandbox refused it is said at the end of its answer, and put to the owner where a yes would help.
 						const said = failure ? failure.message : (out?.content ?? []).map((c: any) => (c?.type === "text" ? c.text : "")).join("\n");
 						if (tag && signal?.aborted) this.denials.drop(tag);
-						const note = inBox && !signal?.aborted ? await afterShell(command, said, failure !== undefined || out?.isError === true, tag, signal).catch(() => "") : "";
+						const denied = inBox && !signal?.aborted ? await afterShell(command, said, failure !== undefined || out?.isError === true, tag, signal).catch(() => "") : "";
+						const note = [denied, unseen ? `Note from pine: ${unseen} An instruction file or a repository's hook that this command made there may still be there.` : ""].filter(Boolean).join("\n\n");
 						if (failure) throw note ? new Error(`${failure.message}\n\n${note}`) : failure;
 						return note ? { ...out, content: [...(out.content ?? []), { type: "text", text: note }] } : out;
 					},
