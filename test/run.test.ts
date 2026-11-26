@@ -3,18 +3,22 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { checkRoute } from "../src/admin.ts";
+import { deciderAt, decisionServer } from "./support/decision-server.ts";
 import { harness, until } from "./support/harness.ts";
 
 const noSandbox = process.platform === "win32" && "a route's command runs in the agent's sandbox, which Windows does not have (docs/adr/0004-three-systems.md)";
 
-test("run: a route decides and runs a script with the answers, with no model turn for it; what the script prints goes on", { skip: noSandbox }, async () => {
+test("run: a route decides and runs a script with the answers, with no model turn for it; what the script prints goes on", { skip: noSandbox }, async (t) => {
+	const server = await decisionServer(t);
+	const d = deciderAt(server.url);
 	const h = await harness({
 		pine: {
+			decisions: d.decisions,
 			routes: [
 				{
 					name: "judge",
 					on: "ui/click",
-					ask: { data: "{{payload.text}}", questions: { urgent: { type: "yesno", question: "Is it urgent?" } } },
+					ask: { model: "decider", data: "{{payload.text}}", questions: { urgent: { type: "yesno", question: "Is it urgent?" } } },
 					// A page's state written by a script of the agent's: no agent is woken for it.
 					run: { command: "cat > ui/got.json && printf '{\"shown\": true}'" },
 					set: { "agent/main/last": "{{output}}" },
@@ -22,18 +26,18 @@ test("run: a route decides and runs a script with the answers, with no model tur
 				},
 			],
 		},
+		files: { ".env": d.env },
 		agents: { main: {} },
-		mockOptions: { withoutTools: () => '{"urgent": {"yes": 0.93}}' },
 	});
 	fs.mkdirSync(path.join(h.workspace("main"), "ui"), { recursive: true });
 	const shown = h.pine.bus.waitFor("ui/shown");
-	h.pine.bus.publish("ui/click", { text: "the boiler is leaking" }, { source: "test" });
+	h.pine.bus.publish("ui/click", { text: "OVERDUE: the boiler is leaking" }, { source: "test" });
 	const e = await shown;
-	assert.deepEqual(e.payload, { answers: { urgent: { yes: 0.93 } }, output: { shown: true }, of: { text: "the boiler is leaking" } });
+	assert.deepEqual(e.payload, { answers: { urgent: { yes: 0.93 } }, output: { shown: true }, of: { text: "OVERDUE: the boiler is leaking" } });
 	assert.deepEqual(h.pine.state.get("agent/main/last"), { shown: true }, "{{output}}, parsed as JSON");
 	const got = JSON.parse(fs.readFileSync(path.join(h.workspace("main"), "ui", "got.json"), "utf8"));
 	assert.equal(got.topic, "ui/click");
-	assert.deepEqual(got.payload, { text: "the boiler is leaking" });
+	assert.deepEqual(got.payload, { text: "OVERDUE: the boiler is leaking" });
 	assert.deepEqual(got.answers, { urgent: { yes: 0.93 } });
 	assert.equal(got.trust, "untrusted");
 	assert.ok(typeof got.elapsedMs === "number" && got.elapsedMs >= 0, "how long since the event, for a page that shows it");

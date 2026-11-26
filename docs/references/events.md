@@ -206,13 +206,16 @@ is home reaches an agent.
 ### Typed questions
 
 `call` answers with text, and a second route can only match it with a pattern. `ask` puts named
-questions about the event to a model and gets back values a filter reads as they are: how likely
-yes is, which of your options fits, which of your levels.
+questions about the event to a decision model ([configuration.md](configuration.md), "Decision
+models": one Pinecone serves on your Mac, TypeSafe's Jev) and gets back values a filter or a
+script reads as they are: how likely yes is, which of your options fits, which of your levels. In
+a fraction of a second, so it can run on every event.
 
 ```json
 [
   { "name": "mail-judge", "on": "source/inbox/mail",
     "ask": {
+      "model": "decider",
       "data": "From {{payload.from}}: {{payload.subject}}\n{{payload.text}}",
       "questions": {
         "urgent": { "type": "yesno", "question": "Does this need an answer today?" },
@@ -238,28 +241,19 @@ A question's name is letters, digits, `-` and `_`; a filter reads its answer as
 because an event that filled them in could change what is asked. What the event carries goes into
 `data` (default: the whole payload), cut at `limits.maxEventChars`.
 
-All questions of a route go to the model in one call without tools, with the data marked as data.
-`model` picks it (default: pine's default model); a small local model is enough, and a llama.cpp
-server, or any server that speaks OpenAI's API, is asked to hold its answer to the questions'
-types. Whatever the model says is checked: every question answered, a number from 0 to 1, one of
-your option names, one of your levels. Anything else is no answer: the model is asked once more,
-and then the route fails (`pine/route-failed`) and publishes nothing. So no text of the event
-reaches the published answers, and they keep the trust of the event they are about: answers about
-an untrusted mail are untrusted, and an agent a second route wakes for them works as for the mail
-itself. An event can still lean on the answer (a mail that says it is urgent): that decides which
-of your routes acts on it, never what they do or with what trust, which is no more than whoever can
-write to that topic can do.
+All questions of a route go to the decision model `model` names, in one request; a chat model
+does not answer them (for a question in words, `call`). What it says is checked: every question
+answered, a number from 0 to 1, one of your option names, one of your levels. Anything else is no
+answer, and the route fails (`pine/route-failed`) and publishes nothing. It may also say how sure it
+is (`confidence`, 0 to 1, on a `choice` and a `score`) and give a score between two levels (`1.7`;
+`level` is then the nearest). So no text of the event reaches the published answers, and they keep
+the trust of the event they are about: answers about an untrusted mail are untrusted, and an agent
+a second route wakes for them works as for the mail itself. An event can still lean on the answer
+(a mail that says it is urgent): that decides which of your routes acts on it, never what they do
+or with what trust, which is no more than whoever can write to that topic can do.
 
-What goes where: with a model, the `data` goes to that model, as with `call`; with a local model
-nothing leaves the computer.
-
-**Decision models.** `model` names a decision model as well as a chat model: one of the
-`decisions` of `pine.json` ([configuration.md](configuration.md), "Decision models"), such as a
-model Pinecone serves on your Mac or TypeSafe's Jev. It answers in a fraction of a second, with
-probabilities of its own; what it says is checked the same way. It may also say how sure it is
-(`confidence`, 0 to 1, on a `choice` and a `score`) and give a score between two levels (`1.7`;
-`level` is then the nearest). What a route asks it about goes to where it is, which you are told
-when you confirm the route.
+What goes where: the `data` goes to where the decision model is (your Mac, TypeSafe), which you are
+told when you confirm the route.
 
 Text from untrusted events is prefixed for the agent with a line saying where it came from and
 that it is data, and is cut at `limits.maxEventChars`. That line is a courtesy; the protection

@@ -7,12 +7,10 @@ export interface CompleteOptions {
 	system?: string;
 	model?: string;
 	images?: Array<{ data: string; mimeType: string }>;
-	/** A JSON schema the answer is held to, where the model server can hold it to one (OpenAI-compatible servers, llama.cpp). */
-	schema?: Record<string, unknown>;
 	signal?: AbortSignal;
 }
 import { askDecision } from "./decisions.ts";
-import { answerSchema, type AskAnswers, type AskConfig, askPrompt, checkAnswers, dataText } from "./ask.ts";
+import { type AskAnswers, type AskConfig, checkAnswers, dataText } from "./ask.ts";
 import type { Bus, State } from "./store.ts";
 import type { ImageRef, PineEvent, Trust } from "./types.ts";
 import { isInside, realish } from "./security.ts";
@@ -167,36 +165,23 @@ export class Router {
 	}
 
 	/**
-	 * A route's typed questions, put to its model or its source. Only answers of the questions' types come
+	 * A route's typed questions, put to its decision model. Only answers of the questions' types come
 	 * back (a probability, one of the owner's option names or levels): nothing of the event's text passes
-	 * through them, which is why what is published with them keeps the event's trust. A model that says
-	 * anything else is asked once more; then the route fails and publishes nothing.
+	 * through them, which is why what is published with them keeps the event's trust. Anything else, and
+	 * the route fails and publishes nothing.
 	 */
 	private async ask(route: RouteConfig, e: PineEvent, ctx: Record<string, unknown>): Promise<AskAnswers> {
 		const a = route.ask!;
 		return this.decide(a, a.data !== undefined ? renderDeep(a.data, ctx) : e.payload);
 	}
 
-	/** Typed questions about `data`, as a route asks them: by a decision model or a chat model, the answers checked. */
+	/** Typed questions about `data`, put to the route's decision model, the answers checked. */
 	async decide(a: AskConfig, data: unknown): Promise<AskAnswers> {
+		if (!this.cfg.decisions[a.model]) throw new Error(`there is no decision model "${a.model}". ${Object.keys(this.cfg.decisions).join(", ") || "There is none"}: add one under Settings > Models, or ask the main agent`);
 		const text = truncate(dataText(data), this.cfg.limits.maxEventChars);
-		const signal = AbortSignal.timeout(ASK_TIMEOUT_MS);
-		if (a.model && this.cfg.decisions[a.model]) {
-			// A decision model is handed the data as it is, unless it is long: then the same text a chat model would read.
-			const given = text.length < this.cfg.limits.maxEventChars ? data : text;
-			return checkAnswers(await askDecision(this.cfg, a.model, a.questions, given, signal), a.questions);
-		}
-		const { system, user } = askPrompt(a.questions, text);
-		let wrong: unknown;
-		for (let i = 0; i < 2; i++) {
-			const said = await this.complete({ model: a.model, system, prompt: user, schema: answerSchema(a.questions), signal });
-			try {
-				return checkAnswers(said, a.questions);
-			} catch (err) {
-				wrong = err;
-			}
-		}
-		throw new Error(`the model gave no usable answer twice (${errText(wrong)})`);
+		// The data as it is, unless it is long: then cut, as text.
+		const given = text.length < this.cfg.limits.maxEventChars ? data : text;
+		return checkAnswers(await askDecision(this.cfg, a.model, a.questions, given, AbortSignal.timeout(ASK_TIMEOUT_MS)), a.questions);
 	}
 
 	/**
@@ -249,7 +234,7 @@ const RUN_TIMEOUT_MS = 30_000;
 
 const pick = (ctx: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.filter((k) => ctx[k] !== undefined).map((k) => [k, ctx[k]]));
 
-/** How long a route's questions may take, a second try included: a decision server of the owner's may first have to load its model. */
+/** How long a route's questions may take: a decision server of the owner's may first have to load its model. */
 const ASK_TIMEOUT_MS = 180_000;
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];

@@ -2260,10 +2260,10 @@ export function NewRoute({ made, does: first = "wake" }: { made: () => void; doe
 	const [busy, setBusy] = useState(false);
 	const field = useId();
 	// Who makes a decision: a decision model by its name, a chat model, or the default model ("").
-	const decideItems = [{ value: "", label: "The default model" }, ...(decisions.data?.models ?? []).map((d) => ({ value: d.name, label: `${d.name}: decision model, ${d.where}` })), ...(models.data ?? []).map((m) => ({ value: m, label: m }))];
+	const decideItems = (decisions.data?.models ?? []).map((d) => ({ value: d.name, label: `${d.name} (${d.where})` }));
 	const decider = decisions.data?.models.find((d) => d.name === f.decide_by);
 	const decideName = f.decide_name.trim() || "answer";
-	const decideReady = f.decide_question.trim() && (f.decide_type === "yesno" || f.decide_choices.split("\n").filter((l) => l.trim()).length >= 2) && f.publish_topic.trim();
+	const decideReady = decider && f.decide_question.trim() && (f.decide_type === "yesno" || f.decide_choices.split("\n").filter((l) => l.trim()).length >= 2) && f.publish_topic.trim();
 	const agentItems = s.agents.map((a) => ({ value: a.id, label: a.id }));
 	const modelItems = [{ value: "", label: "The default model" }, ...(models.data ?? []).map((m) => ({ value: m, label: m }))];
 	const does = ROUTE_DOES[f.does];
@@ -2401,10 +2401,10 @@ export function NewRoute({ made, does: first = "wake" }: { made: () => void; doe
 									</Field>
 									<Field>
 										<FieldLabel htmlFor={`${field}-decide-by`}>Decided by</FieldLabel>
-										{models.data || models.error ? (
-											<Select items={decideItems} value={f.decide_by} onValueChange={(by) => setF({ ...f, decide_by: by ?? "" })}>
-												<SelectTrigger id={`${field}-decide-by`}>
-													<SelectValue />
+										{decisions.data || decisions.error ? (
+											<Select items={decideItems} value={f.decide_by || null} onValueChange={(by) => setF({ ...f, decide_by: by ?? "" })}>
+												<SelectTrigger id={`${field}-decide-by`} disabled={!decideItems.length}>
+													<SelectValue placeholder={decideItems.length ? "Choose a decision model…" : "No decision model yet"} />
 												</SelectTrigger>
 												<SelectContent className={LIST}>
 													<SelectGroup>
@@ -2415,7 +2415,7 @@ export function NewRoute({ made, does: first = "wake" }: { made: () => void; doe
 												</SelectContent>
 											</Select>
 										) : <SelectPending id={`${field}-decide-by`} />}
-										<FieldDescription>{decider ? `A decision model: fast, and what the event carries goes to ${decider.where}.` : "A decision model answers in a fraction of a second; add one under Models. A chat model takes seconds. What the event carries goes to that model."}</FieldDescription>
+										<FieldDescription>{decider ? `What the event carries goes to ${decider.where}.` : decideItems.length ? "A decision model answers in a fraction of a second." : "Add one first, under Models: Decision models."}</FieldDescription>
 									</Field>
 									<Field>
 										<FieldLabel htmlFor={`${field}-decide-name`}>Call the answer</FieldLabel>

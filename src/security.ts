@@ -888,7 +888,7 @@ export function audit(cfg: PineConfig): string[] {
 		}
 	}
 	for (const r of cfg.routes) if (r.trust === "owner") out.push(`route "${r.name}" treats events on ${r.on.join(", ")} as coming from you; whoever can publish there gets the agent's full tool set`);
-	for (const r of cfg.routes) if (r.ask?.model && !r.ask.model.includes("/") && !cfg.decisions[r.ask.model]) out.push(`route "${r.name}" asks "${r.ask.model}", which is no decision model: it fails on every event until there is one (add_decision_model, or Settings > Models)`);
+	for (const r of cfg.routes) if (r.ask && !cfg.decisions[r.ask.model]) out.push(`route "${r.name}" asks "${r.ask.model}", which is no decision model: it fails on every event until there is one (add_decision_model, or Settings > Models)`);
 	for (const [name, d] of Object.entries(cfg.decisions)) if (d.server === "typesafe" && !d.key) out.push(`the decision model "${name}" is at TypeSafe, and pine is not signed in there: it fails until it is (Settings > Models, or: pine login typesafe)`);
 	return out;
 }

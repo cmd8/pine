@@ -610,13 +610,13 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[])
 		const wrong = askProblem(ask);
 		if (wrong) throw new Error(wrong);
 		const decider = input.ask_model ? cfg.decisions[input.ask_model] : undefined;
-		if (input.ask_model && !decider && !models.includes(input.ask_model)) throw new Error(`there is no decision model or model "${input.ask_model}". Decision models: ${Object.keys(cfg.decisions).join(", ") || "none"}. Models: ${models.slice(0, 40).join(", ")}`);
+		if (!decider) throw new Error(input.ask_model ? `there is no decision model "${input.ask_model}". ${Object.keys(cfg.decisions).join(", ") || "There is none: add_decision_model adds one"}` : `typed questions need "ask_model": the decision model that answers, by its name. ${Object.keys(cfg.decisions).join(", ") || "There is none: add_decision_model adds one"}`);
 		if (!input.publish_topic && !input.set && !input.run_command) throw new Error('typed questions need "run_command" (a script acts on the answers, with no model), "publish_topic" (the answers go out as an event, and a second route filters on payload.answers.<name>) or "set" (the answers go into shared state: {"agent/main/answer": "{{answers}}"})');
 		entry.ask = ask;
 		const questions = ask.questions as AskQuestions;
 		const shown = ask.data === undefined ? "the event's whole payload" : `${JSON.stringify(ask.data)}`;
-		lines.push(`ask ${decider ? `the decision model ${input.ask_model}` : `the model ${input.ask_model ?? cfg.defaults.model ?? "pine's default"}`} about ${shown}: ${Object.entries(questions).map(([n, q]) => `${n} (${q.type}): ${q.question}`).join("; ")}`);
-		lines.push(decider ? `what it is asked about goes to ${whereIs(decider)}` : "what it is asked about goes to that model, as a route's model call does");
+		lines.push(`ask the decision model ${input.ask_model} about ${shown}: ${Object.entries(questions).map(([n, q]) => `${n} (${q.type}): ${q.question}`).join("; ")}`);
+		lines.push(`what it is asked about goes to ${whereIs(decider)}`);
 	} else if (input.ask_model || input.ask_data) throw new Error('typed questions need "ask_questions"');
 	if (input.run_command) {
 		const command = input.run_command.trim();
@@ -698,7 +698,7 @@ export function dropRoute(cfg: PineConfig, name: string): boolean {
 /** The routes as a list for the agent. */
 export function routesText(cfg: PineConfig): string {
 	const does = (r: RouteConfig) =>
-		[r.set ? `sets ${JSON.stringify(r.set)}` : "", r.call ? `asks a model: ${r.call.prompt}` : "", r.ask ? `asks ${r.ask.model && cfg.decisions[r.ask.model] ? `the decision model ${r.ask.model}` : r.ask.model ? `the model ${r.ask.model}` : "a model"}: ${Object.entries(r.ask.questions).map(([n, q]) => `${n} (${q.type})`).join(", ")}` : "", r.run ? `runs "${r.run.command}" in ${r.run.agent ?? mainAgentId(cfg)}'s sandbox` : "", r.publish ? `publishes ${r.publish.topic}` : "", r.agent ? `wakes ${r.agent}${r.session ? ` (conversation: ${r.session})` : ""}${r.prompt ? ` with: ${r.prompt}` : ""}` : ""].filter(Boolean).join("; ");
+		[r.set ? `sets ${JSON.stringify(r.set)}` : "", r.call ? `asks a model: ${r.call.prompt}` : "", r.ask ? `asks the decision model ${r.ask.model}: ${Object.entries(r.ask.questions).map(([n, q]) => `${n} (${q.type})`).join(", ")}` : "", r.run ? `runs "${r.run.command}" in ${r.run.agent ?? mainAgentId(cfg)}'s sandbox` : "", r.publish ? `publishes ${r.publish.topic}` : "", r.agent ? `wakes ${r.agent}${r.session ? ` (conversation: ${r.session})` : ""}${r.prompt ? ` with: ${r.prompt}` : ""}` : ""].filter(Boolean).join("; ");
 	return cfg.routes.map((r) => `- ${r.name}: on ${r.on.join(", ")}${r.when ? ` when ${JSON.stringify(r.when)}` : ""}${r.throttleMs ? ` · at most one per ${ms(r.throttleMs)}` : ""}${r.debounceMs ? ` · after ${ms(r.debounceMs)} of quiet` : ""}${r.trust === "owner" ? " · its events count as the owner's words" : ""}\n    ${does(r)}`).join("\n");
 }
 

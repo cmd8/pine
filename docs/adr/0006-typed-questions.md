@@ -187,3 +187,7 @@ the `jev` block in `pine.json`, `TYPESAFE_API_KEY` as a name core knows, `pine l
   model turn and loses what a decision model is for.
 - **An agent tries a route by writing shared state** (`state/agent/<id>/...`), and a route with
   `ask` can write its answers back with `set`. No tool of its own for it.
+- **Only decision models answer.** The chat-model path (a prompt, a JSON schema for the server, a
+  second try) is gone: it took seconds per event and its numbers were guesses, which is what a
+  decision is meant to avoid, and it made a route fall back to a large model unnoticed. `call` is
+  how a chat model is asked, in words.

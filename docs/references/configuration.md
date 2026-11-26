@@ -370,6 +370,4 @@ my studio serves as a decision model": `add_decision_model`). One on a model ser
 for nothing more. What a route asks a decision model about goes to that server, which you are
 told when you confirm it and each route that asks it.
 
-A chat model can answer typed questions too (`"ask": { "model": "provider/model" }`): pine asks it
-to keep to the answer's form and checks what it says, but it takes seconds and its numbers are its
-own guess. For anything that runs on every event, a decision model.
+Only a decision model answers a route's typed questions; a chat model is asked in words with `call`.
