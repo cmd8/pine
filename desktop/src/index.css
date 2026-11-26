@@ -270,3 +270,14 @@
 		-webkit-app-region: no-drag;
 	}
 }
+
+/* A key inside a button is a shade of that button, as stock does it inside a tooltip: its own colours
+   (`bg-muted`, `text-muted-foreground`) are the page's, and on a filled button they read as a hole cut
+   into it. It takes the button's text colour, on a wash of that colour. In the utilities layer, and by
+   both slots, so that it wins over the key's own classes whatever order Tailwind writes them in. */
+@layer utilities {
+	[data-slot="button"] [data-slot="kbd"] {
+		color: inherit;
+		background-color: color-mix(in oklab, currentColor 16%, transparent);
+	}
+}
