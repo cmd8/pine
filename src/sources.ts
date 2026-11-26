@@ -844,9 +844,20 @@ export class SourceHost {
 	/** The sources of all agents that answer a route's typed questions, with where what they are asked about goes. */
 	deciders(): Array<{ name: string; type: string; decides: string }> {
 		return Object.entries(this.cfg.sources).flatMap(([name, s]) => {
-			const decides = s.type ? this.types.get(s.type)?.type?.decides : undefined;
+			const decides = this.decidesOf(s);
 			return decides ? [{ name, type: s.type!, decides }] : [];
 		});
+	}
+
+	/** Where what a source that decides is asked about goes, in one line: its type says so, from the source's options where they name the address. */
+	private decidesOf(source: SourceConfig): string | undefined {
+		const decides = source.type ? this.types.get(source.type)?.type?.decides : undefined;
+		if (typeof decides !== "function") return decides;
+		try {
+			return decides(source.options);
+		} catch {
+			return "what a route asks about goes to the address in the source's options";
+		}
 	}
 
 	/**
@@ -904,7 +915,7 @@ export class SourceHost {
 				topic: `source/${key}`,
 				last: seen ? { ts: seen.ts, topic: seen.topic } : undefined,
 				events: seen?.count ?? 0,
-				decides: scope === "global" && source.type ? this.types.get(source.type)?.type?.decides : undefined,
+				decides: scope === "global" ? this.decidesOf(source) : undefined,
 			};
 		});
 	}

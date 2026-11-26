@@ -54,7 +54,7 @@ scans", or `pine unsubscribe main scans`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `type` | | One of the built-in types, each described in [source-types.md](source-types.md): `folder`, `mqtt`, `webhook`, `ftp`, `telegram`, `http`, `command`, `feed`, `calendar`, `stream`, `mail`, `slack`, `matrix`, `discord`, `zulip`, `smtp`, `syslog`, `onvif`, `modbus`, `serial`, `presence`, `system`, `typesafe`, `decider`. Or a type of your own registered under `sourceTypes` (see "A source type of your own"). Or `use` instead: the path of a module, for a one-off. |
+| `type` | | One of the built-in types, each described in [source-types.md](source-types.md): `folder`, `mqtt`, `webhook`, `ftp`, `telegram`, `http`, `command`, `feed`, `calendar`, `stream`, `mail`, `slack`, `matrix`, `discord`, `zulip`, `smtp`, `syslog`, `onvif`, `modbus`, `serial`, `presence`, `system`, `typesafe`. Or a type of your own registered under `sourceTypes` (see "A source type of your own"). Or `use` instead: the path of a module, for a one-off. |
 | `description` | | What it reports. Agents choose what to subscribe to by this line, so write it for them. |
 | `agents` | all | In `pine.json` only: the agents that may subscribe, e.g. `["house"]`. |
 | `trust` | `"untrusted"` | Who its events speak for. See "Trust" below. |

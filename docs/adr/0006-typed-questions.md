@@ -97,11 +97,12 @@ default, or a source whose type says it `decides`.
   in pine's words with TypeSafe's status code, never TypeSafe's text. No `jev` block, no `baseUrl`,
   no key name in core, no login command. It could as well be a type of the owner's own
   (`sourceTypes`, `add_source_type`): nothing in core names it but `SOURCE_TYPES`.
-- A decision model on a server of the owner's own is the type `decider` (`src/sources/decider.ts`):
-  the same API as TypeSafe's (`src/sources/systemone.ts`, shared by both), at the address the owner
-  confirmed (`url`, `local` for a name on their own network that does not say so, a key if the
-  server wants one), with a longer wait (120 s) for a server that loads the model first. Pinecone
-  serves one this way, through its scheduler, which loads it like any other model.
+- A decision model on a server of the owner's own is the same type with `url`: TypeSafe's API is
+  the format, so the type is named after it, and any model behind it (Pinecone serving
+  pplx-decider, another vendor, an open model) is `model`. The address is then the one the owner
+  confirmed (`local` for a name on their own network that does not say so, a key if the server
+  wants one), with a longer wait (120 s) for a server that loads the model first. The request and
+  the reading of the answers are `src/sources/systemone.ts`.
 - If TypeSafe offers an OpenAI-compatible endpoint that honours `response_format`, it is simply a
   model server (`add_model_server`) and `ask.model` names it: no source type at all.
 

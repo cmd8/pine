@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { test } from "node:test";
 import type { AskQuestions } from "../src/ask.ts";
-import { type } from "../src/sources/decider.ts";
+import { type } from "../src/sources/typesafe.ts";
 import { harness } from "./support/harness.ts";
 
 const KEY = "pinecone-token-0123456789";
@@ -45,14 +45,14 @@ async function pinecone(t: { after(fn: () => unknown): void }, o: { loadMs?: num
 
 const judging = (url: string, extra: Record<string, unknown> = {}) => ({
 	pine: {
-		sources: { m5: { type: "decider", url, model: "decider", key: "${PINE_SOURCE_M5_KEY}", ...extra } },
+		sources: { m5: { type: "typesafe", url, model: "decider", key: "${PINE_SOURCE_M5_KEY}", ...extra } },
 		routes: [{ name: "judge", on: "mail/in", ask: { source: "m5", questions: QUESTIONS }, publish: { topic: "mail/judged" } }],
 	},
 	files: { ".env": `PINE_SOURCE_M5_KEY=${KEY}\n` },
 	agents: { main: {} },
 });
 
-test("decider: a route asks a decision model on a server of the owner's own, which may first load it", async (t) => {
+test("typesafe at a server of your own: a route asks a decision model on a server of the owner's own, which may first load it", async (t) => {
 	const p = await pinecone(t, { loadMs: 300 });
 	const h = await harness(judging(`${p.url}/v1/`));
 	const judged = h.pine.bus.waitFor("mail/judged");
@@ -63,11 +63,12 @@ test("decider: a route asks a decision model on a server of the owner's own, whi
 	assert.equal(p.asked[0].model, "decider");
 	assert.deepEqual(p.asked[0].questions.mood, { type: "score", instructions: "How upset is the sender?", criteria: ["calm", "annoyed", "angry"] }, "the same request as to TypeSafe, at the address the owner gave (its /v1 left out)");
 	assert.equal(h.mock.state.requests.length, 0, "no model of pine's was asked");
+	assert.match(h.pine.sources.deciders()[0].decides, /goes to the server at 127\.0\.0\.1:\d+$/, "where the data goes names the address the owner gave");
 	assert.ok(!JSON.stringify(h.pine.bus.query({ limit: 100 })).includes(KEY), "the token is in no event");
 	await h.close();
 });
 
-test("decider: a model the server does not have, or a wrong key, is said in pine's words and never the server's", async (t) => {
+test("typesafe at a server of your own: a model the server does not have, or a wrong key, is said in pine's words and never the server's", async (t) => {
 	const p = await pinecone(t);
 	const h = await harness(judging(p.url, { model: "gemma-judge" }));
 	const failed = h.pine.bus.waitFor("pine/route-failed");
@@ -87,7 +88,7 @@ test("decider: a model the server does not have, or a wrong key, is said in pine
 	await h2.close();
 });
 
-test("decider: the owner confirms the address; one on the network that does not say so needs local, and pine's own port is refused", () => {
+test("typesafe at a server of your own: the owner confirms the address; one on the network that does not say so needs local, and pine's own port is refused", () => {
 	const setup = (key = "m5", controlPort?: number) => ({ name: "m5", key, agent: "main", workspace: "/w", home: "/h", controlPort, resolve: (p: string) => p, random: () => "r", envName: () => "PINE_SOURCE_M5_KEY" });
 	const tailnet = "http://studio.tail784ebe.ts.net:8080";
 	assert.throws(() => type.plan!({ url: tailnet, model: "decider" }, setup()), /"local": true/, "plain http to a name that does not say it is local");
@@ -99,4 +100,7 @@ test("decider: the owner confirms the address; one on the network that does not 
 	assert.throws(() => type.plan!({ url: "http://127.0.0.1:7463", model: "decider" }, setup("m5", 7463)), /pine's own control port/);
 	assert.throws(() => type.plan!({ url: "http://user:pw@127.0.0.1:8080", model: "decider" }, setup()), /user name or password/);
 	assert.equal(type.plan!({ url: "https://decide.example.com", model: "decider" }, setup()).options.url, "https://decide.example.com", "a server on the web over https");
+	assert.throws(() => type.plan!({ url: tailnet, local: true }, setup()), /"model" is needed/, "a server's own name for its model");
+	assert.deepEqual(type.needs!({ url: tailnet }), [], "a server of one's own may want no key");
+	assert.deepEqual(type.needs!({}), ["key"], "TypeSafe does");
 });

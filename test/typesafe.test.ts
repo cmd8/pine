@@ -124,6 +124,8 @@ test("typesafe: only a source of all agents, and a model by a name TypeSafe coul
 	assert.equal(planned.opens, true, "the owner is asked");
 	assert.ok(planned.does.some((d) => d.includes("api.typesafe.ai")), "and told where the data goes");
 	assert.throws(() => type.plan!({ key: KEY }, setup("main", "jev@main")), /source of all agents/);
-	assert.throws(() => type.plan!({ key: KEY, model: "../v2" }, setup("main", "jev")), /not a TypeSafe model name/);
-	assert.equal(type.decides, "what a route asks about goes to TypeSafe (api.typesafe.ai)");
+	assert.throws(() => type.plan!({ key: KEY, model: "../v2" }, setup("main", "jev")), /not a model name/);
+	const decides = type.decides as (o: Record<string, unknown>) => string;
+	assert.equal(decides({}), "what a route asks about goes to TypeSafe (api.typesafe.ai)");
+	assert.equal(decides({ url: "http://studio.tail784ebe.ts.net:8080" }), "what a route asks about goes to the server at studio.tail784ebe.ts.net:8080", "the owner is shown the address they gave");
 });
