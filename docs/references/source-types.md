@@ -2025,10 +2025,11 @@ has, which is little (no lock, no battery).
 
 A decision model that speaks [TypeSafe](https://docs.typesafe.ai)'s API (`POST /v1/systemone`):
 it reports nothing and only answers, when a route asks it typed questions about an event
-([events.md](events.md), "Typed questions"). Without `url` it is TypeSafe's own service, Jev. With
-`url` it is any server that answers the same way: a decision model Pinecone serves on your Mac
-(pplx-decider, openjev, …), another vendor's, an open model behind a server of its own. Which model
-answers is `model`, as that server names it. The same route asks one or the other by naming its
+([events.md](events.md), "Typed questions"). Without `server` or `url` it is TypeSafe's own
+service, Jev. With `server` it is a model server pine already has that also serves a decision
+model, such as Pinecone on your Mac (pplx-decider, openjev, …): pine uses that server's address and
+key, as for its chat models, and follows when you change them. With `url` it is any other server that
+answers the same way. Which model answers is `model`, as that server names it. The same route asks one or the other by naming its
 source. A chat model needs no source: a route names it with `"ask": { "model": ... }`.
 
 > Set up Jev with my TypeSafe key, and only wake you for mail it calls urgent.
@@ -2045,19 +2046,24 @@ source. A chat model needs no source: a route names it with `"ask": { "model": .
 ]
 ```
 
-> Use the decision model Pinecone serves on my Mac Studio for the mail route.
+> Add the decider model my studio serves as a decision model.
 
 ```json
-"sources": { "studio": { "type": "typesafe", "url": "http://studio.tail1234.ts.net:8080", "model": "decider", "key": "${PINECONE_TOKEN}", "local": true } }
+"sources": { "decider": { "type": "typesafe", "server": "studio", "model": "decider" } }
 ```
+
+Here `studio` is Pinecone as a model server of pine's (`pine model add studio http://studio.tail1234.ts.net:8080`):
+nothing more is asked. A server pine does not have as a model server takes `url`, `key` and, on your
+network, `local` instead.
 
 | Option | Default | |
 |---|---|---|
+| `server` | | A model server pine has (the models tool lists them) that also serves the decision model: its address and key are used, and `url`, `key` and `local` are left out. |
 | `url` | TypeSafe | A server of your own that speaks the same API, without `/v1`: for Pinecone, port 8080 on that Mac. Over `http://` only on your own network. |
-| `model` | `jev-latest` | The model that answers. At a server of your own it is needed: its name for the model (for Pinecone, the resource's name). |
-| `key` | | TypeSafe's API key (console.typesafe.ai), or the access token of your own server (for Pinecone, one made in its app). Always needed; kept in `.env`, and asked of you in pine's dialog when the main agent sets the source up. |
+| `model` | `jev-latest` | The model that answers. With `server` or `url` it is needed: that server's name for the model (for Pinecone, the resource's name). |
+| `key` | | TypeSafe's API key (console.typesafe.ai), or the access token of the server at `url`. Needed for both; kept in `.env`, and asked of you in pine's dialog when the main agent sets the source up. Not with `server`, whose own key is used. |
 | `local` | `false` | The server at `url` is on your own network under a name that does not say so: a Tailscale name (`.ts.net`). Not needed for an IP address, `localhost` or a `.local` name. |
-| `timeout` | `20`, or `120` with `url` | Seconds a request may take, loading the model included: a server that first has to make room for the model takes longer. |
+| `timeout` | `20`, or `120` with `server` or `url` | Seconds a request may take, loading the model included: a server that first has to make room for the model takes longer. |
 
 Only a source of all agents: routes are pine's, not an agent's. What a route asks about (its
 `data`, by default the event's whole payload) goes to TypeSafe or to the address you gave, with the

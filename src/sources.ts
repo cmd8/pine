@@ -11,6 +11,7 @@ import { Value } from "typebox/value";
 import { parseEnv } from "node:util";
 import { secretName, setEnv, unsetEnv } from "./env-file.ts";
 import { editJson } from "./mcp-config.ts";
+import { listModelServers, serverKey } from "./models.ts";
 import type { SourcePlan, SourceType } from "./source-types.ts";
 import type { Router } from "./router.ts";
 import { type Approvals, realish, type Redactor, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, sandboxKind, shellEnv } from "./security.ts";
@@ -75,6 +76,13 @@ export interface SourceApi {
 	 * { level }). pine checks them against the questions; anything else is refused. Throw to refuse.
 	 */
 	onDecide(handler: (ask: { questions: AskQuestions; data: unknown; signal: AbortSignal }) => unknown | Promise<unknown>): void;
+	/**
+	 * A model server pine has (models.json), by its name: its address without /v1 and the key pine sends
+	 * it, read anew at each call, so that a source that uses one follows when the owner changes it. For a
+	 * type that reaches something such a server also serves (a decision model behind Pinecone). Throws
+	 * when there is none.
+	 */
+	modelServer(name: string): { url: string; key?: string };
 	/**
 	 * Say in one line how things stand, for whoever lists the sources: who it is connected to,
 	 * what it is waiting for. Call it again when that changes.
@@ -602,6 +610,11 @@ export class SourceHost {
 			onSend: (handler) => void (run.send = handler),
 			onRead: (handler) => void (run.read = handler),
 			onDecide: (handler) => void (run.decide = handler),
+			modelServer: (server) => {
+				const found = listModelServers(this.cfg.home).find((s) => s.name === server);
+				if (!found) throw new Error(`there is no model server "${server}". The models tool lists them`);
+				return { url: found.baseUrl.replace(/\/+$/, "").replace(/\/v1$/, ""), key: serverKey(this.cfg.home, server) };
+			},
 			status: (line) => void this.statuses.set(key, String(line).slice(0, 300)),
 			on: (pattern, handler) => void run.stops.push(this.bus.subscribe(pattern, async (e) => {
 				try {

@@ -3,6 +3,8 @@ import http from "node:http";
 import { test } from "node:test";
 import type { AskQuestions } from "../src/ask.ts";
 import { type } from "../src/sources/typesafe.ts";
+import fs from "node:fs";
+import path from "node:path";
 import { harness } from "./support/harness.ts";
 
 const KEY = "pinecone-token-0123456789";
@@ -101,12 +103,45 @@ test("typesafe at a server of your own: the owner confirms the address; one on t
 	assert.throws(() => type.plan!({ url: "http://user:pw@127.0.0.1:8080", model: "decider" }, setup()), /user name or password/);
 	assert.equal(type.plan!({ url: "https://decide.example.com", model: "decider" }, setup()).options.url, "https://decide.example.com", "a server on the web over https");
 	assert.throws(() => type.plan!({ url: tailnet, local: true }, setup()), /"model" is needed/, "a server's own name for its model");
-	assert.ok((type.options as any).required.includes("key"), "the key is asked of the owner, also for a server of their own");
+	assert.deepEqual(type.needs!({ url: tailnet }), ["key"], "the key of a server at url is asked of the owner");
+	assert.deepEqual(type.needs!({ server: "studio" }), [], "a model server's own key is used");
 });
 
 test("typesafe at a server of your own: an agent that leaves the key out has the owner asked for it", async () => {
 	const h = await harness({ pine: { main: "main" }, agents: { main: {} } });
 	const plan = h.pine.sources.propose("main", "studio", "typesafe", { url: "http://studio.tail784ebe.ts.net:8080", model: "decider", local: true }, true);
 	assert.deepEqual(plan.needs.map((n) => n.name), ["key"], "pine's dialog asks the owner for the token");
+	await h.close();
+});
+
+test("typesafe at a model server pine has: its address and key are used, as they are at each request", async (t) => {
+	const p = await pinecone(t);
+	const h = await harness({
+		pine: { main: "main", sources: { decider: { type: "typesafe", server: "studio", model: "decider" } }, routes: [{ name: "judge", on: "mail/in", ask: { source: "decider", questions: QUESTIONS }, publish: { topic: "mail/judged" } }] },
+		files: { ".env": `STUDIO_API_KEY=${KEY}\n` },
+		agents: { main: {} },
+	});
+	// Pinecone is a model server of pine's, its key a name in .env, as pine model add writes it.
+	const models = path.join(h.home, "models.json");
+	const add = (baseUrl: string) => {
+		const m = JSON.parse(fs.readFileSync(models, "utf8"));
+		m.providers.studio = { name: "studio", baseUrl, api: "openai-completions", apiKey: "$STUDIO_API_KEY", models: [{ id: "glm53-mlx", name: "glm53-mlx", contextWindow: 8192, maxTokens: 1024, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] };
+		fs.writeFileSync(models, JSON.stringify(m));
+	};
+	add("http://127.0.0.1:9/v1");
+	// Set up as the main agent would: no url, no key, and nothing asked of the owner.
+	const plan = h.pine.sources.propose("main", "decider2", "typesafe", { server: "studio", model: "decider" }, true);
+	assert.deepEqual(plan.needs, []);
+	assert.ok(plan.does.some((d) => d === "what such a route asks about (the event's data) goes to 127.0.0.1:9, with that server's key"));
+	assert.throws(() => h.pine.sources.propose("main", "decider3", "typesafe", { server: "nope", model: "decider" }, true), /no model server "nope"/);
+	assert.throws(() => h.pine.sources.propose("main", "decider4", "typesafe", { server: "studio", model: "decider", url: p.url }, true), /leave out url, key and local/);
+	// The server moved: the source follows, without being set up again.
+	add(`${p.url}/v1`);
+	const judged = h.pine.bus.waitFor("mail/judged");
+	h.pine.bus.publish("mail/in", { subject: "Invoice 42" }, { source: "test" });
+	assert.deepEqual(((await judged).payload as any).answers.kind, { choice: "invoice", confidence: 0.997 });
+	assert.equal(p.asked.length, 1, "asked at the model server's address, with its key");
+	assert.equal(h.pine.sources.deciders().find((d) => d.name === "decider")?.decides, "what a route asks about goes to the model server studio");
+	assert.ok(!JSON.stringify(h.pine.bus.query({ limit: 100 })).includes(KEY), "the key is in no event");
 	await h.close();
 });

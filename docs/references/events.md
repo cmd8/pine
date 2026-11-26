@@ -212,9 +212,9 @@ answers typed questions: a service that sells decision models, set up as a sourc
 like any other connection ([source-types.md](source-types.md)). Its type says in one line where
 what it is asked about goes, which the owner is shown before confirming the source and the
 route; the address is in the type's code, and its key is a secret option kept in `.env`. Its
-answers are checked as a model's are. pine has one such type, `typesafe`, named after the API it speaks: TypeSafe's Jev, or with `url`
-any server that answers the same way, such as a decision model Pinecone serves on your Mac
-([source-types.md](source-types.md#typesafe)). A decision model may also say how sure it is
+answers are checked as a model's are. pine has one such type, `typesafe`, named after the API it speaks: TypeSafe's Jev, a model server
+pine already has that also serves a decision model (`server`, such as Pinecone on your Mac), or with
+`url` any other server that answers the same way ([source-types.md](source-types.md#typesafe)). A decision model may also say how sure it is
 (`confidence`, 0 to 1, on a `choice` and a `score`) and give a score between two levels (`1.7`;
 `level` is then the nearest).
 
