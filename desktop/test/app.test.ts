@@ -483,10 +483,17 @@ test("no key in the menus does two things, and the window closes as on a Mac: by
 	assert.ok(!items.some((i) => i.label === "Close"), "a menu item closes the window");
 });
 
+/**
+ * Waits until the conversation has glided to the message just sent. A scroll hides the bar over selected
+ * text, so text selected while the view still glides gets no bar: the owner would select it after.
+ */
+const settled = () => sees("[data-slot=message-scroller-viewport]:not([data-glide])");
+
 test("text selected in an answer is quoted: a badge above the input, a markdown quote for the agent, a badge in the sent message that goes back to it, and a badge again after a take-back", async () => {
 	await page.fill("[data-slot=composer] textarea", mockMsg([{ text: "QUOTE-SOURCE The cache held an old copy of the lockfile." }], "say something to quote "));
 	await page.keyboard.press("Enter");
 	await sees("[data-slot=markdown] >> text=QUOTE-SOURCE");
+	await settled();
 	const source = await page.$eval("[data-item=answer]:has-text('QUOTE-SOURCE')", (el: Element) => el.closest("[data-message-id]")!.getAttribute("data-message-id"));
 	// Whether the message quoted from lights up, as a click on a badge makes it.
 	const lit = () => page.waitForFunction((id: string) => (document.querySelector(`[data-message-id="${id}"]`)?.getAnimations().length ?? 0) > 0, source);
@@ -551,6 +558,7 @@ test("a long quote given to work that runs is known as the owner's own message: 
 	await page.fill("[data-slot=composer] textarea", "@@REF:held@@ hold on ");
 	await page.keyboard.press("Enter");
 	await sees("[data-slot=composer] [aria-label=Stop]");
+	await settled();
 	const before = await page.$$eval("[data-item=user]", (els: Element[]) => els.length);
 	await page.evaluate(() => {
 		const answer = [...document.querySelectorAll("[data-item=answer] [data-slot=markdown]")].find((e) => e.textContent!.includes("LONG-QUOTE"))!;
