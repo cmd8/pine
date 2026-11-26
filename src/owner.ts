@@ -17,7 +17,7 @@ import { type AgentConfig, loadConfig, mainAgentId, ownText, PINE_ROOT, type Pin
 import { login, logout, type Prompter } from "./login.ts";
 import { findServer, piMcp, serverStates } from "./mcp-config.ts";
 import { addDecision, checkDecision, removeDecision, signInTypesafe, signOutTypesafe, TYPESAFE, typesafeSignedIn, usersOf, whereIs } from "./decisions.ts";
-import { addModelServer, checkServerName, listModelServers, lookAt, modelKeys, modelServerUsers, removeModelServer, serverUrl } from "./models.ts";
+import { addModelServer, checkServerName, listModelServers, lookAround, lookAt, modelKeys, modelRuntime, modelServerUsers, removeModelServer, serverUrl } from "./models.ts";
 import type { Router } from "./router.ts";
 import { audit, isInside, realish, sandboxAvailable } from "./security.ts";
 import { allSkills, checkSkill, deleteSkill, skillDir, skillsBeside, writeSkill } from "./skills.ts";
@@ -94,6 +94,32 @@ interface LoginSession extends LoginView {
 
 /** What a sign-in is run with: pi's own flow, or a stand-in in a test. Returns the models the provider then has. */
 export type LoginRunner = (provider: string, type: "api_key" | "oauth" | undefined, prompter: Prompter, signal: AbortSignal) => Promise<string[]>;
+
+/**
+ * A browser sign-in without a browser, for the Pine app's tests (`PINE_LOGIN_STAND_IN`, for tests
+ * only, not a user option): it shows a page and a device code as a provider's flow does, waits
+ * until the file the variable names exists, and then stores what the file holds as that
+ * provider's token in auth.json, as a browser sign-in leaves it (`oauth`, so that the page tells
+ * it from a key). A sign-in with a key is pi's own, as it is.
+ */
+function browserStandIn(cfg: PineConfig, file: string): LoginRunner {
+	return async (provider, type, prompter, signal) => {
+		if (type === "api_key") return login(cfg, provider, type, prompter, signal);
+		prompter.device?.("https://sign-in.example/device", "PINE-1234");
+		while (!fs.existsSync(file)) {
+			if (signal.aborted) throw new Error("cancelled");
+			await new Promise((r) => setTimeout(r, 100));
+		}
+		const token = fs.readFileSync(file, "utf8").trim();
+		fs.rmSync(file, { force: true });
+		const authFile = path.join(cfg.home, "auth.json");
+		const auth = fs.existsSync(authFile) ? JSON.parse(fs.readFileSync(authFile, "utf8")) : {};
+		auth[provider] = { type: "oauth", access: token, refresh: token, expires: Date.now() + 365 * 86_400_000 };
+		fs.writeFileSync(authFile, JSON.stringify(auth, null, 2), { mode: 0o600 });
+		const rt = await modelRuntime(cfg.home);
+		return [...(await rt.getAvailable(provider))].map((m: any) => `${provider}/${m.id}`);
+	};
+}
 
 const MAX_LOGINS = 4;
 const KEEP_ENDED_MS = 5 * 60_000;
@@ -232,7 +258,8 @@ export class OwnerApi {
 		this.schedules = deps.schedules;
 		this.router = deps.router;
 		this.log = deps.log;
-		this.logins = new Logins(deps.loginRunner ?? ((provider, type, prompter, signal) => login(this.cfg, provider, type, prompter, signal)), {
+		const standIn = process.env.PINE_LOGIN_STAND_IN;
+		this.logins = new Logins(deps.loginRunner ?? (standIn ? browserStandIn(this.cfg, standIn) : (provider, type, prompter, signal) => login(this.cfg, provider, type, prompter, signal)), {
 			// A key that was typed is a secret from then on, wherever it might turn up.
 			secret: (value) => this.sources?.keepOut([value]),
 			ended: (provider) => this.modelsChanged(provider),
@@ -324,12 +351,17 @@ export class OwnerApi {
 				models: Object.entries(cfg.decisions).map(([name, d]) => ({ name, model: d.model, server: d.server, host: d.url ? new URL(d.url).host : undefined, where: whereIs(d), routes: usersOf(cfg, name) })),
 			};
 		if (at === "models/servers") return listModelServers(cfg.home).map((x) => ({ ...x, models: x.models.map((m) => ({ ...m, ...(cfg.limits.models[`${x.name}/${m.id}`] !== undefined ? { limit: cfg.limits.models[`${x.name}/${m.id}`] } : {}) })), runs: cfg.limits.maxConcurrentRuns }));
+		// The model servers on the usual ports of this computer (llama.cpp, Ollama, LM Studio, Pinecone), for the owner to pick one.
+		if (at === "models/local") return { found: await lookAround(cfg.http?.port) };
 		if (at === "models/providers") {
 			// What pi says of each provider. `signedIn` is "pi has a credential or a key for it", which
 			// for a model server of the owner's own without a key is true as well; `oauth` is "its
-			// definition has a browser sign-in", whether or not that is how it is signed in now.
+			// definition has a browser sign-in", whether or not that is how it is signed in now. `via` is
+			// how it is signed in now: in the browser ("oauth") or with a key ("api_key"), so that a key for
+			// a provider that also has a subscription (Anthropic, OpenAI) is not taken for the subscription.
 			const rt = this.manager.models;
-			return rt.getProviders().map((p: any) => ({ id: p.id, name: p.name, signedIn: rt.hasConfiguredAuth(p.id), models: safe(() => p.getModels().length, 0), oauth: Boolean(p.auth?.oauth) })).sort((a: any, b: any) => Number(b.signedIn) - Number(a.signedIn) || a.id.localeCompare(b.id));
+			const via = (id: string) => (rt.hasConfiguredAuth(id) ? (rt.isUsingOAuth(id) ? "oauth" : "api_key") : undefined);
+			return rt.getProviders().map((p: any) => ({ id: p.id, name: p.name, signedIn: rt.hasConfiguredAuth(p.id), via: via(p.id), models: safe(() => p.getModels().length, 0), oauth: Boolean(p.auth?.oauth) })).sort((a: any, b: any) => Number(b.signedIn) - Number(a.signedIn) || a.id.localeCompare(b.id));
 		}
 		if (at === "mcp/states") return serverStates(cfg);
 		if (parts[0] === "models" && parts[1] === "login" && parts.length === 3) {
@@ -533,7 +565,14 @@ export class OwnerApi {
 				key = given;
 			}
 			const context = body.context === undefined || body.context === null || body.context === "" ? undefined : Number(body.context);
-			const models = addModelServer(cfg.home, { name, baseUrl, key, models: look.models, context, reasoning: typeof body.reasoning === "boolean" ? body.reasoning : undefined });
+			let models: string[];
+			try {
+				models = addModelServer(cfg.home, { name, baseUrl, key, models: look.models, context, reasoning: typeof body.reasoning === "boolean" ? body.reasoning : undefined });
+			} catch (e) {
+				// A server that does not say how much context its models get: `unsized`, for a UI to ask for it by that and not by the words.
+				const unsized = !context && look.models.some((m) => !m.contextWindow);
+				throw new Refusal(400, errText(e), unsized ? { unsized: true } : undefined);
+			}
 			const chosen = await this.modelsChanged(name);
 			return { models, ...(chosen ? { chosen } : {}) };
 		}

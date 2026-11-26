@@ -147,7 +147,7 @@ Which model the agent runs on is told to it with your message, so it needs no to
 | `add_mcp_server` `name` `url` or `command` [`secrets`] [`description`] [`scope`] | Proposes an MCP server: a remote one by its https `url`, or a local one by the line that starts it (one program with its arguments, nothing else). A local one runs inside the sandbox of the agent that uses it. `secrets` names the keys it needs; you type them into the dialog. A name can be used once. One exception: a server that only one conversation of the agent has is made the agent's by adding it again under its name with `scope: "agent"`, from that conversation or from another; you are asked, the new entry takes the place of the old one, and then all the agent's conversations have it. See [mcp.md](mcp.md). |
 | `remove_mcp_server` `name` | Takes a server out again. A server that belongs to another conversation is removed there, or with that conversation. |
 | **Asking, and keeping track** | |
-| `question` `question` [`choices`] | Asks your owner one question when you cannot go on without their decision, with two to six short answers to pick from (the one you recommend first). They pick one in a dialog, or on Telegram with a button, or answer in their own words; you get the answer back as the tool's result. No answer is said plainly: go on with a reasonable assumption and say which. It changes nothing, so it also works in plan mode. Not for permission to act (that is asked by itself), and not there in a run your owner did not start |
+| `question` `question` [`header`] [`options`] [`multiSelect`] | Asks your owner one question when you cannot go on without their decision. `options` are two to six answers to pick from, each `{ label, description? }`: a short label and a line that says what it means or costs, the one you recommend first. `header` is a few words over the question, 12 characters at most ("Database"). With `multiSelect: true` several may be picked, and you get their labels joined by ", ". The old `choices` (plain labels) still works, as options without descriptions. In the Pine app they pick on a card above the input of the conversation, on Telegram with a button, or answer in their own words; you get the answer back as the tool's result. An answer in their own words says so ("Your owner answered in their own words: ..."): it may ask something back, so respond to what they said, and ask again if you still need the decision. No answer is said plainly: go on with a reasonable assumption and say which. It changes nothing, so it also works in plan mode. Not for permission to act (that is asked by itself), and not there in a run your owner did not start |
 | `todo` `items` | Your own list of the steps of a task that has several. Send the whole list every time, each step with a status: `pending`, `in_progress` (one at a time) or `done`. Your owner sees it in the conversation and in the status line ("step 2 of 5"), and with their next message you are shown what is still open, so you can pick the work up where it stood. Send it again each time a step is done and once more before your final answer; when it has not changed for six tool calls while steps are open, a line in a tool's answer reminds you. It belongs to the conversation and goes when that is reset. An empty list clears it. At most 30 steps. Not there in a run your owner did not start |
 | **Programs** | |
 | `stop_program` [`id`] | Stops a program that one of the conversation's commands left running, such as a development server, or one the agent started in the background (`background: true`). Without `id` it lists them. Never asks: it only ends what the agent started. Only an agent with `bash` has it. See [coding.md](coding.md). |
@@ -165,7 +165,7 @@ Which model the agent runs on is told to it with your message, so it needs no to
 | `configure_model` `model` [`context`] [`max_output`] [`pictures`] [`reasoning`] [`runs`] | Main agent only. Changes how one model is set up; only what is given changes. `context`, `max_output`, `pictures` and `reasoning` are for a model of a server of your own; `runs` (how many conversations and sub-agents use it at the same time, `limits.models`; `0` gives it back to `limits.maxConcurrentRuns`) is for any model. You see old and new, and are asked. See "Setting up a model". |
 | `remove_model` `model` | Main agent only. Takes one model of a server of your own out of pine; the server and its other models stay, and so does the model on the server. Refused while it is used (as for `remove_model_server`) and for a server's last model. You are asked. |
 | **Signing in** | |
-| `sign_in` `provider` [`way`] | Main agent only. Signs (logs) pine in to a model provider, such as a Claude or ChatGPT subscription: `way` is `browser` (an account or subscription: Claude, ChatGPT, GitHub Copilot) or `key` (an API key); left out, the provider's usual way. You confirm it, then pine's own dialog asks you for what the sign-in needs: the page to open (with its address and, for some providers, a code), the key in a hidden field, or a code to paste back. What you type goes to pine and never to the agent; the credential is kept in `auth.json`, which no agent can read. Say no to the page's question to stop the sign-in. When the agents had no model that answers, pine chooses one of the new ones. Refused in a conversation that has read outside content. The same as Settings > Models in the Pine app and `pine login`. `typesafe` signs pine in to TypeSafe, for its decision model Jev: a key in pine's dialog, checked with TypeSafe and kept in `.env`. |
+| `sign_in` `provider` [`way`] | Main agent only. Signs (logs) pine in to a model provider, such as a Claude or ChatGPT subscription: `way` is `browser` (an account or subscription: Claude, ChatGPT, GitHub Copilot) or `key` (an API key); left out, the provider's usual way. You confirm it, then pine's own dialog asks you for what the sign-in needs: the page to open (with its address and, for some providers, a code), the key in a hidden field, a code to paste back, or a choice among the ways the provider offers (in the Pine app a question card above the input). What you type goes to pine and never to the agent; the credential is kept in `auth.json`, which no agent can read. Say no to the page's question to stop the sign-in. When the agents had no model that answers, pine chooses one of the new ones. Refused in a conversation that has read outside content. The same as Settings > Models in the Pine app and `pine login`. `typesafe` signs pine in to TypeSafe, for its decision model Jev: a key in pine's dialog, checked with TypeSafe and kept in `.env`. |
 | `sign_out` `provider` | Main agent only. Removes pine's sign-in to a model provider; you are told which agents use its models, and asked. |
 | `sign_in_mcp_server` `name` [`agent`] | Main agent only. Signs in to a remote MCP server that needs one: you confirm it, and the server's page opens in the browser of the computer pine runs on, where you sign in. pine keeps the token. The same as Sign in under Settings > MCP servers and `pine mcp login <name>`. |
 | **Not setup: the other tools pine gives an agent** | |
@@ -210,6 +210,25 @@ for the number. The name cannot be one a provider already has (`anthropic`, `ope
 no stored key can be pointed at another address. You can do the same yourself with
 `pine model add <name> <address>` ([operations.md](operations.md)); what is written is described
 in [configuration.md](configuration.md), "models.json".
+
+### A model server on this computer
+
+Before any model answers, the Pine app's **Setup Pine** offers **A model on this computer**
+([desktop.md](desktop.md)): pine looks for model servers on this computer and offers what it
+finds, so that you type no address. It asks the control API's `GET /models/local`, which asks the
+usual ports of this computer, and only those, what they serve:
+
+| Port | Offered as |
+|---|---|
+| 8080 | **llama.cpp**, or **Pinecone** when Pinecone's MCP server answers on 8090 too (`http://127.0.0.1:8090/mcp`) |
+| 11434 | **Ollama** |
+| 1234 | **LM Studio** |
+
+Only `127.0.0.1` on those ports is asked, never an address somebody gave and never pine's own
+control port; nothing is added by looking. Picking a server adds it as above (its key, if it
+wants one, typed into a secret field of the card, which goes into `.env`). Picking **Pinecone**
+adds its model server as `pinecone` and its MCP server, also named `pinecone`, for all agents.
+Nothing is installed: Pinecone is set up by you, or by the main agent once a model answers.
 
 ## Setting up a model
 

@@ -199,6 +199,12 @@ export interface Approval {
 	holds?: string;
 	inputs?: Array<{ name: string; label: string; secret?: boolean }>;
 	choices?: string[];
+	/** An agent's question: the answers it offers, each with what it means, the recommended one first. */
+	options?: Array<{ label: string; description?: string }>;
+	/** Several of `options` may be picked. */
+	multiSelect?: boolean;
+	/** A few words over a question. */
+	header?: string;
 }
 
 export interface Todo {
@@ -411,10 +417,25 @@ export interface ModelServer {
 	runs?: number;
 }
 
+/** A model server that answered on one of the usual ports of this computer (`GET /models/local`). */
+export interface LocalServer {
+	/** The name it is added under. */
+	id: string;
+	title: string;
+	url: string;
+	/** It wants a key. */
+	locked: boolean;
+	models: string[];
+	/** Pinecone's MCP server, which answered beside it. */
+	mcp?: string;
+}
+
 export interface Provider {
 	id: string;
 	name?: string;
 	signedIn: boolean;
+	/** How it is signed in now: in the browser, or with a key. None while it is not. */
+	via?: "oauth" | "api_key";
 	models: number;
 	oauth: boolean;
 }
@@ -612,6 +633,8 @@ export const api = {
 	removeMcp: (name: string, agent?: string) => post<{ ok: boolean }>("/mcp", { name, agent, remove: true }),
 	mcpLogin: (name: string, agent?: string) => post<{ code: number; out: string }>("/mcp/login", { name, agent }),
 	modelServers: () => get<ModelServer[]>("/models/servers"),
+	/** The model servers on the usual ports of this computer, asked by the daemon. */
+	localServers: () => get<{ found: LocalServer[] }>("/models/local"),
 	addModelServer: (body: { name: string; url: string; key?: string; context?: number }) => post<{ models: string[]; chosen?: string }>("/models/servers", body),
 	/** How many runs a model takes at a time: a number, or `null` for pine's own limit. */
 	limitModel: (name: string, model: string, limit: number | null) => post<{ name: string; model: string; limit?: number; runs: number }>("/models/servers/limit", { name, model, limit }),

@@ -1,7 +1,7 @@
 // What can be asked for by name: in the palette, from a menu, or typed with a slash in front, as
 // in the terminal UI. One list, so that the three never differ.
 import { api } from "./api.ts";
-import { store, type Tab } from "./model.ts";
+import { isPick, store, type Tab } from "./model.ts";
 import { ago, errText, MODES, oneLine, plural, REASONING, short } from "./text.ts";
 
 export interface Command {
@@ -284,8 +284,8 @@ async function answer(args: string, allow: boolean): Promise<void> {
 	const target = id || (pending.length === 1 ? pending[0].id : "");
 	if (!target) return store.flash(pending.length ? `Several requests wait: ${pending.map((p) => p.id).join(", ")}` : "Nothing waits for approval.");
 	const req = pending.find((p) => p.id === target);
-	// One that needs a value, or is a question, is answered in its dialog.
-	if (allow && (req?.inputs?.length || req?.tool === "question")) return store.ask(target);
+	// One that needs a value is answered in its dialog, a question from its card above the composer.
+	if (allow && req && (req.inputs?.length || isPick(req))) return store.ask(target);
 	await store.decide(target, allow, always);
 }
 
