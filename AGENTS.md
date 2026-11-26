@@ -968,7 +968,8 @@ is all of them). The release's notes say that the Windows app is signed only whe
 the code signing policy, `scripts/release.mjs` does not. The helpers need the macOS 26 SDK, so the job selects the newest Xcode on the runner.
 
 A release from `main` gets the Pine app for Linux (`app-linux`: an AppImage and a deb for x64 and
-arm64, started under a virtual screen, with checksums and GitHub's attestation) and for Windows
+arm64, started under a virtual screen, each AppImage repacked with its update information, a `.zsync`
+and its AppStream metainfo by `desktop/scripts/appimage-update.sh`, with checksums and GitHub's attestation) and for Windows
 (`app-windows` packs and starts each, `app-windows-sign` has both folders and then both installers
 signed through SignPath Foundation: two approvals a release at signpath.io; four secrets in the
 environment `release`, listed above the job; without them the installers go out unsigned). Only pine's own

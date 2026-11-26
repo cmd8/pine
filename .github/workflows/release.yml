@@ -312,16 +312,19 @@ jobs:
           PINE_VERSION: ${{ env.VERSION }}
       - name: Start it once
         run: xvfb-run -a node desktop/scripts/smoke.mjs
+      # Before the checksums and the attestation, which then cover the AppImage as it goes out and its .zsync.
+      - name: The AppImage's update information and AppStream data
+        run: sh desktop/scripts/appimage-update.sh desktop/release/Pine-"$VERSION"-*.AppImage
       - name: Checksums
         run: |
           cd desktop/release
-          sha256sum Pine-$VERSION-*.AppImage *.deb > SHA256SUMS-linux-${{ matrix.arch }}
+          sha256sum Pine-"$VERSION"-*.AppImage Pine-"$VERSION"-*.AppImage.zsync *.deb > SHA256SUMS-linux-${{ matrix.arch }}
           cat SHA256SUMS-linux-${{ matrix.arch }}
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: desktop/release/Pine-*
       - run: |
-          files=(desktop/release/Pine-"$VERSION"-*.AppImage desktop/release/*.deb "desktop/release/SHA256SUMS-linux-${{ matrix.arch }}")
+          files=(desktop/release/Pine-"$VERSION"-*.AppImage desktop/release/Pine-"$VERSION"-*.AppImage.zsync desktop/release/*.deb "desktop/release/SHA256SUMS-linux-${{ matrix.arch }}")
           if [ "$CLOBBER" = true ]; then
             gh release upload "v$VERSION" --clobber "${files[@]}"
           else
