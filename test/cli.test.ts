@@ -365,7 +365,8 @@ test("pine update on a checkout: a pull that lands and an install that does not 
 	assert.equal(code, 1, "an install that failed is not a success");
 	const text = said.join("\n");
 	assert.match(text, /npm could not install what the new version depends on\. This checkout has the new code and the dependencies of the version before it/);
-	assert.ok(text.includes(`git reset --hard ${was}`), `the way back to where it was: ${text}`);
+	assert.ok(text.includes(`git reset --keep ${was}`), `the way back to where it was, which keeps the owner's changes: ${text}`);
+	assert.ok(text.includes(`In ${root}`), `where to run it: ${text}`);
 	// The message is about what happened: the pull moved the checkout, and no install followed it.
 	assert.notEqual(await s.git("-C", root, "rev-parse", "HEAD"), was);
 	assert.equal(fs.existsSync(path.join(root, "node_modules")), false);

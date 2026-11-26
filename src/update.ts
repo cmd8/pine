@@ -273,8 +273,10 @@ export async function update(opts: { check: boolean; out: (line: string) => void
 			// The pull landed and the install did not: the new code is here with the dependencies of the
 			// version before it, which may not run it, and the next update finds nothing behind, so it
 			// would say that all is well. Say where the checkout stands and how to get back to where it was.
-			const before = was ?? "HEAD@{1}";
-			out(`npm could not install what the new version depends on. This checkout has the new code and the dependencies of the version before it, and the next "pine update" will find nothing behind it to put that right. To go back to where it was:\n\n  git reset --hard ${before}\n\nTo stay on the new code, run this in ${me.root} to see why npm failed:\n\n  npm install --no-audit --no-fund`);
+			// --keep, not --hard: a fast-forward pull lands beside changes of the owner's that it does not
+			// touch, and the way back must not throw those away. ORIG_HEAD is where the pull started.
+			const before = was ?? "ORIG_HEAD";
+			out(`npm could not install what the new version depends on. This checkout has the new code and the dependencies of the version before it, and the next "pine update" will find nothing behind it to put that right. In ${me.root}, either go back to where it was (your own changes stay):\n\n  git reset --keep ${before}\n\nor stay on the new code and see why npm failed:\n\n  npm install --no-audit --no-fund`);
 			return 1;
 		}
 	} else if (me.kind === "app") {
