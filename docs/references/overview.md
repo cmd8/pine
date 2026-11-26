@@ -136,7 +136,8 @@ Three things start work, and the first two need nothing written by hand:
   combine the first of these with one of the other two:
   1. **Rule.** Write shared state (`set`) or publish another event (`publish`). No model.
   2. **One model call** (`call`). No tools, no history: classify an image, summarise a reading.
-     The answer can be published as a new event.
+     The answer can be published as a new event. Or **typed questions to Jev** (`jev`), answered
+     with a number or one of the options you gave, for a filter that needs a judgement.
   3. **Agent turn** (`agent`). A task in an agent's session with its tools.
 
   Most events a route handles should stop at 1 or 2. See [events.md](events.md).

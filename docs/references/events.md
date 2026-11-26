@@ -44,7 +44,8 @@ A route is an entry in `routes` in `pine.json`. You can write it there yourself,
 agent: it lists, adds and removes routes with `routes`, `add_route` and `remove_route`
 ([setup.md](setup.md), "Routes"), checked and without a restart. In the Pine app, Settings >
 Events > Routes adds one with a form that says it as When (the topic, an optional `when`, a
-throttle or debounce) and Then (one of `agent`, `set`, `publish`, or `call` with `publish`).
+throttle or debounce) and Then (one of `agent`, `set`, `publish`, `call` with `publish`, or `jev`
+with `publish`).
 
 Most setups need no route. An agent that reacts to what a source reports is subscribed to it
 ([sources.md](sources.md)), and work at a time is a schedule (below). A route does a small job when an
@@ -79,8 +80,9 @@ unless a conversation is subscribed to it anyway.
 | `throttleMs` | Handle one event, then ignore matching ones for this long. For repeating alarms. |
 | `key` | Template for what counts as "the same" for debounce and throttle. Default `{{topic}}`. |
 | `set` | Write shared state: `{ "house/mode": "{{payload.value}}" }`. `null`, or a value that is exactly one `{{path}}` that finds nothing, deletes the key. |
-| `publish` | Publish another event: `{ "topic": "...", "payload": {...} }`. Without `payload` the original payload is passed on; after a `call` it is `{ "text": <the answer>, "of": <the original payload> }`. |
+| `publish` | Publish another event: `{ "topic": "...", "payload": {...} }`. Without `payload` the original payload is passed on; after a `call` it is `{ "text": <the answer>, "of": <the original payload> }`, after `jev` `{ "answers": <Jev's answers>, "of": <the original payload> }`. |
 | `call` | One model call: `{ "prompt": "...", "system": "...", "model": "provider/id" }`. Its answer is `{{result}}`. |
+| `jev` | Typed questions to Jev, answered with values a filter can read: `{ "questions": { "<name>": { "type": "noul", "instructions": "..." } }, "state": ..., "model": "..." }`. Needs a key for Jev and `publish`. See "Asking Jev" below. |
 | `agent` | Give an agent a task. |
 | `prompt` | The task text. Default: the payload's `text`, or the payload as JSON. |
 | `label` | A short line for the task in listings (`pine tasks`, the UIs). A template. |
@@ -90,14 +92,15 @@ unless a conversation is subscribed to it anyway.
 | `reply` | Where the agent's answer goes: `{ "topic": "...", "payload": {...} }`. Default: the event's own reply target. `false`: nowhere. |
 | `trust` | Override the event's trust. `"owner"` gives events on this route the agent's full tool set: only for sources nobody else can write to. `pine check` lists such routes. |
 
-A route needs at least one of `set`, `publish`, `call`, `agent`. They run in the order `set`,
-`call`, `publish`, `agent`, so one route can classify with `call` and pass the result on with
-`publish`. `call` and `agent` cannot be in the same route: publish the result and let a second
-route start the agent, as in the example below.
+A route needs at least one of `set`, `publish`, `call`, `jev`, `agent`. They run in the order
+`set`, `call`, `jev`, `publish`, `agent`, so one route can classify with `call` or `jev` and pass
+the result on with `publish`. `call` and `agent` cannot be in the same route, and neither can
+`jev` and `agent` or `jev` and `call`: publish the result and let a second route start the agent,
+as in the example below.
 
 ### Templates
 
-`{{path}}` is replaced in `prompt`, `label`, `session`, `key`, `set`, `publish`, `reply` and `call`.
+`{{path}}` is replaced in `prompt`, `label`, `session`, `key`, `set`, `publish`, `reply`, `call` and `jev`.
 
 | Path | Value |
 |---|---|
@@ -105,6 +108,7 @@ route start the agent, as in the example below.
 | `topic`, `source`, `id`, `ts`, `time` | Event fields; `time` is local, `YYYY-MM-DD HH:MM:SS` |
 | `state.<key>` | Shared state, for example `{{state.house/mode}}` |
 | `result` | The answer of the route's `call` |
+| `jev.<name>` | Jev's answer to the question of that name: `{{jev.urgent.noul}}`, `{{jev.kind.choice}}` |
 
 A value that is exactly one `{{path}}` keeps its type (a number stays a number); inside longer
 text, objects become JSON and missing values become empty.
@@ -155,6 +159,57 @@ is home reaches an agent.
 Text from untrusted events is prefixed for the agent with a line saying where it came from and
 that it is data, and is cut at `limits.maxEventChars`. That line is a courtesy; the protection
 is that the run has fewer tools (see [security.md](security.md)).
+
+### Asking Jev
+
+> When mail arrives, wake me only for what needs an answer today.
+
+A `call` answers with text, which a second route can only match with a pattern. Jev, the decision
+model of [TypeSafe](https://docs.typesafe.ai), answers typed questions with values: how likely
+yes is, which of the options you gave fits, a score on levels you named. A filter reads those as
+they are. Jev writes no text and holds no conversation, so it is no model for an agent and is not
+in `models.json`: only a route asks it.
+
+```json
+[
+  { "name": "mail-judge", "on": "source/inbox/mail",
+    "jev": { "questions": {
+      "urgent": { "type": "noul", "instructions": "Does this need an answer today?" },
+      "kind": { "type": "choice", "instructions": "What is it?",
+                "criteria": { "invoice": "A bill to pay", "newsletter": "Sent to many", "other": "Anything else" } } } },
+    "publish": { "topic": "mail/judged" } },
+
+  { "name": "mail-urgent", "on": "mail/judged",
+    "when": { "payload.answers.urgent.noul": { "gte": 0.8 }, "payload.answers.kind.choice": { "ne": "newsletter" } },
+    "agent": "main", "prompt": "Urgent mail: {{payload.of.subject}}" }
+]
+```
+
+| In `jev` | |
+|---|---|
+| `questions` | One or more, each under a name of your own (letters, digits, `-`, `_`). All go in one request |
+| `state` | What the questions are about: a template, or JSON with templates in it. Default: the event's payload. A text is cut at `limits.maxEventChars` |
+| `model` | Default `jev-latest` (`jev.model` in `pine.json`) |
+
+| Question `type` | Needs | The answer, under `payload.answers.<name>` |
+|---|---|---|
+| `noul` | `instructions`: a yes/no question, or a statement to judge. Optional `criteria`: `{ "true": "...", "false": "..." }` | `noul`: how likely yes is, 0 to 1 |
+| `choice` | `criteria`: the options, each with when it applies (or `null`). Optional `instructions` | `choice`: the option's name; `confidence`, 0 to 1; `probabilities` for each option |
+| `score` | `criteria`: the levels as a list, lowest first, at least two. Optional `instructions` | `score`: a number between the levels, the lowest being 0; `confidence` |
+
+Without a `payload` of its own, `publish` sends `{ "answers": ..., "of": <the event's payload> }`.
+In a `payload` of your own, `{{jev.<name>}}` is an answer.
+
+**It needs a key.** Jev is asked only when pine has a key for TypeSafe: set it under Settings >
+Models in the Pine app (Decision models), with `pine login typesafe`, or ask the main agent
+(`sign_in` with the provider `typesafe`). pine checks the key with TypeSafe and keeps it in `.env`
+as `TYPESAFE_API_KEY`. Without a key, `add_route` and the app refuse a route with `jev`; one
+written into `pine.json` by hand fails on each event with `pine/route-failed`, and `pine check`
+names it. The key is not taken away while a route asks Jev.
+
+What `state` holds is sent to TypeSafe. A request takes ten seconds at most and is tried again
+twice when TypeSafe says it is busy. Jev's answers are a number or one of the names you gave, so
+no text of an untrusted event passes through them; what is published still has the event's trust.
 
 ## Schedules
 

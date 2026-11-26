@@ -888,5 +888,7 @@ export function audit(cfg: PineConfig): string[] {
 		}
 	}
 	for (const r of cfg.routes) if (r.trust === "owner") out.push(`route "${r.name}" treats events on ${r.on.join(", ")} as coming from you; whoever can publish there gets the agent's full tool set`);
+	// A route that asks Jev without a key does nothing but fail: said here, so that a key taken out of .env by hand is noticed.
+	for (const r of cfg.routes) if (r.jev && !cfg.jev.key) out.push(`route "${r.name}" asks Jev, and there is no key for Jev: it fails on every event until one is set (Settings > Models, or: pine login typesafe)`);
 	return out;
 }

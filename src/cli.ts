@@ -626,6 +626,35 @@ async function main(): Promise<void> {
 	if (cmd === "login" || cmd === "logout") {
 		const { login, logout } = await import("./login.ts");
 		if (!rest[0]) throw new Error(`usage: pine ${cmd} <provider>   (for example opencode-go, opencode, anthropic, openai-codex)`);
+		// Jev is no model provider of pi's: its key is pine's own to keep (.env), for routes that ask it (src/jev.ts).
+		if (rest[0] === "typesafe") {
+			const { dropJevKey, JEV_KEY, keyWorks, setJevKey } = await import("./jev.ts");
+			const api = await (async () => {
+				try {
+					const c = client(cfg);
+					return (await fetch(`${c.base}/health`, { signal: AbortSignal.timeout(800) })).ok ? c : undefined;
+				} catch {
+					return undefined;
+				}
+			})();
+			if (cmd === "login") {
+				const { readSecret } = await import("./login.ts");
+				const key = (await readSecret("API key of TypeSafe (console.typesafe.ai): ")).trim();
+				if (!key) throw new Error("no key was typed. Nothing was kept");
+				// A running daemon takes the key at once; without one it is read at the next start.
+				if (api) await api.post("/models/jev", { key });
+				else {
+					if (!(await keyWorks(cfg.jev.baseUrl, key))) throw new Error("TypeSafe did not accept that key. Nothing was kept");
+					setJevKey(cfg, key);
+				}
+				out(`Stored the key for Jev as ${JEV_KEY} in pine's .env file. A route can ask Jev now: Settings > Events > Routes in the Pine app, or ask the main agent.`);
+			} else {
+				if (api) await api.post("/models/jev/remove", {});
+				else dropJevKey(cfg);
+				out("Removed the key for Jev.");
+			}
+			return;
+		}
 		if (cmd === "login") {
 			await login(cfg, rest[0], flags["api-key"] === true ? "api_key" : flags.oauth === true ? "oauth" : undefined);
 			// A running daemon reads the sign-in at once, and runs on its models if the model before could not answer.

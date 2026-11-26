@@ -9,6 +9,7 @@ export interface CompleteOptions {
 	images?: Array<{ data: string; mimeType: string }>;
 	signal?: AbortSignal;
 }
+import type { JevAnswers, JevAsk } from "./jev.ts";
 import type { Bus, State } from "./store.ts";
 import type { ImageRef, PineEvent, Trust } from "./types.ts";
 import { isInside, realish } from "./security.ts";
@@ -24,19 +25,21 @@ export class Router {
 	private state: State;
 	private manager: AgentManager;
 	private complete: (o: CompleteOptions) => Promise<string>;
+	private jev: (o: JevAsk) => Promise<JevAnswers>;
 	private log: Logger;
 	private mediaRoots: () => string[];
 	private offs: Array<() => void> = [];
 	private debounce = new Map<string, NodeJS.Timeout>();
 	private lastFired = new Map<string, number>();
 
-	constructor(deps: { cfg: PineConfig; bus: Bus; state: State; manager: AgentManager; complete: (o: CompleteOptions) => Promise<string>; log: Logger; mediaRoots: () => string[] }) {
+	constructor(deps: { cfg: PineConfig; bus: Bus; state: State; manager: AgentManager; complete: (o: CompleteOptions) => Promise<string>; jev: (o: JevAsk) => Promise<JevAnswers>; log: Logger; mediaRoots: () => string[] }) {
 		this.mediaRoots = deps.mediaRoots;
 		this.cfg = deps.cfg;
 		this.bus = deps.bus;
 		this.state = deps.state;
 		this.manager = deps.manager;
 		this.complete = deps.complete;
+		this.jev = deps.jev;
 		this.log = deps.log;
 	}
 
@@ -116,8 +119,14 @@ export class Router {
 				const result = await this.complete({ model: route.call.model, system: route.call.system ? render(route.call.system, ctx) : undefined, prompt: this.guard(render(route.call.prompt, ctx), e, trust), images });
 				ctx = this.context(e, { result });
 			}
+			if (route.jev) {
+				// What Jev is asked about is the event's own content, and its answers are values from a closed set
+				// (a probability, one of the options given, a score): no text of the event passes through them.
+				const answers = await this.jev({ model: route.jev.model, state: route.jev.state !== undefined ? renderDeep(route.jev.state, ctx) : e.payload, questions: renderDeep(route.jev.questions, ctx) as JevAsk["questions"] });
+				ctx = this.context(e, { jev: answers });
+			}
 			if (route.publish) {
-				const payload = route.publish.payload !== undefined ? renderDeep(route.publish.payload, ctx) : route.call ? { text: (ctx as any).result, of: e.payload } : e.payload;
+				const payload = route.publish.payload !== undefined ? renderDeep(route.publish.payload, ctx) : route.call ? { text: (ctx as any).result, of: e.payload } : route.jev ? { answers: (ctx as any).jev, of: e.payload } : e.payload;
 				this.bus.publish(render(route.publish.topic, ctx), payload, { source, cause: e, hop: true, reply: e.reply, trust });
 			}
 			if (route.agent) {

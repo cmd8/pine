@@ -12,6 +12,7 @@ import { type Board, type BoardItem, boardName, type BoardScope, MAX_FAILED_FINA
 import type { PineEvent, TaskResult } from "./types.ts";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
 import { addServer, findServer, mcpEnvName, piMcp, removeServer, splitCommand, validateServer } from "./mcp-config.ts";
+import { dropJevKey, JEV_PROVIDER, jevRoutes, keyWorks, setJevKey } from "./jev.ts";
 import { login, logout, type Prompter } from "./login.ts";
 import { setEnv } from "./env-file.ts";
 import { type ApprovalRequest, isInside, levelOf, realish } from "./security.ts";
@@ -1633,12 +1634,22 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					label: "Sign in to a model provider",
 					description: `Sign pine in to a model provider when your owner asks: with an account or subscription in the browser (Claude, ChatGPT, GitHub Copilot), or with an API key (OpenAI, Gemini, Mistral, OpenRouter and the other providers pine knows). pine runs the sign-in itself. Your owner confirms it, then pine's own dialog shows them the page to open, or a field to type the key into. What they type goes to pine and never to you: never ask for a key in the conversation, and never take one from it. Afterwards the provider's models can be used, and if the agents had no model that answers, pine chooses one of the new ones. Not possible in a conversation that has read outside content.`,
 					parameters: Type.Object({
-						provider: Type.String({ description: "The provider's id: anthropic (Claude), openai-codex (ChatGPT), github-copilot, openai, google, mistral, openrouter, and so on. A wrong one is answered with the list" }),
+						provider: Type.String({ description: "The provider's id: anthropic (Claude), openai-codex (ChatGPT), github-copilot, openai, google, mistral, openrouter, and so on. A wrong one is answered with the list. typesafe: a key for Jev, the decision model routes can ask (no model for an agent)" }),
 						way: Type.Optional(Type.Union([Type.Literal("browser"), Type.Literal("key")], { description: "browser: sign in with an account or subscription; key: with an API key. Left out: the provider's usual way" })),
 					}),
 					execute: async (_id, p, signal) => {
 						run();
 						if (live.tainted) throw new Error(`This conversation has read outside content (${live.tainted}), and no sign-in is started from such a conversation. Tell your owner: in a new conversation you can do it, or they sign in under Settings > Models, or with: pine login ${p.provider}`);
+						// Jev is not one of pi's providers: its key is asked for here and kept in pine's .env (src/jev.ts).
+						if (p.provider === JEV_PROVIDER) {
+							const asked = await confirm("sign_in", "give pine a key for Jev, TypeSafe's decision model\nA route can then ask Jev typed questions about an event (yes or no, one of several, a score), and what the event carries is sent to TypeSafe for that. What you type goes to pine, not to the agent, and the key is kept in pine's .env file, which no agent can read.", "this lets routes send events to TypeSafe in your name", signal, [{ name: "key", label: "API key of TypeSafe (console.typesafe.ai)", secret: true }]);
+							if (!asked.allow) throw new Error(`no key was set (${asked.by}). Do not retry; tell your owner they can set one under Settings > Models, or with: pine login ${JEV_PROVIDER}`);
+							const key = String(asked.values?.key ?? "").trim();
+							manager.sources?.keepOut([key]);
+							if (!key || !(await keyWorks(cfg.jev.baseUrl, key))) throw new Error("TypeSafe did not accept the key your owner typed. Nothing was kept. Tell them; when they have the right key, call this again.");
+							setJevKey(cfg, key);
+							return ok('Jev has a key now. A route can ask it: add_route with "jev_questions" and "publish_topic", and a second route with "when" on payload.answers.<name>.');
+						}
 						const known = manager.models.getProviders().map((x: any) => String(x.id));
 						if (!known.includes(p.provider)) throw new Error(`there is no provider "${p.provider}". Known: ${known.sort().join(", ")}`);
 						const type = p.way === "browser" ? ("oauth" as const) : p.way === "key" ? ("api_key" as const) : undefined;
@@ -1668,6 +1679,14 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					execute: async (_id, p, signal) => {
 						run();
 						if (live.tainted) throw new Error(`This conversation has read outside content (${live.tainted}), and no sign-in is removed from such a conversation. Tell your owner: they sign out under Settings > Models, or with: pine logout ${p.provider}`);
+						if (p.provider === JEV_PROVIDER) {
+							const users = jevRoutes(cfg);
+							if (users.length) throw new Error(`the route${users.length === 1 ? "" : "s"} ${users.join(", ")} ask${users.length === 1 ? "s" : ""} Jev. Remove ${users.length === 1 ? "it" : "them"} first (remove_route), if your owner wants that`);
+							const gone = await confirm("sign_out", "remove pine's key for Jev\nThe key is taken out of pine's .env file. No route can ask Jev until a key is set again.", `this takes Jev away from pine${careful()}`, signal);
+							if (!gone.allow) throw new Error(`not removed (${gone.by}). Do not retry; tell your owner they can remove it under Settings > Models, or with: pine logout ${JEV_PROVIDER}`);
+							dropJevKey(cfg);
+							return ok("Removed the key for Jev.");
+						}
 						const known = manager.models.getProviders().map((x: any) => String(x.id));
 						if (!known.includes(p.provider)) throw new Error(`there is no provider "${p.provider}". Known: ${known.sort().join(", ")}`);
 						const on = (m: string | undefined) => Boolean(m?.startsWith(`${p.provider}/`));
@@ -1868,7 +1887,7 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 				defineTool({
 					name: "add_route",
 					label: "Add route",
-					description: `Add a route: a rule that says what happens when an event arrives. Only when your owner asks for a rule that a subscription or a schedule cannot do: write shared state from an event ("set"), ask a model one question without tools and publish the answer ("call_prompt" with "publish_topic"; {{result}} is the answer), publish another event, or wake an agent only when a condition holds ("when"). To have an agent react to a source, use subscribe instead; for a time, add_schedule. In texts, {{payload.x}}, {{topic}} and {{time}} stand for the event's values. Your owner sees the route and confirms it; it works at once.`,
+					description: `Add a route: a rule that says what happens when an event arrives. Only when your owner asks for a rule that a subscription or a schedule cannot do: write shared state from an event ("set"), ask a model one question without tools and publish the answer ("call_prompt" with "publish_topic"; {{result}} is the answer), ask Jev typed questions and publish its answers as numbers and choices a second route filters on ("jev_questions" with "publish_topic"; a filter on a judgement, such as "only urgent mail", is this and not a model call, when Jev has a key), publish another event, or wake an agent only when a condition holds ("when"). To have an agent react to a source, use subscribe instead; for a time, add_schedule. In texts, {{payload.x}}, {{topic}} and {{time}} stand for the event's values. Your owner sees the route and confirms it; it works at once.`,
 					parameters: Type.Object({
 						name: Type.String({ description: "Short name for it: lowercase letters, digits, - and _ (for example front-door)" }),
 						on: Type.String({ description: "The topic it listens to, as the sources tool shows it for a source (for example source/house/message). Several separated by commas; + and # are wildcards" }),
@@ -1882,6 +1901,9 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 						call_prompt: Type.Optional(Type.String({ description: "Ask a model this, once, without tools. The answer is {{result}} in publish_payload" })),
 						call_system: Type.Optional(Type.String({ description: "The instructions for that one call" })),
 						call_model: Type.Optional(Type.String({ description: "The model for that call, as provider/model. Default: pine's default model" })),
+						jev_questions: Type.Optional(Type.String({ description: 'Typed questions to Jev (TypeSafe\'s decision model) about the event, as JSON, each under a name of your own: {"urgent": {"type": "noul", "instructions": "Does this need an answer today?"}}. type noul: yes or no, answered with the probability of yes (0 to 1); choice: one of the options in "criteria" ({"invoice": "A bill to pay", "other": "Anything else"}); score: a level of the list in "criteria", lowest first. Needs publish_topic: the answers go out as payload.answers.<name> ({noul}, {choice, confidence}, {score, confidence}), the event as payload.of. Only when Jev has a key (sign_in, provider "typesafe")' })),
+						jev_state: Type.Optional(Type.String({ description: "What Jev is asked about, for example {{payload.text}}. Left out: the event's whole payload" })),
+						jev_model: Type.Optional(Type.String({ description: "Leave out: jev-latest" })),
 						throttle: Type.Optional(Type.String({ description: 'After one event, ignore matching ones for this long, for example "5m"' })),
 						debounce: Type.Optional(Type.String({ description: 'Wait until this long has passed without a new event, then handle the last one, for example "4s"' })),
 						trust: Type.Optional(Type.String({ description: 'Leave out. "owner" only when your owner said that nobody but them can cause these events: they are then treated like their own messages' })),

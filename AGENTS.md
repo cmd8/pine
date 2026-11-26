@@ -97,7 +97,9 @@ src/
   browser-build.ts  whether the browser build pine's Playwright drives is on this computer: Playwright's installer is asked where
                     it would put it, and told to fetch nothing. For `pine check`, the control API's overview and the Pine app
   net.ts            address guard (no private ranges) and fetchToFile, used by the download tool and mcp/web.ts
-  router.ts         routes: filter, debounce, set / publish / call / agent
+  router.ts         routes: filter, debounce, set / publish / call / jev / agent
+  jev.ts            Jev, TypeSafe's decision model, for a route's `jev`: one request with typed questions about an event, answered
+                    with values a filter reads; its key in .env (`TYPESAFE_API_KEY`), set, checked with TypeSafe and removed
   timers.ts         the scheduler: cron, intervals and one-offs; a schedule with a task wakes an agent
   goals.ts          goal mode (`/goal`): a conversation's objective, the judge that says whether it is met, the task that calls the agent again
   swarm.ts          a swarm (`/swarm`): a job the conversation's agent leads. What the lead is told, and what pine does each time

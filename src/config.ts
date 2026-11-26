@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
+import { JEV_KEY, JEV_MODEL, JEV_URL, type JevConfig, type JevQuestion, questionsProblem } from "./jev.ts";
 import type { ReplyTarget } from "./types.ts";
 import { expandHome, parseDuration, resolvePath, type LogLevel } from "./util.ts";
 
@@ -123,10 +124,16 @@ export interface RouteConfig {
 	key?: string;
 	/** Write world state: key template -> value template. */
 	set?: Record<string, unknown>;
-	/** Publish another event. With `call`, `{{result}}` holds the model's answer. */
+	/** Publish another event. With `call`, `{{result}}` holds the model's answer; with `jev`, `{{jev.<name>}}` each answer. */
 	publish?: { topic: string; payload?: unknown };
 	/** One model call without tools or history. */
 	call?: { model?: string; system?: string; prompt: string };
+	/**
+	 * Typed questions to Jev (src/jev.ts) about the event, each under a name: answered with values a
+	 * filter can read, not with text. `state` is what they are asked about (a template; default: the
+	 * event's payload). Needs a key for Jev.
+	 */
+	jev?: { model?: string; state?: unknown; questions: Record<string, JevQuestion> };
 	/** Full agent turn. */
 	agent?: string;
 	prompt?: string;
@@ -359,6 +366,8 @@ export interface PineConfig {
 	/** How pine's UIs look: `theme` names a file in <home>/themes (src/themes.ts). Not set: pmndre. `view` names a
 	 *  view in <home>/views for the Pine app's panel (src/views.ts), or "off"; not set: the first view there is. */
 	ui: { theme?: string; view?: string };
+	/** Jev, the decision model a route can ask (src/jev.ts): its key comes from .env and is missing until the owner sets one. */
+	jev: JevConfig;
 	/** Values that must never leave the daemon in events or messages. */
 	secrets: string[];
 	mcp: Record<string, McpServerConfig>;
@@ -515,8 +524,14 @@ function loadRoutes(raw: unknown, problems: string[]): RouteConfig[] {
 			problems.push(`${where}: needs "on" (topic pattern)`);
 			return [];
 		}
-		if (!r.agent && !r.call && !r.publish && !r.set) problems.push(`${where}: needs one of agent, call, publish, set`);
+		if (!r.agent && !r.call && !r.jev && !r.publish && !r.set) problems.push(`${where}: needs one of agent, call, jev, publish, set`);
 		if (r.agent && r.call) problems.push(`${where}: use either agent or call, not both`);
+		if (r.jev && (r.agent || r.call)) problems.push(`${where}: jev stands alone with publish: let it publish its answers, and a second route act on them`);
+		if (r.jev) {
+			const wrong = questionsProblem(r.jev.questions);
+			if (wrong) problems.push(`${where}: jev: ${wrong}`);
+			if (!r.publish) problems.push(`${where}: jev needs "publish": its answers go out as an event`);
+		}
 		if (r.call && typeof r.call.prompt !== "string") problems.push(`${where}: call needs "prompt"`);
 		if (r.publish && typeof r.publish.topic !== "string") problems.push(`${where}: publish needs "topic"`);
 		return [
@@ -647,7 +662,9 @@ export function loadConfig(home = defaultHome()): PineConfig {
 			askAccess: raw.security?.askAccess !== false,
 		},
 		ui: { theme: typeof raw.ui?.theme === "string" && raw.ui.theme ? raw.ui.theme : undefined, view: typeof raw.ui?.view === "string" && raw.ui.view ? raw.ui.view : undefined },
-		secrets: Object.values(fileEnv).filter((v) => v.length >= 8),
+		jev: { key: env[JEV_KEY] || undefined, model: typeof raw.jev?.model === "string" && raw.jev.model ? raw.jev.model : JEV_MODEL, baseUrl: typeof raw.jev?.baseUrl === "string" && raw.jev.baseUrl ? raw.jev.baseUrl.replace(/\/+$/, "") : JEV_URL },
+		// A key for Jev that came from the daemon's own environment is a secret like one from .env.
+		secrets: [...new Set([...Object.values(fileEnv), ...(env[JEV_KEY] ? [env[JEV_KEY]] : [])])].filter((v) => v.length >= 8),
 		mcp: raw.mcp ?? {},
 		sources: loadSources(raw.sources, home, "pine.json: sources", problems, Object.keys(sourceTypes)),
 		sourceTypes,

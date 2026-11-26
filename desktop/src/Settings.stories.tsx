@@ -71,12 +71,14 @@ const scout: AgentDetail = {
 	files: { instructions: "You look things up on the web.\n" },
 };
 
-/** One route of each kind: state set without an agent, a model's look passed on, an agent woken on that, a pause between alarms. */
+/** One route of each kind: state set without an agent, a model's look passed on, an agent woken on that, a pause between alarms, a question to Jev and an agent woken on its answer. */
 const routes: Route[] = [
 	{ name: "mode", on: ["source/house/message"], when: { "payload.topic": "house/mode" }, set: { "house/mode": "{{payload.value}}" } },
 	{ name: "classify", on: ["source/cam/added"], debounceMs: 4000, call: { prompt: "Camera file {{payload.file}}", system: "Answer PERSON, VEHICLE, ANIMAL or NOTHING." }, publish: { topic: "cam/classified" } },
 	{ name: "intruder", on: ["cam/classified"], when: { "payload.text": { regex: "^PERSON" }, "state.house/mode": "away" }, agent: "main", session: "new", prompt: "The camera saw somebody while the house is empty: {{payload.text}}" },
 	{ name: "smoke", on: ["source/house/message", "hook/smoke"], throttleMs: 300_000, agent: "scout", trust: "owner" },
+	{ name: "mail-judge", on: ["source/inbox/mail"], jev: { questions: { urgent: { type: "noul", instructions: "Does this need an answer today?" } } }, publish: { topic: "mail/judged" } },
+	{ name: "mail-urgent", on: ["mail/judged"], when: { "payload.answers.urgent.noul": { gte: 0.8 } }, agent: "main", prompt: "Urgent mail: {{payload.of.subject}}" },
 ];
 
 /** A schedule of each kind: set times for one agent, an interval in a side conversation, once for all agents. */
@@ -101,6 +103,8 @@ const answers: Record<string, unknown> = {
 		{ name: "local", baseUrl: "http://127.0.0.1:8080/v1", key: "none", runs: 8, models: [{ id: "qwen3-coder", contextWindow: 65536, images: false, reasoning: true }, { id: "gemma-4-vision", contextWindow: 32768, images: true, reasoning: false, limit: 1 }, { id: "nomic-embed-text-v2-moe-long-name-of-a-model", contextWindow: 8192, images: false, reasoning: false }] },
 		{ name: "studio", baseUrl: "http://studio.local:1234/v1", key: "PINE_MODEL_STUDIO_API_KEY in .env", runs: 8, models: [{ id: "glm-5.3", contextWindow: 131072, images: true, reasoning: true }] },
 	],
+	// Jev with a key, asked by one route.
+	"/models/jev": { signedIn: true, model: "jev-latest", host: "api.typesafe.ai", routes: ["mail-judge"] },
 	"/mcp": mcp,
 	"/mcp/states": { linear: "needs sign-in", notes: "connected" },
 	"/routes": routes,
@@ -181,6 +185,8 @@ export const Models: Story = {
 		const local = await within(canvasElement).findByText("qwen3-coder");
 		await expect(local.closest("[data-server]")).toHaveAttribute("data-server", "local");
 		await expect(canvasElement.querySelectorAll('[data-server="local"] [data-model]')).toHaveLength(3);
+		// Jev is no provider among the others: a section of its own, with whether it has a key and which routes ask it.
+		await expect(canvasElement.querySelector('[data-find=jev] [data-provider="typesafe"]')).toHaveTextContent(/Jev\s*key set.*asked by the route mail-judge/);
 		await expect(within(canvasElement).getByText("66k context · text only · can reason")).toBeInTheDocument();
 		// Each model says its number: one has its own, the others what holds everywhere. No number for a whole server.
 		await expect(canvasElement.querySelector('[data-setting^="server-runs:"]')).toBeNull();
@@ -309,6 +315,56 @@ export const NewRouteAsk: Story = {
 		const viewport = document.querySelector("[data-slot=dialog-content] [data-slot=scroll-area-viewport]");
 		const then = [...document.querySelectorAll("[data-slot=dialog-content] legend")].find((l) => l.textContent === "Then");
 		if (viewport && then) viewport.scrollTop += then.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+	},
+};
+
+/** What scrolls the route form to Then, where these stories begin: the dialog scrolls at half the window's height. */
+const scrollToThen = async () => {
+	await new Promise(requestAnimationFrame);
+	const viewport = document.querySelector("[data-slot=dialog-content] [data-slot=scroll-area-viewport]");
+	const then = [...document.querySelectorAll("[data-slot=dialog-content] legend")].find((l) => l.textContent === "Then");
+	if (viewport && then) viewport.scrollTop += then.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+};
+
+/** The same form with Then set to Ask Jev: the question, the kind of answer, what it is about, the answer's name and the topic it goes out on, with the filter a second route would use. */
+export const NewRouteJev: Story = {
+	args: { section: "events" },
+	render: () => {
+		store.agents = agents;
+		return (
+			<Dialog open>
+				<DialogContent showCloseButton={false} className="sm:max-w-2xl"><NewRoute made={() => {}} does="jev" /></DialogContent>
+			</Dialog>
+		);
+	},
+	play: async () => {
+		await within(document.body).findByLabelText("Answered with");
+		await scrollToThen();
+		await expect(within(document.body).getByText(/"payload\.answers\.answer\.noul": \{"gte": 0\.8\}/)).toBeInTheDocument();
+	},
+};
+
+/** Ask Jev while pine has no key for it: the form says where one is set, shows no fields of the question, and cannot add the route. */
+export const NewRouteJevWithoutKey: Story = {
+	args: { section: "events" },
+	beforeEach: () => {
+		const call = window.pine.call;
+		window.pine.call = async (method, url, ...rest) => (url === "/models/jev" ? { ok: true, status: 200, data: { signedIn: false, model: "jev-latest", host: "api.typesafe.ai", routes: [] } } : call(method, url, ...rest));
+		return () => void (window.pine.call = call);
+	},
+	render: () => {
+		store.agents = agents;
+		return (
+			<Dialog open>
+				<DialogContent showCloseButton={false} className="sm:max-w-2xl"><NewRoute made={() => {}} does="jev" /></DialogContent>
+			</Dialog>
+		);
+	},
+	play: async () => {
+		await within(document.body).findByText("Jev needs an API key");
+		await scrollToThen();
+		await expect(within(document.body).queryByLabelText("Answered with")).toBeNull();
+		await expect(within(document.body).getByRole("button", { name: "Add route" })).toBeDisabled();
 	},
 };
 

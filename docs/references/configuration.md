@@ -136,6 +136,7 @@ asked you for it (`pine model add`, `add_model_server`); `models.json` names it 
 | `mcp` | `{}` | Global MCP servers. See [mcp.md](mcp.md). |
 | `sources` | `{}` | Event sources every agent can subscribe to. See [sources.md](sources.md). |
 | `sourceTypes` | `{}` | Source types of your own: a name and the module that implements it, e.g. `{ "doorbell": "./sources/doorbell.ts" }`. The module says which options it takes, and agents can then set up sources of that type by tool call. The main agent adds entries here with `add_source_type`, pointing at the copy pine keeps in `sources/` of its home. |
+| `jev` | `{ "model": "jev-latest" }` | Jev, the decision model a route can ask ([events.md](events.md), "Asking Jev"): `model`, and `baseUrl` for another address than `https://api.typesafe.ai`. The key is not here: it is `TYPESAFE_API_KEY` in `.env`, set under Settings > Models or with `pine login typesafe`. |
 | `subscribe` | `[]` | Subscriptions for all agents: every agent that can use the source is woken in its main conversation. |
 | `extensions` | `[]` | Paths of pi extensions loaded into every agent's sessions. |
 | `skills` | `[]` | Further folders of skills for every agent, for skills that lie outside pine's home. Not needed for `skills/` in pine's home: what is there is for every agent without an entry, and so is what the main agent adds with `add_skill`. Agents cannot replace or remove a skill that is named here. |

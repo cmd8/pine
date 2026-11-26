@@ -8,6 +8,7 @@ import { loadConfig, PINE_ROOT, type PineConfig, sharedFiles } from "./config.ts
 import { modelOrigins } from "./models.ts";
 import { HttpServer } from "./http.ts";
 import { settleModel } from "./owner.ts";
+import { askJev } from "./jev.ts";
 import type { CompleteOptions } from "./router.ts";
 import { Router } from "./router.ts";
 import { SourceHost } from "./sources.ts";
@@ -134,7 +135,7 @@ export async function startPine(opts: { home?: string; config?: PineConfig; log?
 	await agents.init();
 	// eslint-disable-next-line prefer-const
 	let sources: SourceHost;
-	const router = new Router({ cfg, bus, state, manager: agents, complete, log: log.child("router"), mediaRoots: () => sources.mediaRoots });
+	const router = new Router({ cfg, bus, state, manager: agents, complete, jev: (o) => askJev(cfg.jev, o, cfg.limits.maxEventChars), log: log.child("router"), mediaRoots: () => sources.mediaRoots });
 	sources = new SourceHost({ cfg, bus, kv, redactor, router, log: log.child("sources"), http: Boolean(cfg.http && opts.http !== false), approvals });
 	agents.sources = sources;
 	agents.router = router;

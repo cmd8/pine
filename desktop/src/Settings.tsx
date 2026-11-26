@@ -1,9 +1,9 @@
 // Settings: everything about pine that is otherwise a command in a shell or a sentence to the
 // main agent. Each page asks the daemon what there is and tells it what to change; the daemon
 // checks every change as it checks the main agent's, and nothing here writes a file itself.
-import { AudioLinesIcon, BookIcon, MonitorSmartphoneIcon, LaptopIcon, ServerIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ChevronLeftIcon, ClockIcon, CpuIcon, ExternalLinkIcon, FolderIcon, GitBranchIcon, InfoIcon, MessageSquareIcon, PlugIcon, PlusIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, Trash2Icon, TriangleAlertIcon, Undo2Icon, UsersIcon, XIcon, ZapIcon, TerminalSquareIcon } from "lucide-react";
+import { AudioLinesIcon, BookIcon, MonitorSmartphoneIcon, LaptopIcon, ServerIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ChevronLeftIcon, ClockIcon, CpuIcon, ExternalLinkIcon, FolderIcon, GitBranchIcon, InfoIcon, KeyRoundIcon, MessageSquareIcon, PlugIcon, PlusIcon, RotateCwIcon, SearchIcon, SlidersHorizontalIcon, Trash2Icon, TriangleAlertIcon, Undo2Icon, UsersIcon, XIcon, ZapIcon, TerminalSquareIcon } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -20,7 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "cn";
 import { type ComponentProps, Fragment, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
-import { type AgentDetail, api, type LoginState, type ModelServer, type Provider, type Route, type Setting, type SourceType } from "./api.ts";
+import { type AgentDetail, api, type Jev, type JevQuestion, type LoginState, type ModelServer, type Provider, type Route, type Setting, type SourceType } from "./api.ts";
 import { bridge } from "./bridge.ts";
 import { Editor } from "./CodePanel.tsx";
 import { store, type UpdatePhase, useModel, useSignal } from "./model.ts";
@@ -1012,6 +1012,82 @@ function ProviderRow({ p, reload }: { p: Provider; reload: () => void }) {
 }
 
 /** The content of a stock Dialog: a model server of your own, by its address and a short name. */
+/** The content of a stock Dialog: a key for Jev, typed here and checked by pine before it is kept. */
+function JevKey({ made }: { made: () => void }) {
+	const [key, setKey] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [refused, setRefused] = useState(false);
+	const field = useId();
+	const add = async () => {
+		setBusy(true);
+		try {
+			await api.setJevKey(key.trim());
+			store.flash("Jev has a key now. A route can ask it: Events, New route, Ask Jev.", "good", 6000);
+			made();
+		} catch (e: any) {
+			if (e?.data?.locked) setRefused(true);
+			store.flash(errText(e), "bad");
+		}
+		setBusy(false);
+	};
+	return (
+		<>
+			<DialogHeader>
+				<DialogTitle>An API key for Jev</DialogTitle>
+				<DialogDescription>Jev is TypeSafe's decision model. A route asks it typed questions about an event, and what the event carries is sent to TypeSafe for that.</DialogDescription>
+			</DialogHeader>
+			<FieldGroup className="select-text">
+				<Field data-invalid={refused || undefined}>
+					<FieldLabel htmlFor={`${field}-key`}>API key</FieldLabel>
+					<Input id={`${field}-key`} autoFocus className="font-mono" type="password" autoComplete="off" aria-invalid={refused || undefined} value={key} onChange={(e) => (setKey(e.target.value), setRefused(false))} onKeyDown={(e) => e.key === "Enter" && key.trim() && !busy && void add()} />
+					<FieldDescription>{refused ? "TypeSafe did not accept this key. Nothing was kept." : "From console.typesafe.ai. pine checks it with TypeSafe and keeps it in the .env file in pine's home, which no agent can read."}</FieldDescription>
+				</Field>
+			</FieldGroup>
+			<DialogFooter>
+				<DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+				<Button disabled={!key.trim() || busy} onClick={() => void add()}>{busy ? <><Pulse label="Loading" data-icon="inline-start" />Asking TypeSafe…</> : "Save key"}</Button>
+			</DialogFooter>
+		</>
+	);
+}
+
+/** Jev's row on the Models page: whether it has a key, which routes ask it, and the key set, replaced or removed. */
+function JevRow({ jev, reload }: { jev: Jev; reload: () => void }) {
+	const keying = useRef<DialogRootActions>(null);
+	const asked = jev.routes.length ? `asked by ${jev.routes.length === 1 ? "the route" : "the routes"} ${jev.routes.join(", ")}` : "no route asks it yet";
+	return (
+		<SettingsItem
+			data-provider="typesafe"
+			title={<>
+					Jev
+					{jev.signedIn ? <Badge>key set</Badge> : null}
+				</>}
+			description={jev.signedIn ? [`From TypeSafe · ${jev.model} · ${asked}`] : ["From TypeSafe. Answers yes or no, one of several, or a score, with how sure it is.", "Needs an API key. Routes can ask it once a key is set."]}
+			actions={<>
+				{jev.signedIn ? (
+					<AlertDialog>
+						<AlertDialogTrigger render={<Button variant="ghost" size="sm" />}>Remove key</AlertDialogTrigger>
+						<AlertDialogContent>
+							<AlertDialogHeader>
+								<AlertDialogTitle>Remove the key for Jev?</AlertDialogTitle>
+								<AlertDialogDescription>{jev.routes.length ? `${jev.routes.length === 1 ? "The route" : "The routes"} ${jev.routes.join(", ")} ${jev.routes.length === 1 ? "asks" : "ask"} Jev. Remove ${jev.routes.length === 1 ? "it" : "them"} first, under Events.` : "No route can ask Jev until a key is set again."}</AlertDialogDescription>
+							</AlertDialogHeader>
+							<AlertDialogFooter>
+								<AlertDialogCancel>Cancel</AlertDialogCancel>
+								{jev.routes.length ? null : <AlertDialogPrimitive.Close render={<AlertDialogAction variant="destructive" />} onClick={() => void store.attempt(() => api.removeJevKey()).then((r) => r && reload())}>Remove key</AlertDialogPrimitive.Close>}
+							</AlertDialogFooter>
+						</AlertDialogContent>
+					</AlertDialog>
+				) : null}
+				<Dialog actionsRef={keying}>
+					<DialogTrigger render={<Button variant="outline" size="sm" />}>{jev.signedIn ? "New API key" : "API key"}</DialogTrigger>
+					<DialogContent showCloseButton={false} className="sm:max-w-xl"><JevKey made={() => (keying.current?.close(), reload())} /></DialogContent>
+				</Dialog>
+			</>}
+		/>
+	);
+}
+
 function NewModelServer({ made }: { made: () => void }) {
 	const [f, setF] = useState({ name: "", url: "", key: "", context: "" });
 	const [locked, setLocked] = useState(false);
@@ -1136,6 +1212,7 @@ function ModelServerCard({ server: x, inUse, fallback, reload }: { server: Model
 function Models() {
 	const providers = useLoad(() => api.providers());
 	const servers = useLoad(() => api.modelServers());
+	const jev = useLoad(() => api.jev());
 	// A provider picked in the search of Settings is shown by the search of this page: without words it lists only a few.
 	const [query, setQuery] = useState(() => store.settingsFind?.filter ?? "");
 	const connecting = useRef<DialogRootActions>(null);
@@ -1145,7 +1222,7 @@ function Models() {
 	const [fallbackSeen, setFallbackSeen] = useState(false);
 	if (!fallbackSeen && !fallback.loading) setFallbackSeen(true);
 	const stuck = s.agents.filter((a) => a.modelProblem);
-	const reload = () => (providers.reload(), servers.reload(), fallback.reload(), void store.refreshAgents());
+	const reload = () => (providers.reload(), servers.reload(), jev.reload(), fallback.reload(), void store.refreshAgents());
 	const mine = new Set((servers.data ?? []).map((x) => x.name));
 	const hosted = (providers.data ?? []).filter((p) => !mine.has(p.id) && p.id !== "mock");
 	const q = query.trim().toLowerCase();
@@ -1204,6 +1281,19 @@ function Models() {
 					</ItemGroup>
 				)}
 				{providers.data && !q && more > 0 ? <p className="text-muted-foreground">{plural(more, "more provider")} with an API key or an account. Search to find one.</p> : null}
+			</Section>
+			<FieldSeparator />
+			{/* No model for a conversation, so it is not among the providers: a route asks it (Events > Routes), and only with a key. */}
+			<Section title="Decision models" about="A model that answers typed questions for routes, with values a filter can read. Not for conversations." data-find="jev">
+				<ItemGroup>
+					{jev.data ? (
+						<JevRow jev={jev.data} reload={reload} />
+					) : jev.error ? (
+						<Alert variant="destructive"><TriangleAlertIcon /><AlertDescription>{jev.error}</AlertDescription></Alert>
+					) : (
+						<SettingsItemsSkeleton count={1} />
+					)}
+				</ItemGroup>
 			</Section>
 			<FieldSeparator />
 			<Section
@@ -1835,6 +1925,29 @@ const span = (ms: number) => (ms % 3_600_000 === 0 ? `${ms / 3_600_000}h` : ms %
 
 const conversationOf = (session: string | undefined) => (!session || session === "main" ? "in the main conversation" : session === "new" ? "in a new conversation" : `in the conversation ${session}`);
 
+// The kinds of answer Jev gives, in the words of the form. `field` is where the answer's value stands, for a filter.
+const JEV_ANSWERS = {
+	noul: { label: "Yes or no", said: "yes or no", field: "noul", filter: '{"gte": 0.8}', about: "Answered with how likely yes is, from 0 to 1." },
+	choice: { label: "One of several", said: "one of", field: "choice", filter: '"invoice"', about: "Answered with the option that fits best, and how sure Jev is (confidence, 0 to 1)." },
+	score: { label: "A score", said: "a score", field: "score", filter: '{"gte": 1.5}', about: "Answered with a number between the levels, the lowest being 0, and how sure Jev is." },
+} as const;
+
+/** A route's questions to Jev in a few words: each with the kind of answer. */
+const jevSaid = (questions: Record<string, JevQuestion>) =>
+	Object.values(questions)
+		.map((q) => `${typeof q.instructions === "string" ? `“${short(q.instructions, 80)}” ` : ""}(${JEV_ANSWERS[q.type]?.said ?? q.type}${q.type === "choice" && q.criteria && typeof q.criteria === "object" ? ` ${Object.keys(q.criteria).join(", ")}` : ""})`)
+		.join(" and ");
+
+/** What the form's lines of options become: for a choice each option with when it applies ("invoice: A bill to pay"), for a score the levels, lowest first. */
+function jevCriteria(type: keyof typeof JEV_ANSWERS, text: string): unknown {
+	const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+	if (type === "score") return lines;
+	return Object.fromEntries(lines.map((l) => {
+		const at = l.indexOf(":");
+		return at > 0 ? [l.slice(0, at).trim(), l.slice(at + 1).trim() || null] : [l, null];
+	}));
+}
+
 /** A route in the words of the form that makes one: when what arrives, then what happens. */
 function routeSaid(r: Route): { when: string; then: string } {
 	const when = [
@@ -1846,19 +1959,21 @@ function routeSaid(r: Route): { when: string; then: string } {
 	const then = [
 		r.set ? `set ${Object.entries(r.set).map(([k, v]) => `${k} to ${JSON.stringify(v)}`).join(" and ")}` : "",
 		r.call ? `ask ${r.call.model ?? "the default model"} once: “${short(r.call.prompt, 80)}”` : "",
-		r.publish ? (r.call && r.publish.payload === undefined ? `publish the answer as ${r.publish.topic}` : `publish ${r.publish.topic}${r.publish.payload !== undefined ? ` with ${short(JSON.stringify(r.publish.payload), 60)}` : ""}`) : "",
+		r.jev ? `ask Jev ${jevSaid(r.jev.questions)}` : "",
+		r.publish ? (r.jev && r.publish.payload === undefined ? `publish the answers as ${r.publish.topic}` : r.call && r.publish.payload === undefined ? `publish the answer as ${r.publish.topic}` : `publish ${r.publish.topic}${r.publish.payload !== undefined ? ` with ${short(JSON.stringify(r.publish.payload), 60)}` : ""}`) : "",
 		r.agent ? `wake ${r.agent} ${conversationOf(r.session)}${r.prompt ? `: “${short(r.prompt, 100)}”` : ", with the event"}` : "",
 	].filter(Boolean).join(", then ");
 	return { when, then };
 }
 
-// What a route does when its event arrives: one of four, and the form shows the fields of that one only.
+// What a route does when its event arrives: one of five, and the form shows the fields of that one only.
 // `takes` is what of the form goes to POST /routes for it (checkRoute in src/admin.ts).
 const ROUTE_DOES = {
 	wake: { label: "Wake an agent", about: "The agent gets the event as a task, in the conversation you name.", takes: ["agent", "session", "prompt"] },
 	set: { label: "Set shared state", about: "A value is written where agents and other routes read it (state.<key>). No agent is woken.", takes: ["set"] },
 	publish: { label: "Publish an event", about: "Another event goes out, for another route, an agent subscribed to it, or a source that sends (out/source/<name>).", takes: ["publish_topic", "publish_payload"] },
 	ask: { label: "Ask a model", about: "One model call, without tools or history. The answer goes out as an event of your own, the answer in payload.text.", takes: ["call_prompt", "call_system", "call_model", "publish_topic"] },
+	jev: { label: "Ask Jev", about: "A typed question to Jev, TypeSafe's decision model: answered with a value a filter can read, not with text. The answer goes out as an event of your own, in payload.answers.", takes: ["jev_state", "publish_topic"] },
 } as const;
 
 // How often a route fires: every event, one and then a pause (throttle), or the last of a burst (debounce).
@@ -2010,22 +2125,27 @@ export function Schedules() {
 	);
 }
 
-/** The form for a new route, in a dialog: When (topic, condition, pace), Then (one of four actions), a name. */
+/** The form for a new route, in a dialog: When (topic, condition, pace), Then (one of five actions), a name. */
 export function NewRoute({ made, does: first = "wake" }: { made: () => void; does?: keyof typeof ROUTE_DOES }) {
 	const s = useModel(store);
 	const models = useLoad(() => api.models());
-	const [f, setF] = useState({ name: "", on: "", when: "", pace: "every" as keyof typeof ROUTE_PACE, time: "", does: first, agent: "", session: "", prompt: "", set: "", publish_topic: "", publish_payload: "", call_prompt: "", call_system: "", call_model: "" });
+	const [f, setF] = useState({ name: "", on: "", when: "", pace: "every" as keyof typeof ROUTE_PACE, time: "", does: first, agent: "", session: "", prompt: "", set: "", publish_topic: "", publish_payload: "", call_prompt: "", call_system: "", call_model: "", jev_name: "", jev_type: "noul" as keyof typeof JEV_ANSWERS, jev_question: "", jev_options: "", jev_state: "" });
+	// Jev is asked only with a key: without one the form says where it is set, and adds nothing.
+	const jev = useLoad(() => api.jev());
+	const jevName = f.jev_name.trim() || "answer";
+	const jevReady = Boolean(jev.data?.signedIn) && f.jev_question.trim() && (f.jev_type === "noul" || f.jev_options.split("\n").filter((l) => l.trim()).length >= 2) && f.publish_topic.trim();
 	const [busy, setBusy] = useState(false);
 	const field = useId();
 	const agentItems = s.agents.map((a) => ({ value: a.id, label: a.id }));
 	const modelItems = [{ value: "", label: "The default model" }, ...(models.data ?? []).map((m) => ({ value: m, label: m }))];
 	const does = ROUTE_DOES[f.does];
 	const pace = ROUTE_PACE[f.pace];
-	const ready = f.name.trim() && f.on.trim() && (f.pace === "every" || f.time.trim()) && { wake: f.agent, set: f.set.trim(), publish: f.publish_topic.trim(), ask: f.call_prompt.trim() && f.publish_topic.trim() }[f.does];
+	const ready = f.name.trim() && f.on.trim() && (f.pace === "every" || f.time.trim()) && { wake: f.agent, set: f.set.trim(), publish: f.publish_topic.trim(), ask: f.call_prompt.trim() && f.publish_topic.trim(), jev: jevReady }[f.does];
 	const add = async () => {
 		// Only the chosen action's fields are sent: one typed under another action and left there would add a second action.
 		const body: Record<string, string> = { name: f.name, on: f.on, when: f.when, ...(f.pace === "every" ? {} : { [f.pace]: f.time }) };
 		for (const key of does.takes) body[key] = f[key];
+		if (f.does === "jev") body.jev_questions = JSON.stringify({ [jevName]: { type: f.jev_type, instructions: f.jev_question.trim(), ...(f.jev_type === "noul" ? {} : { criteria: jevCriteria(f.jev_type, f.jev_options) }) } });
 		setBusy(true);
 		const done = await store.attempt(() => api.addRoute(Object.fromEntries(Object.entries(body).map(([k, v]) => [k, v.trim() || undefined]))));
 		setBusy(false);
@@ -2123,6 +2243,50 @@ export function NewRoute({ made, does: first = "wake" }: { made: () => void; doe
 										<FieldDescription>Optional, JSON or text. Without it the event's own payload is passed on.</FieldDescription>
 									</Field>
 								</>
+							) : f.does === "jev" ? (
+								jev.data && !jev.data.signedIn ? (
+									<Alert>
+										<KeyRoundIcon />
+										<AlertTitle>Jev needs an API key</AlertTitle>
+										<AlertDescription>A route can ask Jev once pine has a key for it. Set one under Models, in Decision models.</AlertDescription>
+										<AlertAction><Button variant="outline" size="sm" onClick={() => store.openSettings("models")}>Open Models</Button></AlertAction>
+									</Alert>
+								) : (
+									<>
+										<Field>
+											<FieldLabel htmlFor={`${field}-jev-question`}>Asking it</FieldLabel>
+											<Textarea id={`${field}-jev-question`} className="min-h-14 max-h-44" placeholder="Does this need an answer today?" value={f.jev_question} onChange={(e) => setF({ ...f, jev_question: e.target.value })} />
+											<FieldDescription>A question about the event, or a statement to judge. What the event carries is sent to TypeSafe with it.</FieldDescription>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor={`${field}-jev-type`}>Answered with</FieldLabel>
+											<Choose id={`${field}-jev-type`} items={Object.entries(JEV_ANSWERS).map(([value, a]) => ({ value: value as keyof typeof JEV_ANSWERS, label: a.label }))} value={f.jev_type} onChange={(jev_type) => setF({ ...f, jev_type })} />
+											<FieldDescription>{JEV_ANSWERS[f.jev_type].about}</FieldDescription>
+										</Field>
+										{f.jev_type === "noul" ? null : (
+											<Field>
+												<FieldLabel htmlFor={`${field}-jev-options`}>{f.jev_type === "choice" ? "Options" : "Levels"}</FieldLabel>
+												<Textarea id={`${field}-jev-options`} className="min-h-20 max-h-44 font-mono" placeholder={f.jev_type === "choice" ? "invoice: A bill to pay\nnewsletter: Sent to many, nothing to do\nother: Anything else" : "Can wait\nNeeds attention this week\nNeeds attention today"} value={f.jev_options} onChange={(e) => setF({ ...f, jev_options: e.target.value })} />
+												<FieldDescription>{f.jev_type === "choice" ? "One on each line, at least two: a short name, then after a colon when it applies." : "One on each line, the lowest first, at least two."}</FieldDescription>
+											</Field>
+										)}
+										<Field>
+											<FieldLabel htmlFor={`${field}-jev-state`}>About</FieldLabel>
+											<Input id={`${field}-jev-state`} className="font-mono" placeholder="{{payload.text}}" value={f.jev_state} onChange={(e) => setF({ ...f, jev_state: e.target.value })} />
+											<FieldDescription>Optional: the part of the event Jev looks at. Without it, the whole event.</FieldDescription>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor={`${field}-jev-name`}>Call the answer</FieldLabel>
+											<Input id={`${field}-jev-name`} className="font-mono" placeholder="answer" value={f.jev_name} onChange={(e) => setF({ ...f, jev_name: e.target.value.replace(/[^A-Za-z0-9_-]/g, "") })} />
+											<FieldDescription>A short name of your choice, such as urgent: a filter reads the answer by it.</FieldDescription>
+										</Field>
+										<Field>
+											<FieldLabel htmlFor={`${field}-jev-answer`}>Publish the answer as</FieldLabel>
+											<Input id={`${field}-jev-answer`} className="font-mono" placeholder="mail/judged" value={f.publish_topic} onChange={(e) => setF({ ...f, publish_topic: e.target.value })} />
+											<FieldDescription>A topic of your own. A second route on it can wake an agent, with “Only if” on the answer: {`{"payload.answers.${jevName}.${JEV_ANSWERS[f.jev_type].field}": ${JEV_ANSWERS[f.jev_type].filter}}`}. The event itself is in payload.of.</FieldDescription>
+										</Field>
+									</>
+								)
 							) : (
 								<>
 									<Field>

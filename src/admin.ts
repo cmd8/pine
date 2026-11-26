@@ -7,6 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { AGENT_TOOLS } from "./agent-admin.ts";
+import { JEV_PROVIDER, type JevQuestion, questionsProblem } from "./jev.ts";
 import { type AgentConfig, delegatesText, isColor, loadConfig, mainAgentId, MAX_MODEL_RUNS, MODEL_KEY, modelLimit, type Mode, MODES, PINE_ROOT, SERVER_KEY, type PineConfig, RESERVED_TOPICS, type RouteConfig, unsandboxed } from "./config.ts";
 import { renameEnv, secretName, unsetEnv } from "./env-file.ts";
 import { DEFAULT_THEME, listThemes } from "./themes.ts";
@@ -524,6 +525,11 @@ export interface RouteInput {
 	call_prompt?: string;
 	call_system?: string;
 	call_model?: string;
+	/** Typed questions to Jev, as JSON: {"urgent": {"type": "noul", "instructions": "Does this need an answer today?"}}. */
+	jev_questions?: string;
+	/** What Jev is asked about: a template or JSON. Left out: the event's payload. */
+	jev_state?: string;
+	jev_model?: string;
 	trust?: string;
 }
 
@@ -538,6 +544,12 @@ const object = (text: string | undefined, what: string): Record<string, unknown>
 	if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error(`"${what}" must be a JSON object, for example {"payload.open": true}`);
 	return v as Record<string, unknown>;
 };
+
+/** A route's questions to Jev in a line: each by its name, with the kind of answer. */
+export const jevSaid = (questions: Record<string, JevQuestion>): string =>
+	Object.entries(questions)
+		.map(([name, q]) => `${name} (${q.type === "noul" ? "yes or no" : q.type === "choice" ? `one of ${Object.keys((q.criteria as object) ?? {}).join(", ")}` : `a score of ${(q.criteria as unknown[])?.length ?? 0} levels`})${typeof q.instructions === "string" ? `: ${q.instructions}` : ""}`)
+		.join("; ");
 
 /** Check a proposed route and say what it does, line by line. Nothing is written. */
 export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[]): { entry: Record<string, unknown>; lines: string[]; wider?: string } {
@@ -573,6 +585,26 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[])
 		entry.call = { ...(input.call_model ? { model: input.call_model } : {}), ...(input.call_system ? { system: input.call_system } : {}), prompt: input.call_prompt };
 		lines.push(`one model call without tools${input.call_model ? ` (${input.call_model})` : ""}: ${input.call_prompt}`);
 	} else if (input.call_system || input.call_model) throw new Error('a model call needs "call_prompt": what the model is asked');
+	if (input.jev_questions) {
+		// Only with a key: a route that asks Jev without one would fail on every event.
+		if (!cfg.jev.key) throw new Error(`Jev has no key yet, so no route can ask it. Your owner sets one under Settings > Models (Decision models), or with: pine login ${JEV_PROVIDER}; you start that with sign_in (provider "${JEV_PROVIDER}")`);
+		if (entry.call) throw new Error("a route asks a model or Jev, not both");
+		const questions = object(input.jev_questions, "jev_questions");
+		const wrong = questionsProblem(questions);
+		if (wrong) throw new Error(`"jev_questions": ${wrong}`);
+		let state: unknown;
+		if (input.jev_state !== undefined && input.jev_state !== "") {
+			try {
+				state = JSON.parse(input.jev_state);
+			} catch {
+				state = input.jev_state;
+			}
+		}
+		entry.jev = { ...(input.jev_model ? { model: input.jev_model } : {}), ...(state !== undefined ? { state } : {}), questions };
+		lines.push(`ask Jev (TypeSafe) about ${state !== undefined ? JSON.stringify(state) : "the event"}: ${jevSaid(questions as Record<string, JevQuestion>)}`);
+		lines.push(`this sends ${state !== undefined ? "that" : "each such event"} to TypeSafe (${new URL(cfg.jev.baseUrl).host})`);
+		if (!input.publish_topic) throw new Error('Jev\'s answers go out as an event: give "publish_topic". A second route on that topic acts on them, with "when" on payload.answers.<name>');
+	} else if (input.jev_state || input.jev_model) throw new Error('asking Jev needs "jev_questions": the questions, as JSON');
 	if (input.publish_topic) {
 		const topic = input.publish_topic.trim();
 		if (matchesAny(RESERVED_TOPICS, topic)) throw new Error(`"${topic}" is a topic only pine itself publishes on. Pick one of your own, for example cam/classified`);
@@ -590,12 +622,13 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[])
 	if (input.agent) {
 		if (!cfg.agents[input.agent]) throw new Error(`there is no agent "${input.agent}". Agents: ${Object.keys(cfg.agents).join(", ")}`);
 		if (entry.call) throw new Error("a route makes a model call or wakes an agent, not both. Let the call publish the result, and a second route wake the agent on that topic");
+		if (entry.jev) throw new Error("a route asks Jev or wakes an agent, not both. Jev's answers are published, and a second route wakes the agent on that topic, with \"when\" on payload.answers.<name>");
 		entry.agent = input.agent;
 		if (input.prompt) entry.prompt = input.prompt;
 		if (input.session) entry.session = input.session;
 		lines.push(`wake the agent ${input.agent}${input.session ? ` (conversation: ${input.session})` : ""}${input.prompt ? ` with: ${input.prompt}` : " with the event"}`);
 	} else if (input.prompt || input.session) throw new Error('"prompt" and "session" belong to "agent": name the agent the route wakes');
-	if (!entry.set && !entry.call && !entry.publish && !entry.agent) throw new Error("a route has to do something: give at least one of agent (wake an agent), set (write shared state), publish_topic (publish another event), call_prompt (one model call)");
+	if (!entry.set && !entry.call && !entry.jev && !entry.publish && !entry.agent) throw new Error("a route has to do something: give at least one of agent (wake an agent), set (write shared state), publish_topic (publish another event), call_prompt (one model call), jev_questions (typed questions to Jev)");
 	let wider: string | undefined;
 	if (input.trust !== undefined && input.trust !== "") {
 		if (input.trust !== "owner" && input.trust !== "untrusted") throw new Error('"trust" is owner or untrusted. Leave it out: an event keeps the trust it came with');
@@ -643,7 +676,7 @@ export function dropRoute(cfg: PineConfig, name: string): boolean {
 /** The routes as a list for the agent. */
 export function routesText(cfg: PineConfig): string {
 	const does = (r: RouteConfig) =>
-		[r.set ? `sets ${JSON.stringify(r.set)}` : "", r.call ? `asks a model: ${r.call.prompt}` : "", r.publish ? `publishes ${r.publish.topic}` : "", r.agent ? `wakes ${r.agent}${r.session ? ` (conversation: ${r.session})` : ""}${r.prompt ? ` with: ${r.prompt}` : ""}` : ""].filter(Boolean).join("; ");
+		[r.set ? `sets ${JSON.stringify(r.set)}` : "", r.call ? `asks a model: ${r.call.prompt}` : "", r.jev ? `asks Jev: ${jevSaid(r.jev.questions)}` : "", r.publish ? `publishes ${r.publish.topic}` : "", r.agent ? `wakes ${r.agent}${r.session ? ` (conversation: ${r.session})` : ""}${r.prompt ? ` with: ${r.prompt}` : ""}` : ""].filter(Boolean).join("; ");
 	return cfg.routes.map((r) => `- ${r.name}: on ${r.on.join(", ")}${r.when ? ` when ${JSON.stringify(r.when)}` : ""}${r.throttleMs ? ` · at most one per ${ms(r.throttleMs)}` : ""}${r.debounceMs ? ` · after ${ms(r.debounceMs)} of quiet` : ""}${r.trust === "owner" ? " · its events count as the owner's words" : ""}\n    ${does(r)}`).join("\n");
 }
 

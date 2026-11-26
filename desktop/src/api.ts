@@ -369,7 +369,23 @@ export interface Route {
 	set?: Record<string, unknown>;
 	publish?: { topic: string; payload?: unknown };
 	call?: { prompt: string; system?: string; model?: string };
+	jev?: { model?: string; state?: unknown; questions: Record<string, JevQuestion> };
 	trust?: string;
+}
+
+/** A typed question to Jev: yes or no (noul), one of the options in `criteria` (choice), a level of the list in `criteria` (score). */
+export interface JevQuestion {
+	type: "noul" | "choice" | "score";
+	instructions?: unknown;
+	criteria?: unknown;
+}
+
+/** Jev, the decision model a route can ask: whether pine has a key for it (never the key), and the routes that ask it. */
+export interface Jev {
+	signedIn: boolean;
+	model: string;
+	host: string;
+	routes: string[];
 }
 
 export interface SourceType {
@@ -599,6 +615,9 @@ export const api = {
 	loginState: (id: string) => get<LoginState>(`/models/login/${e(id)}`),
 	loginAnswer: (id: string, body: { answer: string } | { cancel: true }) => post<{ ok: boolean }>(`/models/login/${e(id)}`, body),
 	logout: (provider: string) => post<{ ok: boolean }>("/models/logout", { provider }),
+	jev: () => get<Jev>("/models/jev"),
+	setJevKey: (key: string) => post<{ signedIn: boolean; model: string }>("/models/jev", { key }),
+	removeJevKey: () => post<{ signedIn: boolean }>("/models/jev/remove", {}),
 };
 
 /** Addresses of pictures, videos and sounds the daemon serves. The main process adds the token. */

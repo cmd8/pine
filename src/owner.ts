@@ -17,6 +17,7 @@ import { type AgentConfig, loadConfig, mainAgentId, ownText, PINE_ROOT, type Pin
 import { login, logout, type Prompter } from "./login.ts";
 import { findServer, piMcp, serverStates } from "./mcp-config.ts";
 import { addModelServer, checkServerName, listModelServers, lookAt, modelKeys, modelServerUsers, removeModelServer, serverUrl } from "./models.ts";
+import { dropJevKey, jevRoutes, keyWorks, setJevKey } from "./jev.ts";
 import type { Router } from "./router.ts";
 import { audit, isInside, realish, sandboxAvailable } from "./security.ts";
 import { allSkills, checkSkill, deleteSkill, skillDir, skillsBeside, writeSkill } from "./skills.ts";
@@ -314,7 +315,7 @@ export class OwnerApi {
 		if (at === "shared") return SHARED_FILES.map((name) => ({ name, about: SHARED_ABOUT[name] ?? "", text: ownText(textOf(path.join(cfg.home, name)) ?? "") }));
 		if (at === "skills") return allSkills(cfg).map((s) => ({ ...s, instructions: skillBody(s.dir) }));
 		if (at === "schedules") return this.need(this.schedules, "a scheduler").list();
-		if (at === "routes") return cfg.routes.map((r) => ({ name: r.name, on: r.on, when: r.when, throttleMs: r.throttleMs, debounceMs: r.debounceMs, agent: r.agent, prompt: r.prompt, session: r.session, set: r.set, publish: r.publish, call: r.call, trust: r.trust }));
+		if (at === "routes") return cfg.routes.map((r) => ({ name: r.name, on: r.on, when: r.when, throttleMs: r.throttleMs, debounceMs: r.debounceMs, agent: r.agent, prompt: r.prompt, session: r.session, set: r.set, publish: r.publish, call: r.call, jev: r.jev, trust: r.trust }));
 		if (at === "sources/types") return this.need(this.sources, "event sources").typeList().map((t) => ({ name: t.name, summary: t.summary, options: t.options, own: t.name in cfg.sourceTypes }));
 		// (Each model with its own number of runs at a time, where it has one; and what holds for the others.)
 		if (at === "models/servers") return listModelServers(cfg.home).map((x) => ({ ...x, models: x.models.map((m) => ({ ...m, ...(cfg.limits.models[`${x.name}/${m.id}`] !== undefined ? { limit: cfg.limits.models[`${x.name}/${m.id}`] } : {}) })), runs: cfg.limits.maxConcurrentRuns }));
@@ -325,6 +326,8 @@ export class OwnerApi {
 			const rt = this.manager.models;
 			return rt.getProviders().map((p: any) => ({ id: p.id, name: p.name, signedIn: rt.hasConfiguredAuth(p.id), models: safe(() => p.getModels().length, 0), oauth: Boolean(p.auth?.oauth) })).sort((a: any, b: any) => Number(b.signedIn) - Number(a.signedIn) || a.id.localeCompare(b.id));
 		}
+		// Jev, the decision model routes can ask: whether there is a key (never the key), and which routes ask it.
+		if (at === "models/jev") return { signedIn: Boolean(cfg.jev.key), model: cfg.jev.model, host: new URL(cfg.jev.baseUrl).host, routes: jevRoutes(cfg) };
 		if (at === "mcp/states") return serverStates(cfg);
 		if (parts[0] === "models" && parts[1] === "login" && parts.length === 3) {
 			const view = this.logins.view(parts[2]);
@@ -337,7 +340,7 @@ export class OwnerApi {
 	/** A POST request. Undefined: not one of these. `long` is called by a request that takes as long as a person does. */
 	async post(parts: string[], body: any, long: () => void = () => {}): Promise<unknown | undefined> {
 		const at = parts.join("/");
-		const mine = ["settings", "shared", "skills", "skills/remove", "schedules", "schedules/remove", "routes", "routes/remove", "sources", "sources/propose", "sources/remove", "models/servers", "models/servers/remove", "models/servers/limit", "models/model", "models/model/set", "models/model/remove", "models/login", "models/logout", "mcp/login"].includes(at) || (parts[0] === "models" && parts[1] === "login" && parts.length === 3) || (parts[0] === "agents" && parts[2] === "view" && (parts[3] === "write" || parts[3] === "files") && parts.length === 4);
+		const mine = ["settings", "shared", "skills", "skills/remove", "schedules", "schedules/remove", "routes", "routes/remove", "sources", "sources/propose", "sources/remove", "models/servers", "models/servers/remove", "models/servers/limit", "models/model", "models/model/set", "models/model/remove", "models/login", "models/logout", "models/jev", "models/jev/remove", "mcp/login"].includes(at) || (parts[0] === "models" && parts[1] === "login" && parts.length === 3) || (parts[0] === "agents" && parts[2] === "view" && (parts[3] === "write" || parts[3] === "files") && parts.length === 4);
 		if (!mine) return undefined;
 		try {
 			return await this.change(at, parts, body ?? {}, long);
@@ -530,6 +533,23 @@ export class OwnerApi {
 			removeModelServer(cfg, name);
 			await manager.reloadModels();
 			return { removed: true };
+		}
+
+		if (at === "models/jev") {
+			const key = String(body.key ?? "").trim();
+			if (!key) throw new Refusal(400, 'send the key as "key"');
+			// What was typed is a secret from here on, also when TypeSafe does not accept it.
+			this.sources?.keepOut([key]);
+			if (!(await keyWorks(cfg.jev.baseUrl, key))) throw new Refusal(409, "TypeSafe did not accept that key. Nothing was kept", { locked: true });
+			setJevKey(cfg, key);
+			this.log.info("a key for Jev was set through the control API");
+			return { signedIn: true, model: cfg.jev.model };
+		}
+		if (at === "models/jev/remove") {
+			const users = jevRoutes(cfg);
+			if (users.length) throw new Refusal(409, `the route${users.length === 1 ? "" : "s"} ${users.join(", ")} ask${users.length === 1 ? "s" : ""} Jev. Remove ${users.length === 1 ? "it" : "them"} first`, { users });
+			dropJevKey(cfg);
+			return { signedIn: false };
 		}
 
 		if (at === "models/login") {
