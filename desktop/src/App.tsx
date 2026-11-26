@@ -11,7 +11,7 @@ import { Field, FieldGroup } from "@/components/ui/field";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { type Layout, usePanelRef } from "react-resizable-panels";
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, Component, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "cn";
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -1124,6 +1124,42 @@ export function TitleBar() {
 	);
 }
 
+/**
+ * What a tab draws, and what happens when drawing it throws. Every payload the daemon sends is taken as it comes
+ * (api.ts declares shapes, it does not check them): one tone, field or answer that this page did not expect used to
+ * blank the whole window — the side bar, the tabs and every other conversation with it. Here only the tab that
+ * failed says so, the rest of the window goes on, and closing the tab is the way out of it.
+ */
+class TabBoundary extends Component<{ what: string; close: () => void; children: ReactNode }, { error?: Error }> {
+	state: { error?: Error } = {};
+	static getDerivedStateFromError(error: Error) {
+		return { error };
+	}
+	componentDidCatch(error: Error) {
+		console.error(`pine: ${this.props.what} could not be drawn`, error);
+	}
+	render() {
+		const error = this.state.error;
+		if (!error) return this.props.children;
+		return (
+			<PaneFrame>
+				<Empty>
+					<EmptyHeader>
+						<EmptyMedia variant="icon">
+							<TriangleAlertIcon />
+						</EmptyMedia>
+						<EmptyTitle>That tab could not be drawn</EmptyTitle>
+						<EmptyDescription>{error.message || String(error)}</EmptyDescription>
+					</EmptyHeader>
+					<Button variant="outline" size="sm" onClick={this.props.close}>
+						Close it
+					</Button>
+				</Empty>
+			</PaneFrame>
+		);
+	}
+}
+
 /** What a tab or a pane shows, in its group's body or alone in a narrow window. */
 function Body({ item }: { item: string }) {
 	const s = useModel(store);
@@ -1132,7 +1168,11 @@ function Body({ item }: { item: string }) {
 	if (pane === "view") return <ViewAside />;
 	const tab = s.tabOf(item);
 	if (!tab) return <NoTab />;
-	return tab.kind === "settings" ? <Settings /> : tab.kind === "events" ? <Events tab={tab} /> : <Conversation key={tab.id} tab={tab} />;
+	return (
+		<TabBoundary key={tab.id} what={tab.kind === "chat" ? `conversation` : tab.kind} close={() => s.closeTab(tab)}>
+			{tab.kind === "settings" ? <Settings /> : tab.kind === "events" ? <Events tab={tab} /> : <Conversation key={tab.id} tab={tab} />}
+		</TabBoundary>
+	);
 }
 
 /** The frame of a pane in a group: the card every tab's content is drawn on. */

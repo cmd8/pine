@@ -1115,7 +1115,9 @@ export class Store extends Model {
 		this.initialLayout = undefined;
 		this.startNoTab = false;
 
-		// A daemon that was started again: what the tabs showed is asked for anew.
+		// A daemon that was started again: what the tabs showed is asked for anew. What was typed in them is not
+		// the daemon's to give back, so it is kept as a closed tab keeps it (`shut`), and `openTab` takes it up again.
+		for (const tab of this.tabs) if (tab.kind === "chat" && (tab.draft.trim() || tab.attachments.length || tab.quotes.length)) this.drafts.set(tab.key, { draft: tab.draft, attachments: tab.attachments, quotes: tab.quotes });
 		this.tabs = [];
 		this.active = undefined;
 		this.dock = dock.group();
