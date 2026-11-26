@@ -595,6 +595,29 @@ test("families: a family is declared with its own schema in every provider's for
 	isFamily(send({ tools: [{ name: "pine_list", description: "x", input_schema: standIn }] }).tools[0].input_schema, "messages");
 });
 
+test("families: a server's tool says what the server says about using it, and what its shared arguments are", () => {
+	// The ClassCAD MCP: its instructions say that a model's first call passes drawing "new", and so does its `drawing`.
+	// Without either, a model called use_session with a drawing it had made up ("box").
+	const drawing = 'The drawing this call works on. "new" opens a new, empty drawing, and the answer names its id; from then on pass that id (e.g. "d-k3v9q2xa") in every call of this conversation about that model.';
+	const declared = [
+		{ name: "mcp__cad__use_session", description: 'Make this the FIRST call of a drawing (drawing: "new") when the user names a session or hands you a session URL.', parameters: { type: "object", properties: { drawing: { type: "string", description: drawing }, url: { type: "string", description: "A ws(s) URL of a session to attach to. Only when the user hands you one, never otherwise." } } } },
+		{ name: "mcp__cad__run_script", description: "Execute JavaScript against the CAD session.", parameters: { type: "object", properties: { drawing: { type: "string", description: drawing }, script: { type: "string" } }, required: ["drawing", "script"] } },
+	];
+	const fam = families({ servers: [{ name: "cad", namespace: "mcp__cad", about: "Build CAD models." }] });
+	const on: Record<string, (e: any) => any> = {};
+	fam.extension({ on: (event: string, fn: (e: any) => any) => (on[event] = fn), getAllTools: () => [] });
+	const instructions = `DRAWINGS: the first call of a model passes "new".\n\n${"More about the app. ".repeat(200)}`;
+	const out = (fam.tools.find((t: any) => t.name === "cad") as any).prepareLoadout({ declared, getNamespace: () => ({ name: "mcp__cad", instructions }) });
+	const description = out.descriptions.cad as string;
+	assert.match(description, /What the server says about using it:\nDRAWINGS: the first call of a model passes "new"\./);
+	assert.ok(description.length < 2048 + 1200, `the instructions are cut: ${description.length}`);
+	assert.match(description, /use_session\(drawing\?, url\?\): Make this the FIRST call of a drawing \(drawing: "new"\) when the user names a session/, "a colon in brackets ends no sentence");
+	const sent = on.before_provider_request({ payload: { tools: [{ type: "function", function: { name: "cad", description: "x", parameters: {} } }] } });
+	const props = sent.tools[0].function.parameters.properties;
+	assert.equal(props.drawing.description, drawing, "an argument that every tool takes is said in full, once");
+	assert.match(props.url.description ?? "", /^A ws\(s\) URL of a session to attach to\./, "another keeps a clause");
+});
+
 test("arguments that are nearly right are taken as what was meant, and only those", () => {
 	// A name as the owner says it.
 	assert.equal(ease("add_schedule", { name: "Check mail", task: "x" }).name, "check-mail");

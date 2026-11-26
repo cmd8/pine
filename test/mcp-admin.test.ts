@@ -403,11 +403,13 @@ test("an agent proposes a local server by its command; the owner confirms the co
 	// A yes: the entry says the program is to be held, and its tools are there with the next message.
 	allow = true;
 	await main([{ tools: [call("add_mcp_server", { name: "cad", command, description: "builds parts" })] }]);
-	assert.match(h.toolResults().at(-1)!, /Your owner confirmed it\. Added "cad".*pine calls you again at once, in this same conversation.*Do not tell your owner to start a new chat.*the server's documentation names the command for it/);
+	assert.match(h.toolResults().at(-1)!, /Your owner confirmed it\. Added "cad".*pine calls you again at once, in this same conversation.*Do not tell your owner to start a new chat.*Do not sign in yet, and do not give your owner a command for it: many servers have a sign-in action of their own/);
+	assert.doesNotMatch(h.toolResults().at(-1)!, /a sign-in, if it needs one/, "a sign-in waits for the server's tools: its own action, not a command for the owner");
 	// It goes on by itself: called again in the same conversation, now with the server's tools.
 	const again = () => h.mock.state.requests.find((r: any) => JSON.stringify(r.body.messages.at(-1)).includes('the MCP server \\"cad\\" that you added is connected now'));
 	await until(() => again() && h.pine.tasks.list({ status: "done" }).some((x) => x.kind === "notify"), 5000, "the agent to be called again");
 	assert.deepEqual(mcpTools(h, again()).sort(), ["mcp__cad__home", "mcp__cad__peek"]);
+	assert.match(JSON.stringify(again().body.messages.at(-1)), /has an action for it \(login, sign_in\), use that action/);
 	assert.equal(h.pine.tasks.list({}).find((x) => x.kind === "notify")!.session, "main");
 	assert.deepEqual(agentJson().mcp.cad, { command: process.execPath, args: ["server.mjs"], sandboxed: true, description: "builds parts", approve: "tainted" });
 	await main([{ tools: [call("mcp__cad__peek", { path: "mine.txt" }), call("mcp__cad__peek", { path: path.join(dir, "notes.txt") }), call("mcp__cad__peek", { path: path.join(h.home, "pine.json") }), call("mcp__cad__home", {})] }]);

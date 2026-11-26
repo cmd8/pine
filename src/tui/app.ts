@@ -36,6 +36,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { TranscriptEntry } from "../types.ts";
 import type { PineEvent, Task } from "../types.ts";
+import { silent } from "../silent.ts";
 import { errText, expandHome, openInSystem, safeName, type Speed, speedOf, speedText, unfolded } from "../util.ts";
 import { Listening, type VoiceTools, voiceTools } from "./voice.ts";
 import type { AgentInfo, Client, Conversation, GoalInfo, GroupList, SwarmInfo } from "./client.ts";
@@ -1561,7 +1562,7 @@ export class PineTui {
 		else {
 			// No session file (not started yet, or cleared): what the task list knows.
 			this.user(tab, task.prompt, "task");
-			if (task.result) this.add(tab, new Answer(task.result));
+			if (task.result && !silent(task.result)) this.add(tab, new Answer(task.result));
 		}
 		if (live) {
 			tab.running.add(id);
@@ -2072,6 +2073,8 @@ export class PineTui {
 		// It was read by work that was already running; the answer is that work's.
 		if (t.meta?.steered !== undefined) return;
 		if (t.status === "done") {
+			// NO_REPLY: the agent had nothing to say, which is shown as nothing.
+			if (silent(t.result)) return;
 			if (t.result) tab.lastAnswer = t.result;
 			this.add(tab, new Answer(t.result || "(no answer)"));
 			this.answerPictures(tab, t.agent, t.result, false);
@@ -3524,8 +3527,8 @@ export class PineTui {
 				if (p.status !== "cancelled" && !tab.running.size) this.attention(`pine: ${tab.agent} ${p.status === "done" ? "is done" : "stopped with an error"}`);
 				if (p.status === "done") {
 					// Streaming normally showed the answer already; this covers a missed stream.
-					if (p.text) tab.lastAnswer = p.text;
-					if (!block && !tab.streamed.get(p.task) && p.text) {
+					if (p.text && !silent(p.text)) tab.lastAnswer = p.text;
+					if (!block && !tab.streamed.get(p.task) && p.text && !silent(p.text)) {
 						this.add(tab, new Answer(p.text));
 						this.answerPictures(tab, p.agent, p.text);
 					}

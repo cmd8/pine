@@ -9,6 +9,12 @@ gets `mcp_` in front (`manual` is `mcp_manual`). Each of its tools also has a na
 under those names, and `approve` patterns use them. The server's own `taints` and `approve`
 settings apply either way.
 
+That tool's description carries what the server says about using its tools as a whole (the
+instructions it sends when it connects, the first 2048 characters, as Claude takes them), and a
+line for each action. An argument that several of the server's tools take is described in full,
+once; any other keeps a clause. A server written for Claude (a first call that passes `"new"`, an
+id to pass on) is therefore used the way its authors meant without further words from you.
+
 ## Global and per agent
 
 Global servers go in `pine.json`:
@@ -86,9 +92,10 @@ Read the command: it is what will run. The command is one program with its argum
 operators (`&&`, a pipe, `$(...)`) are refused. Where the machine has no sandbox, an agent in
 `safe` or `manual` mode cannot add a local server at all.
 
-If a local server needs a sign-in, its documentation names a command for it (often the same
-command with `login` at the end). The agent runs that in its shell and gives you the link it
-prints. If it needs a key or token in its environment, the agent names the variable
+If a local server needs a sign-in, the agent signs in once it has the server's tools: with the
+server's own action for it where there is one (`login`, `sign_in`), and otherwise with the command
+its documentation names (often the same command with `login` at the end), which it runs in its
+shell, giving you the link it prints. It does not hand you a command to run for it. If it needs a key or token in its environment, the agent names the variable
 (`secrets`, for example `EXAMPLE_API_KEY`) and never the key: the dialog has a field for it,
 you type it there, and pine keeps it in `.env` and takes it out again with the server.
 

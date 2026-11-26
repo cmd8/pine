@@ -273,6 +273,16 @@ test("tasks for one session run in order; a model failure fails the task and is 
 	await h.pine.bus.drain();
 	assert.equal(silent.text, "NO_REPLY");
 	assert.ok(replies.every((r) => r.text !== "NO_REPLY"), "NO_REPLY is not delivered");
+	// Nor is it shown: a UI is not streamed it, and the conversation's transcript leaves it out. An answer that begins
+	// like it is streamed all the same.
+	const deltas: string[] = [];
+	h.pine.bus.subscribe("agent/main/delta", (e) => void deltas.push(String((e.payload as { text?: string }).text)));
+	const quiet = await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ text: "NO_REPLY" }]), ...owner });
+	const said = await h.pine.agents.run({ agent: "main", prompt: mockMsg([{ text: "NO wait, here it is" }]), ...owner });
+	await h.pine.bus.drain();
+	assert.equal(deltas.join(""), "NO wait, here it is");
+	assert.ok(!h.pine.agents.transcript(quiet.id)!.entries.some((e) => e.kind === "text"), "the transcript shows no NO_REPLY");
+	assert.ok(h.pine.agents.transcript(said.id)!.entries.some((e) => e.kind === "text" && e.text === "NO wait, here it is"));
 	await h.close();
 });
 

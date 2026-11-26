@@ -749,7 +749,9 @@ Do not route untrusted text into a key that agents see.
 ## What an agent's answer does
 
 - The final text of a task is its result. If the task has a reply target, it is sent there.
-- `NO_REPLY` (or `SILENT`) as the whole answer sends nothing.
+- `NO_REPLY` (or `SILENT`) as the whole answer sends nothing, and the Pine app and the terminal UI
+  show nothing for it: an agent answers so when a message needs no answer, such as pine's notice
+  that a command in the background ended, about something it has already said.
 - A failed task (model error, timeout) sends "`<agent>` could not finish: ..." to the reply
   target, so you are not left waiting. A cancelled task sends nothing.
 

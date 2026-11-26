@@ -201,6 +201,7 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["how do I point the agent at one file and a few lines of it", /^tui#pointing-at-a-file/],
 		["tell me with a sound when the agent has finished", /^tui#commands/],
 		["open the browser so my owner can see it and log in", /^mcp#seeing-the-browser/],
+		["does my agent see the usage notes an mcp server sends when it connects", /^mcp#/],
 		["is the browser headless", /^mcp#(seeing-the-browser|bundled-browser)/],
 		["remind me every morning at seven", /^events#(ask-the-agent|in-the-files|schedules)/],
 		["cron job", /^(events#|operations#coming-from-openclaw)/],

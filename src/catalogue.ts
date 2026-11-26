@@ -265,9 +265,27 @@ interface Tool {
 	parameters: any;
 }
 
+/** An abbreviation's dot, which ends no sentence. */
+const ABBREVIATION = /\b(e\.g|i\.e|etc|vs|cf)$/i;
+
+/**
+ * The first sentence of a text, at most `max` characters. A sentence ends at a dot or a colon, but not
+ * one in brackets or quotes: `Make this the FIRST call (drawing: "new") when ...` is not "Make this the
+ * FIRST call (drawing", which says the opposite of what the tool meant.
+ */
 const firstSentence = (text: string, max = 110): string => {
 	const flat = text.replace(/\s+/g, " ").trim();
-	const end = flat.search(/[.:](\s|$)/);
+	let end = -1;
+	let depth = 0;
+	let quoted = false;
+	for (let i = 0; i < flat.length && end < 0; i++) {
+		const ch = flat[i];
+		if (ch === '"') quoted = !quoted;
+		else if (quoted) continue;
+		else if (ch === "(" || ch === "[") depth++;
+		else if (ch === ")" || ch === "]") depth = Math.max(0, depth - 1);
+		else if (!depth && (ch === "." || ch === ":") && (i + 1 === flat.length || flat[i + 1] === " ") && !ABBREVIATION.test(flat.slice(0, i))) end = i;
+	}
 	const s = end > 20 ? flat.slice(0, end) : flat;
 	return s.length > max ? `${s.slice(0, max - 1).replace(/\s+\S*$/, "")}…` : s;
 };
@@ -327,12 +345,19 @@ const AS_IS = ["write", "grep", "find", "ls", "download", FIND_TOOLS];
 
 /** How many characters of an argument's description a short declaration keeps. */
 const ARG_TEXT = 90;
+/**
+ * How many an MCP server's argument keeps that several of its tools take: that is how the server is
+ * used at all (ClassCAD's `drawing`: "new" opens one, then pass its id), and it is said once for all.
+ */
+const SHARED_ARG_TEXT = 300;
+/** How much of what a server says about using its tools (its instructions) goes with them: what Claude takes, which servers are written for. */
+const SERVER_GUIDE = 2048;
 
 /** The first sentence or two of a text, at most `max` characters. */
 function lead(text: string, max: number): string {
 	const flat = text.replace(/\s+/g, " ").trim();
 	if (flat.length <= max) return flat;
-	const sentences = flat.match(/[^.!?]+[.!?]+(\s|$)/g) ?? [flat];
+	const sentences = flat.match(/(?:\b(?:e\.g|i\.e|etc|vs|cf)\.|[^.!?])+[.!?]+(\s|$)/gi) ?? [flat];
 	let out = "";
 	for (const s of sentences) {
 		if (out && out.length + s.length > max) break;
@@ -374,6 +399,20 @@ function leanSchema(s: any, texts: "all" | "first" | "none", depth = 0): any {
 		else out[k] = v;
 	}
 	return out;
+}
+
+/**
+ * What a server says about using its tools, as it goes with them: blank lines kept, cut at
+ * `SERVER_GUIDE` characters after a paragraph or a sentence where there is one.
+ */
+function guideOf(text: unknown): string | undefined {
+	if (typeof text !== "string") return undefined;
+	const t = text.replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim();
+	if (!t) return undefined;
+	if (t.length <= SERVER_GUIDE) return t;
+	const head = t.slice(0, SERVER_GUIDE - 1);
+	const at = Math.max(head.lastIndexOf("\n\n"), head.lastIndexOf(". ") + 1, head.lastIndexOf(".\n") + 1);
+	return `${(at > SERVER_GUIDE / 2 ? head.slice(0, at) : head.replace(/\s+\S*$/, "")).trim()} …`;
 }
 
 /** One declaration, short. */
@@ -646,6 +685,8 @@ interface Family {
 	prefix?: string;
 	/** For one of pine's bundled servers: which ("browser"). */
 	kind?: string;
+	/** For a server: what it says about using its tools as a whole (its instructions), cut to `SERVER_GUIDE`. */
+	guide?: string;
 	members: Tool[];
 	action: Map<string, Tool>;
 	/** The name of the argument that says which tool is meant: "action", or another word where a member takes "action" itself. */
@@ -726,12 +767,19 @@ export function families(opts: { servers: Array<{ name: string; namespace: strin
 		// The values an argument can take, and for which actions: argument -> values -> actions.
 		const choices = new Map<string, Map<string, string[]>>();
 		const takes = new Map<string, number>();
+		// How many of a server's tools take an argument, before its words are cut to what it is worth.
+		const takers = new Map<string, number>();
+		for (const t of f.action.values()) for (const k of Object.keys(t.parameters?.properties ?? {})) takers.set(k, (takers.get(k) ?? 0) + 1);
 		let forOthers = false;
 		for (const [action, t] of f.action) {
 			for (const [k, v] of Object.entries(t.parameters?.properties ?? {}) as Array<[string, any]>) {
 				// (Whose conversation a call is about is said by the argument itself.)
 				if ((k === "agent" || k === "conversation") && f.id !== "conversations") forOthers = true;
-				const { description, ...now } = argOf(f, t, k, v);
+				const { description: own, ...now } = argOf(f, t, k, v);
+				// A server's argument keeps a clause of what the server says about it: without it, a model fills an id
+				// it has not been given with a word of its own. One that several tools take says more, once. (pine's own
+				// servers are described by pine.)
+				const description = own ?? (f.prefix && !f.kind && typeof v?.description === "string" && v.description.trim() ? lead(v.description, (takers.get(k) ?? 0) > 1 ? SHARED_ARG_TEXT : ARG_TEXT) : undefined);
 				takes.set(k, (takes.get(k) ?? 0) + 1);
 				const values = choices.get(k) ?? new Map<string, string[]>();
 				choices.set(k, values);
@@ -776,13 +824,14 @@ export function families(opts: { servers: Array<{ name: string; namespace: strin
 			f.description = `${about} Give "what": one of these, or several at once. When your owner asks for a change and a list ("add this, and show me what else there is"), call it in the same answer as the tool that makes the change.\n${[...f.action].map(([a, t]) => `- ${a}: ${BRIEF[t.name] ?? firstSentence(t.description, 100)}`).join("\n")}${forOthers ? '\nFor what another agent has (its sources, schedules, MCP servers, skills), give "agent": X.' : ""}`;
 			return;
 		}
-		f.description = `${about} Give "${f.key}" and the arguments of that ${f.key === "action" ? "action" : "tool"} (? marks an optional one). Two actions are two calls, which can go in one answer:\n${[...f.action].map(([a, t]) => line(a, t)).join("\n")}${forOthers ? '\nTo do one of these for another agent (your owner wants agent X to watch, to be woken, to have a skill), give "agent": X.' : ""}`;
+		f.description = `${about}${f.guide ? `\n\nWhat the server says about using it:\n${f.guide}\n\n` : " "}Give "${f.key}" and the arguments of that ${f.key === "action" ? "action" : "tool"} (? marks an optional one). Two actions are two calls, which can go in one answer:\n${[...f.action].map(([a, t]) => line(a, t)).join("\n")}${forOthers ? '\nTo do one of these for another agent (your owner wants agent X to watch, to be woken, to have a skill), give "agent": X.' : ""}`;
 	};
 
 	const prepare = (f: Family) => (loadout: any) => {
 		const declared = loadout.declared as Tool[];
 		f.members = declared.filter((t) => !names.has(t.name) && familyOf(t) === f);
 		known = declared.filter((t) => !names.has(t.name) && familyOf(t) !== undefined);
+		f.guide = f.prefix && !f.kind && f.members.length ? guideOf(loadout.getNamespace?.(f.members[0].name)?.instructions) : undefined;
 		build(f);
 		// A family that has nothing is not declared. (A sub-agent's request is given its conversation's declarations in agents.ts.)
 		return { hiddenDeclarations: [...f.members.map((t) => t.name), ...(f.members.length ? [] : [f.name])], descriptions: { [f.name]: f.description } };

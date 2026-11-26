@@ -1277,20 +1277,22 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 								reply: r.task.reply,
 								label: `MCP server ${p.name} connected`,
 								shown: "",
-								prompt: `[pine: the MCP server "${p.name}" that you added is connected now. Your tool list has changed since your last answer: it has the tool "${serverTool(mcpNamespace(p.name))}" now, whose actions are the server's tools. What you said before about the server's tools not being there is out of date. Go on with what your owner asked for. If there is no tool "${serverTool(mcpNamespace(p.name))}" in your list, the server did not start or still needs a sign-in: say that plainly${p.command ? ", and run the server's command in your shell to see what it prints" : ""}.]`,
+								prompt: `[pine: the MCP server "${p.name}" that you added is connected now. Your tool list has changed since your last answer: it has the tool "${serverTool(mcpNamespace(p.name))}" now, whose actions are the server's tools. What you said before about the server's tools not being there is out of date. Go on with what your owner asked for. If the server needs a sign-in and has an action for it (login, sign_in), use that action; do not ask your owner to run a command for it. If there is no tool "${serverTool(mcpNamespace(p.name))}" in your list, the server did not start or still needs a sign-in: say that plainly${p.command ? ", and run the server's command in your shell to see what it prints" : ""}.]`,
 							});
 							goesOn = true;
 						} catch {
 							// a full queue: the tools are there with the owner's next message instead
 						}
 					}
+					// Many servers sign in with an action of their own (ClassCAD's login), which the agent sees only once it
+					// has the tools. Asked to sign in before that, it gives the owner a command to run, and then signs in anyway.
 					const signIn = p.command
-						? `If the server needs a sign-in, the server's documentation names the command for it (often the same command with "login" at the end). Run that in your shell, give your owner the link it prints, and wait for them.`
+						? `Do not sign in yet, and do not give your owner a command for it: many servers have a sign-in action of their own, which you will see then. Only if the server needs a sign-in and has no such action, run the command its documentation names for it (often the same command with "login" at the end) in your shell, and give your owner the link it prints.`
 						: isMain
 							? `If the server requires sign-in, they stay missing until your owner signs in: with sign_in_mcp_server, which you start and they finish in the browser, or with Sign in under Settings > MCP servers.`
 							: `If the server requires sign-in, they stay missing until your owner signs in: Sign in under Settings > MCP servers, /mcp login ${p.name} in the terminal UI, or "pine mcp login ${p.name}" in a shell. Tell them that.`;
 					const when = goesOn
-						? `You do not have the server's tools in this turn yet. Finish what else there is to do now (a sign-in, if it needs one) and end your turn with one short line: pine calls you again at once, in this same conversation, and then the tools are in your tool list. Do not tell your owner to start a new chat or to send another message`
+						? `You do not have the server's tools in this turn yet. Finish what else there is to do now and end your turn with one short line: pine calls you again at once, in this same conversation, and then the tools are in your tool list. Do not tell your owner to start a new chat or to send another message`
 						: `The server's tools are available from your next message on, in this same conversation`;
 					return ok(`Your owner confirmed it. Added "${p.name}" for ${whose(scope)}. ${when}; they are the actions of a tool called "${serverTool(mcpNamespace(p.name))}" (take the actions' names from that tool, do not guess them). ${signIn}`);
 				},

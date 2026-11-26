@@ -12,6 +12,7 @@ import { bridge, type ChromeLayout, type Prefs, type ServiceState, type Update, 
 import { baseName, childKind, errText, eventBody, isGoalRound, learnHome, localAddress, MODES, oneLine, plural, short, shortcut, type Speed, speedOf, speedText, taskSummary, tilde, took, undoLines } from "./text.ts";
 import { runnable } from "./runnable.ts";
 import { type QuoteSource, type SentQuote, withQuotes } from "../../src/quotes.ts";
+import { silent } from "../../src/silent.ts";
 import type { Bookmark, NewBookmark } from "../../src/bookmarks.ts";
 import { computerWord, deviceWord, homeScreenKeeps, httpService, isPaired, machineName, machinesView, pairingEnded, readPairLink, type MachinesViewName, type NearbyComputer, type PairLink } from "./machines.ts";
 import { applyLook, cleanLook, type ThemeEntry } from "./theme.ts";
@@ -1917,6 +1918,8 @@ export class Store extends Model {
 		// It was read by work that was already running; the answer is that work's.
 		if (t.meta?.steered !== undefined) return;
 		if (t.status === "done") {
+			// NO_REPLY: the agent had nothing to say, which is shown as nothing.
+			if (silent(t.result)) return;
 			if (t.result) tab.lastAnswer = t.result;
 			tab.add({ t: "answer", task: t.id, agent: t.agent, text: t.result || "(no answer)", live: false });
 		} else if (t.status === "cancelled") tab.note("Stopped", "muted");
@@ -1957,7 +1960,7 @@ export class Store extends Model {
 		if (entries.length) for (const entry of entries) tab.add({ t: "entry", entry });
 		else {
 			tab.add({ t: "user", text: task.prompt, from: "task" });
-			if (task.result) tab.add({ t: "answer", task: id, agent: task.agent, text: task.result, live: false });
+			if (task.result && !silent(task.result)) tab.add({ t: "answer", task: id, agent: task.agent, text: task.result, live: false });
 		}
 		if (live) {
 			tab.running.add(id);
@@ -3597,8 +3600,8 @@ export class Store extends Model {
 				if (p.status !== "cancelled" && !tab.busy) this.attention("Pine", `${tab.agent} ${p.status === "done" ? "is done" : "stopped with an error"}`, tab);
 				if (p.status === "done") {
 					// Streaming normally showed the answer already; this covers a missed stream.
-					if (p.text) tab.lastAnswer = p.text;
-					if (!item && !tab.streamed.has(p.task) && p.text) tab.add({ t: "answer", task: p.task, agent: p.agent ?? tab.agent, text: p.text, live: false, ...(tab === this.active ? { arrived: { heard: false } } : {}) });
+					if (p.text && !silent(p.text)) tab.lastAnswer = p.text;
+					if (!item && !tab.streamed.has(p.task) && p.text && !silent(p.text)) tab.add({ t: "answer", task: p.task, agent: p.agent ?? tab.agent, text: p.text, live: false, ...(tab === this.active ? { arrived: { heard: false } } : {}) });
 				} else if (p.status === "cancelled") tab.note("Stopped");
 				else if (p.status === "failed") this.failed(tab, p.error);
 				else tab.note(`${p.status}${p.error && p.error !== p.status ? `: ${p.error}` : ""}`, "bad");

@@ -49,6 +49,7 @@ import { BACKGROUND_HELP, BACKGROUND_NOT_HERE, BACKGROUND_PARAM, backgroundRefus
 import { Snapshots } from "./snapshots.ts";
 import * as worktrees from "./worktrees.ts";
 import { branchFile, onBranch, ownerMessage, redoMessage, sessionFile, standingBefore, Turns, type TurnView, type UndoHost, undoMessage, type UndoResult } from "./undo.ts";
+import { maybeSilent, silent } from "./silent.ts";
 import { classify, LOOK_TOOLS, pineOwn, pineOwnRefusal, PLAN_REFUSAL, SETUP_TOOLS, ROUTERS } from "./actions.ts";
 import { Type } from "typebox";
 import type { ContextUse, ImageRef, PineEvent, ReplyTarget, Task, TaskKind, TaskResult, TaskStatus, Todo, TranscriptEntry, Trust } from "./types.ts";
@@ -57,7 +58,6 @@ import { callTiming, errText, expandHome, type Logger, onPath, programName, safe
 const BUILTIN_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write"];
 const FILE_TOOLS: Record<string, "read" | "write"> = { read: "read", grep: "read", find: "read", ls: "read", write: "write", edit: "write" };
-const SILENT = /^\s*(NO_REPLY|SILENT)\s*$/;
 /** What an agent with no model is told, and its owner: how a new home starts. */
 /** How a run that was still at work when pine stopped ends at the next start: it is not resumed, since its tool calls may have had effects. */
 const INTERRUPTED = "interrupted by a daemon restart";
@@ -1093,7 +1093,7 @@ export class AgentManager {
 			} else if (m.role === "assistant" && Array.isArray(m.content)) {
 				for (const part of m.content) {
 					if (part.type === "thinking" && part.thinking) entries.push({ kind: "thinking", text: truncate(String(part.thinking), 4000) });
-					else if (part.type === "text" && part.text) entries.push({ kind: "text", text: truncate(String(part.text), 20_000) });
+					else if (part.type === "text" && part.text && !silent(String(part.text))) entries.push({ kind: "text", text: truncate(String(part.text), 20_000) });
 					else if (part.type === "toolCall") {
 						const entry: TranscriptEntry = { kind: "tool", tool: String(part.name), subject: toolSubject(String(part.name), part.arguments ?? {}) };
 						calls.set(String(part.id), entry);
@@ -2420,21 +2420,31 @@ export class AgentManager {
 			const live_ = { persist: false, source } as const;
 			let compacted = "";
 			let pendingText = "";
+			/** Whether the answer being written has been shown yet: until then it may still be NO_REPLY, which is shown nowhere. */
+			let spoke = false;
 			let pendingThought = "";
 			let thoughtAt = 0;
 			// A model call, split at its first token: before it the server reads the prompt, after it it writes.
 			let callAt = 0;
 			let firstAt = 0;
 			let flushTimer: NodeJS.Timeout | undefined;
-			const flush = () => {
+			/** `ended`: the model has finished this message, so what is held back is either said or, as NO_REPLY, dropped. */
+			const flush = (ended = false) => {
 				clearTimeout(flushTimer);
 				flushTimer = undefined;
 				// What the model thought comes before what it then said.
 				if (pendingThought) this.bus.publish(`agent/${agent.id}/thinking`, { ...ids, text: pendingThought }, live_);
 				pendingThought = "";
-				if (!pendingText) return;
-				this.bus.publish(`agent/${agent.id}/delta`, { ...ids, text: pendingText }, live_);
-				pendingText = "";
+				if (ended && !spoke && silent(pendingText)) pendingText = "";
+				if (pendingText && (spoke || ended || !maybeSilent(pendingText))) {
+					this.bus.publish(`agent/${agent.id}/delta`, { ...ids, text: pendingText }, live_);
+					pendingText = "";
+					spoke = true;
+				}
+				if (ended) {
+					pendingText = "";
+					spoke = false;
+				}
 			};
 			/** Calls of a routing tool that led to a call of the tool that was meant. */
 			const routed = new Set<string>();
@@ -2467,7 +2477,7 @@ export class AgentManager {
 				} else if (e.type === "message_end" && e.message?.role === "assistant") {
 					// A reply that came after a steered message was read has taken it into account.
 					if (e.message.stopReason !== "aborted" && e.message.stopReason !== "error") live!.steering = live!.steering.filter((x) => !x.read);
-					flush();
+					flush(true);
 					if (e.message.usage) {
 						stats.input += e.message.usage.input ?? 0;
 						stats.output += e.message.usage.output ?? 0;
@@ -2633,7 +2643,7 @@ export class AgentManager {
 		}
 		this.log.info(`task #${task.id} ${task.agent}/${task.session} ${status}${error ? `: ${error}` : ""}${stats ? ` (${stats.ms} ms, ${stats.turns} turns, ${stats.tools.length} tool calls, ${stats.input} tokens read${stats.cached ? ` + ${stats.cached} from cache` : ""}${speedText(speedOf(stats.timing)) ? `, ${speedText(speedOf(stats.timing))}` : ""})` : ""}`);
 		this.bus.publish(`agent/${task.agent}/${status === "done" ? "done" : "failed"}`, { task: task.id, agent: task.agent, session: task.session, root: task.meta.root ?? task.id, parent: task.parent, depth: task.depth, kind: task.kind, status, text: truncate(text, 4000), error, stats }, { source, cause, hop: true });
-		if (task.reply && status !== "cancelled" && !(status === "done" && SILENT.test(text))) {
+		if (task.reply && status !== "cancelled" && !(status === "done" && silent(text))) {
 			const body = status === "done" ? text || "(no answer)" : `${task.agent} could not finish: ${error ?? status}`;
 			this.bus.publish(task.reply.topic, { ...(task.reply.payload ?? {}), text: body, agent: task.agent, task: task.id, ...(status !== "done" ? { failed: true } : {}) }, { source, cause, hop: true });
 		}
