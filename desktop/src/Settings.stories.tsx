@@ -103,7 +103,6 @@ const answers: Record<string, unknown> = {
 		{ name: "local", baseUrl: "http://127.0.0.1:8080/v1", key: "none", runs: 8, models: [{ id: "qwen3-coder", contextWindow: 65536, images: false, reasoning: true }, { id: "gemma-4-vision", contextWindow: 32768, images: true, reasoning: false, limit: 1 }, { id: "nomic-embed-text-v2-moe-long-name-of-a-model", contextWindow: 8192, images: false, reasoning: false }] },
 		{ name: "studio", baseUrl: "http://studio.local:1234/v1", key: "PINE_MODEL_STUDIO_API_KEY in .env", runs: 8, models: [{ id: "glm-5.3", contextWindow: 131072, images: true, reasoning: true }] },
 	],
-	// Jev with a key, asked by one route.
 	"/models/jev": { signedIn: true, model: "jev-latest", host: "api.typesafe.ai", routes: ["mail-judge"] },
 	"/mcp": mcp,
 	"/mcp/states": { linear: "needs sign-in", notes: "connected" },
@@ -185,7 +184,6 @@ export const Models: Story = {
 		const local = await within(canvasElement).findByText("qwen3-coder");
 		await expect(local.closest("[data-server]")).toHaveAttribute("data-server", "local");
 		await expect(canvasElement.querySelectorAll('[data-server="local"] [data-model]')).toHaveLength(3);
-		// Jev is no provider among the others: a section of its own, with whether it has a key and which routes ask it.
 		await expect(canvasElement.querySelector('[data-find=jev] [data-provider="typesafe"]')).toHaveTextContent(/Jev\s*key set.*asked by the route mail-judge/);
 		await expect(within(canvasElement).getByText("66k context · text only · can reason")).toBeInTheDocument();
 		// Each model says its number: one has its own, the others what holds everywhere. No number for a whole server.
@@ -318,7 +316,6 @@ export const NewRouteAsk: Story = {
 	},
 };
 
-/** What scrolls the route form to Then, where these stories begin: the dialog scrolls at half the window's height. */
 const scrollToThen = async () => {
 	await new Promise(requestAnimationFrame);
 	const viewport = document.querySelector("[data-slot=dialog-content] [data-slot=scroll-area-viewport]");
@@ -326,7 +323,6 @@ const scrollToThen = async () => {
 	if (viewport && then) viewport.scrollTop += then.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
 };
 
-/** The same form with Then set to Ask Jev: the question, the kind of answer, what it is about, the answer's name and the topic it goes out on, with the filter a second route would use. */
 export const NewRouteJev: Story = {
 	args: { section: "events" },
 	render: () => {
@@ -344,7 +340,6 @@ export const NewRouteJev: Story = {
 	},
 };
 
-/** Ask Jev while pine has no key for it: the form says where one is set, shows no fields of the question, and cannot add the route. */
 export const NewRouteJevWithoutKey: Story = {
 	args: { section: "events" },
 	beforeEach: () => {

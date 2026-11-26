@@ -7,15 +7,10 @@ import { questionsProblem } from "../src/jev.ts";
 import { audit } from "../src/security.ts";
 import { type Harness, harness, until } from "./support/harness.ts";
 
-// Jev (TypeSafe's decision model) in routes: asked only with a key, answered with values a second route filters on.
-// TypeSafe here is a stand-in on a loopback port that speaks /v1/systemone and /v1/models as its documentation says.
-
-// A key of whoever runs the tests is not part of them.
 delete process.env.TYPESAFE_API_KEY;
 
 const KEY = "ts-test-key-0123456789";
 
-/** A stand-in for api.typesafe.ai: accepts one key, records what it is asked, answers each question by its type. */
 async function typesafe(t: { after(fn: () => void): void }, opts: { noul?: (state: unknown) => number; busy?: number } = {}) {
 	const asked: any[] = [];
 	let busy = opts.busy ?? 0;
@@ -129,7 +124,6 @@ test("the owner sets the key through the control API; only then a route may ask 
 	if (process.platform !== "win32") assert.equal(fs.statSync(env).mode & 0o777, 0o600);
 	assert.ok(!JSON.stringify((await a.get("/models/jev")).body).includes(KEY), "the key is never handed out again");
 
-	// What a route's questions must be.
 	for (const [questions, said] of [
 		["[]", /must be a JSON object/],
 		["{}", /at least one question/],

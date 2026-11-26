@@ -317,7 +317,6 @@ function SettingRow({ s, models, reload }: { s: Setting; models?: string[]; relo
 	);
 }
 
-
 function General() {
 	const s = useModel(store);
 	const overview = useLoad(() => api.overview());
@@ -1011,8 +1010,6 @@ function ProviderRow({ p, reload }: { p: Provider; reload: () => void }) {
 	);
 }
 
-/** The content of a stock Dialog: a model server of your own, by its address and a short name. */
-/** The content of a stock Dialog: a key for Jev, typed here and checked by pine before it is kept. */
 function JevKey({ made }: { made: () => void }) {
 	const [key, setKey] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -1051,7 +1048,6 @@ function JevKey({ made }: { made: () => void }) {
 	);
 }
 
-/** Jev's row on the Models page: whether it has a key, which routes ask it, and the key set, replaced or removed. */
 function JevRow({ jev, reload }: { jev: Jev; reload: () => void }) {
 	const keying = useRef<DialogRootActions>(null);
 	const asked = jev.routes.length ? `asked by ${jev.routes.length === 1 ? "the route" : "the routes"} ${jev.routes.join(", ")}` : "no route asks it yet";
@@ -1088,6 +1084,7 @@ function JevRow({ jev, reload }: { jev: Jev; reload: () => void }) {
 	);
 }
 
+/** The content of a stock Dialog: a model server of your own, by its address and a short name. */
 function NewModelServer({ made }: { made: () => void }) {
 	const [f, setF] = useState({ name: "", url: "", key: "", context: "" });
 	const [locked, setLocked] = useState(false);
@@ -1283,7 +1280,6 @@ function Models() {
 				{providers.data && !q && more > 0 ? <p className="text-muted-foreground">{plural(more, "more provider")} with an API key or an account. Search to find one.</p> : null}
 			</Section>
 			<FieldSeparator />
-			{/* No model for a conversation, so it is not among the providers: a route asks it (Events > Routes), and only with a key. */}
 			<Section title="Decision models" about="A model that answers typed questions for routes, with values a filter can read. Not for conversations." data-find="jev">
 				<ItemGroup>
 					{jev.data ? (
@@ -1925,20 +1921,17 @@ const span = (ms: number) => (ms % 3_600_000 === 0 ? `${ms / 3_600_000}h` : ms %
 
 const conversationOf = (session: string | undefined) => (!session || session === "main" ? "in the main conversation" : session === "new" ? "in a new conversation" : `in the conversation ${session}`);
 
-// The kinds of answer Jev gives, in the words of the form. `field` is where the answer's value stands, for a filter.
 const JEV_ANSWERS = {
 	noul: { label: "Yes or no", said: "yes or no", field: "noul", filter: '{"gte": 0.8}', about: "Answered with how likely yes is, from 0 to 1." },
 	choice: { label: "One of several", said: "one of", field: "choice", filter: '"invoice"', about: "Answered with the option that fits best, and how sure Jev is (confidence, 0 to 1)." },
 	score: { label: "A score", said: "a score", field: "score", filter: '{"gte": 1.5}', about: "Answered with a number between the levels, the lowest being 0, and how sure Jev is." },
 } as const;
 
-/** A route's questions to Jev in a few words: each with the kind of answer. */
 const jevSaid = (questions: Record<string, JevQuestion>) =>
 	Object.values(questions)
 		.map((q) => `${typeof q.instructions === "string" ? `“${short(q.instructions, 80)}” ` : ""}(${JEV_ANSWERS[q.type]?.said ?? q.type}${q.type === "choice" && q.criteria && typeof q.criteria === "object" ? ` ${Object.keys(q.criteria).join(", ")}` : ""})`)
 		.join(" and ");
 
-/** What the form's lines of options become: for a choice each option with when it applies ("invoice: A bill to pay"), for a score the levels, lowest first. */
 function jevCriteria(type: keyof typeof JEV_ANSWERS, text: string): unknown {
 	const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
 	if (type === "score") return lines;
@@ -2130,7 +2123,6 @@ export function NewRoute({ made, does: first = "wake" }: { made: () => void; doe
 	const s = useModel(store);
 	const models = useLoad(() => api.models());
 	const [f, setF] = useState({ name: "", on: "", when: "", pace: "every" as keyof typeof ROUTE_PACE, time: "", does: first, agent: "", session: "", prompt: "", set: "", publish_topic: "", publish_payload: "", call_prompt: "", call_system: "", call_model: "", jev_name: "", jev_type: "noul" as keyof typeof JEV_ANSWERS, jev_question: "", jev_options: "", jev_state: "" });
-	// Jev is asked only with a key: without one the form says where it is set, and adds nothing.
 	const jev = useLoad(() => api.jev());
 	const jevName = f.jev_name.trim() || "answer";
 	const jevReady = Boolean(jev.data?.signedIn) && f.jev_question.trim() && (f.jev_type === "noul" || f.jev_options.split("\n").filter((l) => l.trim()).length >= 2) && f.publish_topic.trim();

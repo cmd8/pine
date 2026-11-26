@@ -326,7 +326,6 @@ export class OwnerApi {
 			const rt = this.manager.models;
 			return rt.getProviders().map((p: any) => ({ id: p.id, name: p.name, signedIn: rt.hasConfiguredAuth(p.id), models: safe(() => p.getModels().length, 0), oauth: Boolean(p.auth?.oauth) })).sort((a: any, b: any) => Number(b.signedIn) - Number(a.signedIn) || a.id.localeCompare(b.id));
 		}
-		// Jev, the decision model routes can ask: whether there is a key (never the key), and which routes ask it.
 		if (at === "models/jev") return { signedIn: Boolean(cfg.jev.key), model: cfg.jev.model, host: new URL(cfg.jev.baseUrl).host, routes: jevRoutes(cfg) };
 		if (at === "mcp/states") return serverStates(cfg);
 		if (parts[0] === "models" && parts[1] === "login" && parts.length === 3) {
@@ -538,7 +537,6 @@ export class OwnerApi {
 		if (at === "models/jev") {
 			const key = String(body.key ?? "").trim();
 			if (!key) throw new Refusal(400, 'send the key as "key"');
-			// What was typed is a secret from here on, also when TypeSafe does not accept it.
 			this.sources?.keepOut([key]);
 			if (!(await keyWorks(cfg.jev.baseUrl, key))) throw new Refusal(409, "TypeSafe did not accept that key. Nothing was kept", { locked: true });
 			setJevKey(cfg, key);

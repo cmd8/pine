@@ -373,14 +373,12 @@ export interface Route {
 	trust?: string;
 }
 
-/** A typed question to Jev: yes or no (noul), one of the options in `criteria` (choice), a level of the list in `criteria` (score). */
 export interface JevQuestion {
 	type: "noul" | "choice" | "score";
 	instructions?: unknown;
 	criteria?: unknown;
 }
 
-/** Jev, the decision model a route can ask: whether pine has a key for it (never the key), and the routes that ask it. */
 export interface Jev {
 	signedIn: boolean;
 	model: string;

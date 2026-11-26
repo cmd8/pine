@@ -128,11 +128,6 @@ export interface RouteConfig {
 	publish?: { topic: string; payload?: unknown };
 	/** One model call without tools or history. */
 	call?: { model?: string; system?: string; prompt: string };
-	/**
-	 * Typed questions to Jev (src/jev.ts) about the event, each under a name: answered with values a
-	 * filter can read, not with text. `state` is what they are asked about (a template; default: the
-	 * event's payload). Needs a key for Jev.
-	 */
 	jev?: { model?: string; state?: unknown; questions: Record<string, JevQuestion> };
 	/** Full agent turn. */
 	agent?: string;
@@ -366,7 +361,6 @@ export interface PineConfig {
 	/** How pine's UIs look: `theme` names a file in <home>/themes (src/themes.ts). Not set: pmndre. `view` names a
 	 *  view in <home>/views for the Pine app's panel (src/views.ts), or "off"; not set: the first view there is. */
 	ui: { theme?: string; view?: string };
-	/** Jev, the decision model a route can ask (src/jev.ts): its key comes from .env and is missing until the owner sets one. */
 	jev: JevConfig;
 	/** Values that must never leave the daemon in events or messages. */
 	secrets: string[];
@@ -663,7 +657,6 @@ export function loadConfig(home = defaultHome()): PineConfig {
 		},
 		ui: { theme: typeof raw.ui?.theme === "string" && raw.ui.theme ? raw.ui.theme : undefined, view: typeof raw.ui?.view === "string" && raw.ui.view ? raw.ui.view : undefined },
 		jev: { key: env[JEV_KEY] || undefined, model: typeof raw.jev?.model === "string" && raw.jev.model ? raw.jev.model : JEV_MODEL, baseUrl: typeof raw.jev?.baseUrl === "string" && raw.jev.baseUrl ? raw.jev.baseUrl.replace(/\/+$/, "") : JEV_URL },
-		// A key for Jev that came from the daemon's own environment is a secret like one from .env.
 		secrets: [...new Set([...Object.values(fileEnv), ...(env[JEV_KEY] ? [env[JEV_KEY]] : [])])].filter((v) => v.length >= 8),
 		mcp: raw.mcp ?? {},
 		sources: loadSources(raw.sources, home, "pine.json: sources", problems, Object.keys(sourceTypes)),

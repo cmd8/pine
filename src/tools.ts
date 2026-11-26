@@ -1640,7 +1640,6 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					execute: async (_id, p, signal) => {
 						run();
 						if (live.tainted) throw new Error(`This conversation has read outside content (${live.tainted}), and no sign-in is started from such a conversation. Tell your owner: in a new conversation you can do it, or they sign in under Settings > Models, or with: pine login ${p.provider}`);
-						// Jev is not one of pi's providers: its key is asked for here and kept in pine's .env (src/jev.ts).
 						if (p.provider === JEV_PROVIDER) {
 							const asked = await confirm("sign_in", "give pine a key for Jev, TypeSafe's decision model\nA route can then ask Jev typed questions about an event (yes or no, one of several, a score), and what the event carries is sent to TypeSafe for that. What you type goes to pine, not to the agent, and the key is kept in pine's .env file, which no agent can read.", "this lets routes send events to TypeSafe in your name", signal, [{ name: "key", label: "API key of TypeSafe (console.typesafe.ai)", secret: true }]);
 							if (!asked.allow) throw new Error(`no key was set (${asked.by}). Do not retry; tell your owner they can set one under Settings > Models, or with: pine login ${JEV_PROVIDER}`);

@@ -2,38 +2,25 @@ import type { PineConfig } from "./config.ts";
 import { setEnv, unsetEnv } from "./env-file.ts";
 import { truncate } from "./util.ts";
 
-// Jev is TypeSafe's decision model (https://docs.typesafe.ai): it is sent content ("state") and typed
-// questions about it, and answers each with a value a filter can read: the probability of yes, one of
-// the options given, a score. It writes no text, so it is no model for a conversation and is not among
-// the models of models.json. A route asks it ("jev" in a route, src/router.ts), and only when a key
-// for it is set.
-
-/** The entry in pine's .env that holds the key: the name TypeSafe's own SDKs read. */
 export const JEV_KEY = "TYPESAFE_API_KEY";
 export const JEV_URL = "https://api.typesafe.ai";
 export const JEV_MODEL = "jev-latest";
-/** How the main agent's sign_in and `pine login` name it. */
 export const JEV_PROVIDER = "typesafe";
 
-/** Where Jev is asked and with what. `key` is missing until the owner has set one. */
 export interface JevConfig {
 	key?: string;
 	model: string;
 	baseUrl: string;
 }
 
-/** The kinds of question a route can ask. A box (where something is in a picture) is not among them: a route sends no pictures. */
 export const JEV_TYPES = ["noul", "choice", "score"] as const;
 
 export interface JevQuestion {
 	type: (typeof JEV_TYPES)[number];
-	/** The question, or the statement to judge. */
 	instructions?: unknown;
-	/** noul: what counts as yes and as no. choice: the options, each with when it applies. score: the levels, lowest first. */
 	criteria?: unknown;
 }
 
-/** Jev's answers by the names of the questions: `{ type, noul }`, `{ type, choice, confidence, probabilities }`, `{ type, score, confidence, ... }`. */
 export type JevAnswers = Record<string, Record<string, unknown>>;
 
 export interface JevAsk {
@@ -43,7 +30,6 @@ export interface JevAsk {
 	signal?: AbortSignal;
 }
 
-/** What is wrong with a route's questions, or nothing. */
 export function questionsProblem(questions: unknown): string | undefined {
 	if (!questions || typeof questions !== "object" || Array.isArray(questions)) return 'the questions are an object, each question under a name of your own: {"urgent": {"type": "noul", "instructions": "Does this need an answer today?"}}';
 	const entries = Object.entries(questions as Record<string, any>);
@@ -67,7 +53,6 @@ const pause = (ms: number, signal?: AbortSignal) =>
 		signal?.addEventListener("abort", () => (clearTimeout(t), reject(new Error("aborted"))), { once: true });
 	});
 
-/** What TypeSafe said was wrong, in a line. */
 async function refusal(res: Response): Promise<string> {
 	const text = await res.text().catch(() => "");
 	let detail: unknown = text;
@@ -77,11 +62,6 @@ async function refusal(res: Response): Promise<string> {
 	return truncate(typeof detail === "string" ? detail : JSON.stringify(detail), 300);
 }
 
-/**
- * Ask Jev the questions about the state: one request, ten seconds at most, tried again twice when
- * TypeSafe says it is busy (429, 529). The state is what the event carried, so it goes as it is and
- * a text is cut at `maxChars`; a value Jev cannot take (a number, nothing) is sent as its text.
- */
 export async function askJev(jev: JevConfig, ask: JevAsk, maxChars = 20_000): Promise<JevAnswers> {
 	if (!jev.key) throw new Error(NO_KEY);
 	const state = typeof ask.state === "string" ? truncate(ask.state, maxChars) : ask.state && typeof ask.state === "object" ? ask.state : String(ask.state ?? "");
@@ -106,7 +86,6 @@ export async function askJev(jev: JevConfig, ask: JevAsk, maxChars = 20_000): Pr
 	}
 }
 
-/** Whether TypeSafe accepts a key: its list of models is asked for, which costs nothing. */
 export async function keyWorks(baseUrl: string, key: string): Promise<boolean> {
 	const res = await fetch(`${baseUrl}/v1/models`, { headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(10_000) });
 	await res.body?.cancel().catch(() => {});
@@ -115,10 +94,8 @@ export async function keyWorks(baseUrl: string, key: string): Promise<boolean> {
 	return true;
 }
 
-/** The routes that ask Jev: a key they use is not taken away. */
 export const jevRoutes = (cfg: PineConfig): string[] => cfg.routes.filter((r) => r.jev).map((r) => r.name);
 
-/** Keep a key the owner typed: in pine's .env, and from now on a secret that no event or message carries. */
 export function setJevKey(cfg: PineConfig, key: string): void {
 	const value = key.trim();
 	if (!value) throw new Error("the key is empty");
@@ -127,7 +104,6 @@ export function setJevKey(cfg: PineConfig, key: string): void {
 	if (value.length >= 8 && !cfg.secrets.includes(value)) cfg.secrets.push(value);
 }
 
-/** Take the key away again. Refused while a route asks Jev. */
 export function dropJevKey(cfg: PineConfig): void {
 	const users = jevRoutes(cfg);
 	if (users.length) throw new Error(`the route${users.length === 1 ? "" : "s"} ${users.join(", ")} ask${users.length === 1 ? "s" : ""} Jev. Remove ${users.length === 1 ? "it" : "them"} first`);

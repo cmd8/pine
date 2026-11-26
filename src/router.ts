@@ -120,8 +120,6 @@ export class Router {
 				ctx = this.context(e, { result });
 			}
 			if (route.jev) {
-				// What Jev is asked about is the event's own content, and its answers are values from a closed set
-				// (a probability, one of the options given, a score): no text of the event passes through them.
 				const answers = await this.jev({ model: route.jev.model, state: route.jev.state !== undefined ? renderDeep(route.jev.state, ctx) : e.payload, questions: renderDeep(route.jev.questions, ctx) as JevAsk["questions"] });
 				ctx = this.context(e, { jev: answers });
 			}

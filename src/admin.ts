@@ -525,9 +525,7 @@ export interface RouteInput {
 	call_prompt?: string;
 	call_system?: string;
 	call_model?: string;
-	/** Typed questions to Jev, as JSON: {"urgent": {"type": "noul", "instructions": "Does this need an answer today?"}}. */
 	jev_questions?: string;
-	/** What Jev is asked about: a template or JSON. Left out: the event's payload. */
 	jev_state?: string;
 	jev_model?: string;
 	trust?: string;
@@ -545,7 +543,6 @@ const object = (text: string | undefined, what: string): Record<string, unknown>
 	return v as Record<string, unknown>;
 };
 
-/** A route's questions to Jev in a line: each by its name, with the kind of answer. */
 export const jevSaid = (questions: Record<string, JevQuestion>): string =>
 	Object.entries(questions)
 		.map(([name, q]) => `${name} (${q.type === "noul" ? "yes or no" : q.type === "choice" ? `one of ${Object.keys((q.criteria as object) ?? {}).join(", ")}` : `a score of ${(q.criteria as unknown[])?.length ?? 0} levels`})${typeof q.instructions === "string" ? `: ${q.instructions}` : ""}`)
@@ -586,7 +583,6 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[])
 		lines.push(`one model call without tools${input.call_model ? ` (${input.call_model})` : ""}: ${input.call_prompt}`);
 	} else if (input.call_system || input.call_model) throw new Error('a model call needs "call_prompt": what the model is asked');
 	if (input.jev_questions) {
-		// Only with a key: a route that asks Jev without one would fail on every event.
 		if (!cfg.jev.key) throw new Error(`Jev has no key yet, so no route can ask it. Your owner sets one under Settings > Models (Decision models), or with: pine login ${JEV_PROVIDER}; you start that with sign_in (provider "${JEV_PROVIDER}")`);
 		if (entry.call) throw new Error("a route asks a model or Jev, not both");
 		const questions = object(input.jev_questions, "jev_questions");
