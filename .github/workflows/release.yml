@@ -24,7 +24,8 @@ name: Release
 #
 # A release from main also gets the Pine app for Linux (an AppImage and a deb for x64 and arm64,
 # with SHA256SUMS and GitHub's build attestation; no secrets) and for Windows (an installer for
-# x64 and arm64, signed through SignPath Foundation: four secrets, listed above the job app-windows;
+# x64 and arm64, signed through SignPath Foundation: four secrets in the environment "signing-trial",
+# listed above the job app-windows;
 # desktop/signpath/README.md says how it is set up; without them the installers go out unsigned).
 #
 # After those, the package managers are told of the release, each with one more secret in the
@@ -62,7 +63,8 @@ name: Release
 # The Windows app's signing can be tried from any branch without a release: Run workflow with
 # "signing_trial" checked (gh workflow run release.yml --ref <branch> -f version=0.0.1 -f
 # signing_trial=true). Only the two Windows jobs run, from that branch, with the secrets of the
-# environment "signing-trial" (SignPath's test signing policy), and the signed installers are an
+# environment "signing-trial" (SignPath's test signing policy, or the one "signing_policy" names:
+# -f signing_policy=release-signing tries the real certificate), and the signed installers are an
 # artifact of the run, attached to nothing.
 #
 # Publishing uses npm's trusted publishing: on npmjs.com, the package's settings name this
@@ -88,6 +90,9 @@ on:
         description: Replace the files the release has already (without it, only what is missing is attached)
         type: boolean
         default: false
+      signing_policy:
+        description: The SignPath signing policy of the Windows app (empty is test-signing for a trial, release-signing otherwise)
+        default: ''
 
 permissions:
   contents: read
@@ -422,9 +427,15 @@ jobs:
   # folder on each processor and starts it once; app-windows-sign has both folders signed in one
   # request, makes the two installers from the signed folders, and has those signed in a second one.
   # So a release asks the owner for two approvals at signpath.io, not four.
-  # It needs four secrets in the environment "release":
+  # It needs four secrets in the environment "signing-trial", for a release as for a trial:
   #   SIGNPATH_API_TOKEN, SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG, SIGNPATH_POLICY_SLUG
-  # and the project at signpath.io needs the two artifact configurations in desktop/signpath/
+  # They live there and nowhere else because that is the only copy there is: they were set once
+  # from SignPath's pages, and nobody here can read them back to set them again in "release". The
+  # token is the CI user's, the same for both policies, so only the policy differs: a release asks
+  # for "release-signing" by name (SIGNING_POLICY below), a trial for the secret's (test-signing)
+  # unless "signing_policy" names another. The Windows jobs take nothing else from an environment.
+  # "signing-trial" has to allow the branches that a release and a trial run from.
+  # The project at signpath.io needs the two artifact configurations in desktop/signpath/
   # (slugs "app-folder" and "installer"). desktop/signpath/README.md says how it is set up.
   # Without the secrets the installers are uploaded unsigned, and the job says so: Windows warns
   # about them ("More info", then "Run anyway" installs one) until the release they are signed in.
@@ -441,13 +452,15 @@ jobs:
           - arch: arm64
             runner: windows-11-arm
     runs-on: ${{ matrix.runner }}
-    environment: ${{ inputs.signing_trial && 'signing-trial' || 'release' }}
+    environment: signing-trial
     permissions:
       contents: read
     env:
       VERSION: ${{ inputs.version || needs.release.outputs.version }}
-      SECRETS_IN: ${{ inputs.signing_trial && 'signing-trial' || 'release' }}
+      SECRETS_IN: signing-trial
       TRIAL: ${{ inputs.signing_trial && 'true' || 'false' }}
+      # Empty: the policy of the secret SIGNPATH_POLICY_SLUG (test-signing).
+      SIGNING_POLICY: ${{ inputs.signing_policy || (!inputs.signing_trial && 'release-signing' || '') }}
     defaults:
       run:
         shell: bash
@@ -517,14 +530,16 @@ jobs:
     runs-on: windows-latest
     # Each request waits for the owner's approval at signpath.io (an e-mail says one is waiting).
     timeout-minutes: 300
-    environment: ${{ inputs.signing_trial && 'signing-trial' || 'release' }}
+    environment: signing-trial
     permissions:
       contents: write # the installers go to the release
       actions: read # SignPath reads the artifacts it signs
     env:
       VERSION: ${{ inputs.version || needs.release.outputs.version }}
-      SECRETS_IN: ${{ inputs.signing_trial && 'signing-trial' || 'release' }}
+      SECRETS_IN: signing-trial
       TRIAL: ${{ inputs.signing_trial && 'true' || 'false' }}
+      # Empty: the policy of the secret SIGNPATH_POLICY_SLUG (test-signing).
+      SIGNING_POLICY: ${{ inputs.signing_policy || (!inputs.signing_trial && 'release-signing' || '') }}
     defaults:
       run:
         shell: bash
@@ -592,7 +607,7 @@ jobs:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ secrets.SIGNPATH_POLICY_SLUG }}
+          signing-policy-slug: ${{ env.SIGNING_POLICY || secrets.SIGNPATH_POLICY_SLUG }}
           artifact-configuration-slug: app-folder
           github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
           parameters: |
@@ -624,7 +639,7 @@ jobs:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ secrets.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ secrets.SIGNPATH_POLICY_SLUG }}
+          signing-policy-slug: ${{ env.SIGNING_POLICY || secrets.SIGNPATH_POLICY_SLUG }}
           artifact-configuration-slug: installer
           github-artifact-id: ${{ steps.installers.outputs.artifact-id }}
           parameters: |
@@ -645,9 +660,9 @@ jobs:
           foreach ($f in $files) {
             $s = Get-AuthenticodeSignature $f
             "$f : $($s.Status) $($s.SignerCertificate.Subject)"
-            # SignPath's test certificate is its own: Windows trusts no signature of it, so a trial
-            # only checks that every file was signed.
-            if ($env:TRIAL -eq "true") { if (-not $s.SignerCertificate) { exit 1 } }
+            # SignPath's test certificate is its own: Windows trusts no signature of it, so with the
+            # test policy only that every file was signed is checked.
+            if (-not $env:SIGNING_POLICY) { if (-not $s.SignerCertificate) { exit 1 } }
             elseif ($s.Status -ne "Valid") { exit 1 }
           }
       - if: steps.signing.outputs.ready == 'true' && env.TRIAL == 'true'
