@@ -1554,7 +1554,7 @@ test("settings: a setting is changed, an agent made, a schedule added, a provide
 	await sees("[data-slot=settings-page] [data-slot=model-notice] >> text=/main cannot answer: .* needs a sign-in to opencode/");
 	await page.click("[data-slot=tab]:has-text('pine-desktop-folder')");
 	// The main agent's card says it in a toast that stays, not on the card.
-	const noModel = page.locator("[data-slot=toast]", { hasText: "Connect a model first" });
+	const noModel = page.locator("[data-slot=toast]:not([data-ending-style])", { hasText: "Connect a model first" });
 	await noModel.waitFor({ timeout: 20_000 });
 	assert.equal(await page.$("[data-slot=empty] [data-slot=model-notice]"), null);
 	await shot("09-no-model");

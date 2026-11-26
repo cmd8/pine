@@ -115,6 +115,9 @@ export async function launchApp(env: Record<string, string | undefined>): Promis
 async function quiet(app: ElectronApplication): Promise<void> {
 	await app.evaluate(({ app, clipboard, dialog, Notification, shell }: any) => {
 		const noted = ((globalThis as any).quiet = { notified: [] as unknown[], opened: [] as string[], revealed: [] as string[], login: [] as unknown[], dialogs: [] as unknown[], clipboard: "" });
+		// A Linux runner under xvfb has no notification server, so Electron says notifications are not
+		// supported there and the app would note nothing: what the app would show is what is tested.
+		Notification.isSupported = () => true;
 		Notification.prototype.show = function (this: any) {
 			noted.notified.push({ title: this.title, body: this.body });
 		};
