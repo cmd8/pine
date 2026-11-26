@@ -20,7 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "cn";
 import { type ComponentProps, Fragment, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
-import { type AgentDetail, api, type LoginState, type ModelServer, type Provider, type Route, type Setting, type SourceType } from "./api.ts";
+import { type AgentDetail, api, type AskQuestion, type LoginState, type ModelServer, type Provider, type Route, type Setting, type SourceType } from "./api.ts";
 import { bridge } from "./bridge.ts";
 import { Editor } from "./CodePanel.tsx";
 import { store, type UpdatePhase, useModel, useSignal } from "./model.ts";
@@ -1849,6 +1849,31 @@ const span = (ms: number) => (ms % 3_600_000 === 0 ? `${ms / 3_600_000}h` : ms %
 
 const conversationOf = (session: string | undefined) => (!session || session === "main" ? "in the main conversation" : session === "new" ? "in a new conversation" : `in the conversation ${session}`);
 
+// The three kinds of answer a decision has (src/ask.ts), and what a filter on each looks like.
+const DECIDE_ANSWERS = {
+	yesno: { label: "Yes or no", said: "yes or no", field: "yes", filter: '{"gte": 0.8}', about: "Answered with how likely yes is, from 0 to 1." },
+	choice: { label: "One of several", said: "one of", field: "choice", filter: '"invoice"', about: "Answered with the name of the option that fits best." },
+	score: { label: "A level", said: "a level of", field: "score", filter: '{"gte": 1}', about: "Answered with the level that fits, and its place: 0 is the lowest." },
+} as const;
+
+const decideSaid = (questions: Record<string, AskQuestion>) =>
+	Object.entries(questions)
+		.map(([name, q]) => `${name}: “${short(q.question, 80)}” (${DECIDE_ANSWERS[q.type]?.said ?? q.type}${q.options ? ` ${Object.keys(q.options).join(", ")}` : q.levels ? ` ${q.levels.join(", ")}` : ""})`)
+		.join(" and ");
+
+/** The options or levels as the form takes them: one on each line; an option as "name: when it applies". */
+function decideChoices(type: keyof typeof DECIDE_ANSWERS, text: string): { options?: Record<string, string>; levels?: string[] } {
+	const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+	if (type === "score") return { levels: lines };
+	if (type === "yesno") return {};
+	return {
+		options: Object.fromEntries(lines.map((l) => {
+			const at = l.indexOf(":");
+			return at > 0 ? [l.slice(0, at).trim(), l.slice(at + 1).trim() || l.slice(0, at).trim()] : [l, l];
+		})),
+	};
+}
+
 /** A route in the words of the form that makes one: when what arrives, then what happens. */
 function routeSaid(r: Route): { when: string; then: string } {
 	const when = [
@@ -1860,19 +1885,21 @@ function routeSaid(r: Route): { when: string; then: string } {
 	const then = [
 		r.set ? `set ${Object.entries(r.set).map(([k, v]) => `${k} to ${JSON.stringify(v)}`).join(" and ")}` : "",
 		r.call ? `ask ${r.call.model ?? "the default model"} once: “${short(r.call.prompt, 80)}”` : "",
-		r.publish ? (r.call && r.publish.payload === undefined ? `publish the answer as ${r.publish.topic}` : `publish ${r.publish.topic}${r.publish.payload !== undefined ? ` with ${short(JSON.stringify(r.publish.payload), 60)}` : ""}`) : "",
+		r.ask ? `decide with ${r.ask.source ? `the source ${r.ask.source}` : r.ask.model ?? "the default model"}, ${decideSaid(r.ask.questions)}` : "",
+		r.publish ? (r.ask && r.publish.payload === undefined ? `publish the answers as ${r.publish.topic}` : r.call && r.publish.payload === undefined ? `publish the answer as ${r.publish.topic}` : `publish ${r.publish.topic}${r.publish.payload !== undefined ? ` with ${short(JSON.stringify(r.publish.payload), 60)}` : ""}`) : "",
 		r.agent ? `wake ${r.agent} ${conversationOf(r.session)}${r.prompt ? `: “${short(r.prompt, 100)}”` : ", with the event"}` : "",
 	].filter(Boolean).join(", then ");
 	return { when, then };
 }
 
-// What a route does when its event arrives: one of four, and the form shows the fields of that one only.
+// What a route does when its event arrives: one of five, and the form shows the fields of that one only.
 // `takes` is what of the form goes to POST /routes for it (checkRoute in src/admin.ts).
 const ROUTE_DOES = {
 	wake: { label: "Wake an agent", about: "The agent gets the event as a task, in the conversation you name.", takes: ["agent", "session", "prompt"] },
 	set: { label: "Set shared state", about: "A value is written where agents and other routes read it (state.<key>). No agent is woken.", takes: ["set"] },
 	publish: { label: "Publish an event", about: "Another event goes out, for another route, an agent subscribed to it, or a source that sends (out/source/<name>).", takes: ["publish_topic", "publish_payload"] },
 	ask: { label: "Ask a model", about: "One model call, without tools or history. The answer goes out as an event of your own, the answer in payload.text.", takes: ["call_prompt", "call_system", "call_model", "publish_topic"] },
+	decide: { label: "Make a decision", about: "A question about the event, answered with a value a filter reads as it is (how likely yes is, which option, which level), never with text. The answer goes out as an event of your own, in payload.answers.", takes: ["publish_topic"] },
 } as const;
 
 // How often a route fires: every event, one and then a pause (throttle), or the last of a burst (debounce).
@@ -2024,22 +2051,35 @@ export function Schedules() {
 	);
 }
 
-/** The form for a new route, in a dialog: When (topic, condition, pace), Then (one of four actions), a name. */
+/** The form for a new route, in a dialog: When (topic, condition, pace), Then (one of five actions), a name. */
 export function NewRoute({ made, does: first = "wake" }: { made: () => void; does?: keyof typeof ROUTE_DOES }) {
 	const s = useModel(store);
 	const models = useLoad(() => api.models());
-	const [f, setF] = useState({ name: "", on: "", when: "", pace: "every" as keyof typeof ROUTE_PACE, time: "", does: first, agent: "", session: "", prompt: "", set: "", publish_topic: "", publish_payload: "", call_prompt: "", call_system: "", call_model: "" });
+	const [f, setF] = useState({ name: "", on: "", when: "", pace: "every" as keyof typeof ROUTE_PACE, time: "", does: first, agent: "", session: "", prompt: "", set: "", publish_topic: "", publish_payload: "", call_prompt: "", call_system: "", call_model: "", decide_name: "", decide_type: "yesno" as keyof typeof DECIDE_ANSWERS, decide_question: "", decide_choices: "", decide_data: "", decide_by: "" });
+	const sources = useLoad(() => api.sources());
 	const [busy, setBusy] = useState(false);
 	const field = useId();
+	// Who makes a decision: a model ("model:<id>"), a source of all agents that decides ("source:<name>"), or the default model ("").
+	const deciders = (sources.data ?? []).filter((x) => x.decides);
+	const decideItems = [{ value: "", label: "The default model" }, ...(models.data ?? []).map((m) => ({ value: `model:${m}`, label: m })), ...deciders.map((x) => ({ value: `source:${x.name}`, label: `${x.name} (${x.type})` }))];
+	const decider = f.decide_by.startsWith("source:") ? deciders.find((x) => `source:${x.name}` === f.decide_by) : undefined;
+	const decideName = f.decide_name.trim() || "answer";
+	const decideReady = f.decide_question.trim() && (f.decide_type === "yesno" || f.decide_choices.split("\n").filter((l) => l.trim()).length >= 2) && f.publish_topic.trim();
 	const agentItems = s.agents.map((a) => ({ value: a.id, label: a.id }));
 	const modelItems = [{ value: "", label: "The default model" }, ...(models.data ?? []).map((m) => ({ value: m, label: m }))];
 	const does = ROUTE_DOES[f.does];
 	const pace = ROUTE_PACE[f.pace];
-	const ready = f.name.trim() && f.on.trim() && (f.pace === "every" || f.time.trim()) && { wake: f.agent, set: f.set.trim(), publish: f.publish_topic.trim(), ask: f.call_prompt.trim() && f.publish_topic.trim() }[f.does];
+	const ready = f.name.trim() && f.on.trim() && (f.pace === "every" || f.time.trim()) && { wake: f.agent, set: f.set.trim(), publish: f.publish_topic.trim(), ask: f.call_prompt.trim() && f.publish_topic.trim(), decide: decideReady }[f.does];
 	const add = async () => {
 		// Only the chosen action's fields are sent: one typed under another action and left there would add a second action.
 		const body: Record<string, string> = { name: f.name, on: f.on, when: f.when, ...(f.pace === "every" ? {} : { [f.pace]: f.time }) };
 		for (const key of does.takes) body[key] = f[key];
+		if (f.does === "decide") {
+			body.ask_questions = JSON.stringify({ [decideName]: { type: f.decide_type, question: f.decide_question.trim(), ...decideChoices(f.decide_type, f.decide_choices) } });
+			body.ask_data = f.decide_data;
+			if (f.decide_by.startsWith("model:")) body.ask_model = f.decide_by.slice("model:".length);
+			if (f.decide_by.startsWith("source:")) body.ask_source = f.decide_by.slice("source:".length);
+		}
 		setBusy(true);
 		const done = await store.attempt(() => api.addRoute(Object.fromEntries(Object.entries(body).map(([k, v]) => [k, v.trim() || undefined]))));
 		setBusy(false);
@@ -2135,6 +2175,59 @@ export function NewRoute({ made, does: first = "wake" }: { made: () => void; doe
 										<FieldLabel htmlFor={`${field}-payload`}>Payload</FieldLabel>
 										<Input id={`${field}-payload`} className="font-mono" placeholder={'{"open": "{{payload.value.open}}"}'} value={f.publish_payload} onChange={(e) => setF({ ...f, publish_payload: e.target.value })} />
 										<FieldDescription>Optional, JSON or text. Without it the event's own payload is passed on.</FieldDescription>
+									</Field>
+								</>
+							) : f.does === "decide" ? (
+								<>
+									<Field>
+										<FieldLabel htmlFor={`${field}-decide-question`}>The question</FieldLabel>
+										<Textarea id={`${field}-decide-question`} className="min-h-14 max-h-44" placeholder="Does this need an answer today?" value={f.decide_question} onChange={(e) => setF({ ...f, decide_question: e.target.value })} />
+										<FieldDescription>{"About the event, in your words. Fixed text: {{…}} is not filled in here. What of the event is looked at is below."}</FieldDescription>
+									</Field>
+									<Field>
+										<FieldLabel htmlFor={`${field}-decide-type`}>Answered with</FieldLabel>
+										<Choose id={`${field}-decide-type`} items={Object.entries(DECIDE_ANSWERS).map(([value, a]) => ({ value: value as keyof typeof DECIDE_ANSWERS, label: a.label }))} value={f.decide_type} onChange={(decide_type) => setF({ ...f, decide_type })} />
+										<FieldDescription>{DECIDE_ANSWERS[f.decide_type].about}</FieldDescription>
+									</Field>
+									{f.decide_type === "yesno" ? null : (
+										<Field>
+											<FieldLabel htmlFor={`${field}-decide-choices`}>{f.decide_type === "choice" ? "Options" : "Levels"}</FieldLabel>
+											<Textarea id={`${field}-decide-choices`} className="min-h-20 max-h-44 font-mono" placeholder={f.decide_type === "choice" ? "invoice: A bill to pay\nnewsletter: Sent to many, nothing to do\nother: Anything else" : "Can wait\nThis week\nToday"} value={f.decide_choices} onChange={(e) => setF({ ...f, decide_choices: e.target.value })} />
+											<FieldDescription>{f.decide_type === "choice" ? "One on each line, at least two: a short name, then after a colon when it applies." : "One on each line, the lowest first, two to ten."}</FieldDescription>
+										</Field>
+									)}
+									<Field>
+										<FieldLabel htmlFor={`${field}-decide-data`}>Looking at</FieldLabel>
+										<Input id={`${field}-decide-data`} className="font-mono" placeholder="{{payload.subject}} {{payload.text}}" value={f.decide_data} onChange={(e) => setF({ ...f, decide_data: e.target.value })} />
+										<FieldDescription>{"Optional: the part of the event that is judged. Without it, the whole event."}</FieldDescription>
+									</Field>
+									<Field>
+										<FieldLabel htmlFor={`${field}-decide-by`}>Decided by</FieldLabel>
+										{models.data || models.error ? (
+											<Select items={decideItems} value={f.decide_by} onValueChange={(by) => setF({ ...f, decide_by: by ?? "" })}>
+												<SelectTrigger id={`${field}-decide-by`}>
+													<SelectValue />
+												</SelectTrigger>
+												<SelectContent className={LIST}>
+													<SelectGroup>
+														{decideItems.map((o) => (
+															<SelectItem key={o.value} value={o.value}><Wrapped>{o.label}</Wrapped></SelectItem>
+														))}
+													</SelectGroup>
+												</SelectContent>
+											</Select>
+										) : <SelectPending id={`${field}-decide-by`} />}
+										<FieldDescription>{decider ? `A decision model of a service: ${decider.decides}.` : "Any model you have; a small local one is enough. What the event carries goes to that model, as with Ask a model."}</FieldDescription>
+									</Field>
+									<Field>
+										<FieldLabel htmlFor={`${field}-decide-name`}>Call the answer</FieldLabel>
+										<Input id={`${field}-decide-name`} className="font-mono" placeholder="answer" value={f.decide_name} onChange={(e) => setF({ ...f, decide_name: e.target.value.replace(/[^A-Za-z0-9_-]/g, "") })} />
+										<FieldDescription>A short name of your choice, such as urgent: a filter reads the answer by it.</FieldDescription>
+									</Field>
+									<Field>
+										<FieldLabel htmlFor={`${field}-decide-answer`}>Publish the answer as</FieldLabel>
+										<Input id={`${field}-decide-answer`} className="font-mono" placeholder="mail/judged" value={f.publish_topic} onChange={(e) => setF({ ...f, publish_topic: e.target.value })} />
+										<FieldDescription>A topic of your own. A second route on it can wake an agent, with “Only if” on the answer: {`{"payload.answers.${decideName}.${DECIDE_ANSWERS[f.decide_type].field}": ${DECIDE_ANSWERS[f.decide_type].filter}}`}. The event itself is in payload.of.</FieldDescription>
 									</Field>
 								</>
 							) : (

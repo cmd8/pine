@@ -1220,6 +1220,24 @@ test("settings: a setting is changed, an agent made, a schedule added, a provide
 	await sees("[data-slot=settings-page] [data-slot=item-description] >> text=set house/mode to");
 	const route = JSON.parse(fs.readFileSync(path.join(home, "pine.json"), "utf8")).routes.find((r: { name: string }) => r.name === "mode");
 	assert.deepEqual(route, { name: "mode", on: "source/house/message", when: { "payload.topic": "house/mode" }, set: { "house/mode": "{{payload.value}}" } });
+	// A decision: one typed question, its options one on each line, answered by the default model; what goes into pine.json is pine's own question.
+	await page.locator("[data-slot=settings-page]").getByRole("button", { name: "New route" }).click();
+	await routeForm.getByLabel("An event arrives on").fill("source/inbox/mail");
+	await routeForm.getByLabel("What happens").click();
+	await page.getByRole("option", { name: "Make a decision" }).click();
+	await routeForm.getByLabel("The question").fill("What is it?");
+	await routeForm.getByLabel("Answered with").click();
+	await page.getByRole("option", { name: "One of several" }).click();
+	await routeForm.getByLabel("Options").fill("invoice: A bill to pay\nother: Anything else");
+	await routeForm.getByLabel("Looking at").fill("{{payload.subject}}");
+	await routeForm.getByLabel("Call the answer").fill("kind");
+	await routeForm.getByLabel("Publish the answer as").fill("mail/judged");
+	await routeForm.getByLabel("Name", { exact: true }).fill("mail-judge");
+	await routeForm.getByRole("button", { name: "Add route" }).click();
+	await page.waitForSelector("[data-slot=dialog-content]", { state: "detached" });
+	await sees("[data-slot=settings-page] [data-slot=item-description] >> text=decide with the default model");
+	const decision = JSON.parse(fs.readFileSync(path.join(home, "pine.json"), "utf8")).routes.find((r: { name: string }) => r.name === "mail-judge");
+	assert.deepEqual(decision, { name: "mail-judge", on: "source/inbox/mail", ask: { questions: { kind: { type: "choice", question: "What is it?", options: { invoice: "A bill to pay", other: "Anything else" } } }, data: "{{payload.subject}}" }, publish: { topic: "mail/judged" } });
 	await shot("08b-settings-routes");
 	// Models: sign in to a provider with a key. It is typed into a field of its own and not shown.
 	await page.click("[role=navigation] [data-sidebar=menu-button] >> text=Models");

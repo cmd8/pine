@@ -71,11 +71,12 @@ const scout: AgentDetail = {
 	files: { instructions: "You look things up on the web.\n" },
 };
 
-/** One route of each kind: state set without an agent, a model's look passed on, an agent woken on that, a pause between alarms. */
+/** One route of each kind: state set without an agent, a model's look passed on, an agent woken on that, a decision a filter reads, a pause between alarms. */
 const routes: Route[] = [
 	{ name: "mode", on: ["source/house/message"], when: { "payload.topic": "house/mode" }, set: { "house/mode": "{{payload.value}}" } },
 	{ name: "classify", on: ["source/cam/added"], debounceMs: 4000, call: { prompt: "Camera file {{payload.file}}", system: "Answer PERSON, VEHICLE, ANIMAL or NOTHING." }, publish: { topic: "cam/classified" } },
 	{ name: "intruder", on: ["cam/classified"], when: { "payload.text": { regex: "^PERSON" }, "state.house/mode": "away" }, agent: "main", session: "new", prompt: "The camera saw somebody while the house is empty: {{payload.text}}" },
+	{ name: "mail-judge", on: ["source/inbox/mail"], ask: { source: "jev", data: "{{payload.subject}} {{payload.text}}", questions: { kind: { type: "choice", question: "What is it?", options: { invoice: "A bill to pay", other: "Anything else" } } } }, publish: { topic: "mail/judged" } },
 	{ name: "smoke", on: ["source/house/message", "hook/smoke"], throttleMs: 300_000, agent: "scout", trust: "owner" },
 ];
 
@@ -104,6 +105,8 @@ const answers: Record<string, unknown> = {
 	"/mcp": mcp,
 	"/mcp/states": { linear: "needs sign-in", notes: "connected" },
 	"/routes": routes,
+	// A source of all agents that decides, offered beside the models under "Decided by".
+	"/sources": [{ name: "jev", scope: "global", type: "typesafe", trust: "untrusted", running: true, status: "answers with jev-latest", subscribers: [], topic: "source/jev", events: 0, decides: "what a route asks about goes to TypeSafe (api.typesafe.ai)" }],
 	"/schedules": schedules,
 	// The files for all agents, under the list on the Agents page: one written, two still empty.
 	"/shared": [
@@ -310,6 +313,20 @@ export const NewRouteAsk: Story = {
 		const then = [...document.querySelectorAll("[data-slot=dialog-content] legend")].find((l) => l.textContent === "Then");
 		if (viewport && then) viewport.scrollTop += then.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
 	},
+};
+
+/** The same form with Then set to Make a decision: the question, how it is answered, what of the event is judged, who decides (the models and a source that decides), the answer's name and topic. */
+export const NewRouteDecide: Story = {
+	args: { section: "events" },
+	render: () => {
+		store.agents = agents;
+		return (
+			<Dialog open>
+				<DialogContent showCloseButton={false} className="sm:max-w-2xl"><NewRoute made={() => {}} does="decide" /></DialogContent>
+			</Dialog>
+		);
+	},
+	play: NewRouteAsk.play,
 };
 
 // The client's own SSH key, as a bridge with an SSH of its own gives it (the mobile and the web bridge) (the desktop's bridge has none, and shows no row for it).

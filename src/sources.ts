@@ -177,6 +177,8 @@ export interface SourceInfo {
 	topic: string;
 	last?: { ts: number; topic: string };
 	events: number;
+	/** A source of all agents whose type answers routes' typed questions: where what it is asked about goes. */
+	decides?: string;
 }
 
 interface Running {
@@ -902,6 +904,7 @@ export class SourceHost {
 				topic: `source/${key}`,
 				last: seen ? { ts: seen.ts, topic: seen.topic } : undefined,
 				events: seen?.count ?? 0,
+				decides: scope === "global" && source.type ? this.types.get(source.type)?.type?.decides : undefined,
 			};
 		});
 	}

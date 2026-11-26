@@ -44,7 +44,9 @@ A route is an entry in `routes` in `pine.json`. You can write it there yourself,
 agent: it lists, adds and removes routes with `routes`, `add_route` and `remove_route`
 ([setup.md](setup.md), "Routes"), checked and without a restart. In the Pine app, Settings >
 Events > Routes adds one with a form that says it as When (the topic, an optional `when`, a
-throttle or debounce) and Then (one of `agent`, `set`, `publish`, or `call` with `publish`).
+throttle or debounce) and Then (one of `agent`, `set`, `publish`, `call` with `publish` as "Ask a
+model", or `ask` with `publish` as "Make a decision", which makes one question: several are
+written into `pine.json` or proposed by the main agent).
 
 Most setups need no route. An agent that reacts to what a source reports is subscribed to it
 ([sources.md](sources.md)), and work at a time is a schedule (below). A route does a small job when an

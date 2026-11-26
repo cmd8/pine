@@ -314,7 +314,7 @@ export class OwnerApi {
 		if (at === "shared") return SHARED_FILES.map((name) => ({ name, about: SHARED_ABOUT[name] ?? "", text: ownText(textOf(path.join(cfg.home, name)) ?? "") }));
 		if (at === "skills") return allSkills(cfg).map((s) => ({ ...s, instructions: skillBody(s.dir) }));
 		if (at === "schedules") return this.need(this.schedules, "a scheduler").list();
-		if (at === "routes") return cfg.routes.map((r) => ({ name: r.name, on: r.on, when: r.when, throttleMs: r.throttleMs, debounceMs: r.debounceMs, agent: r.agent, prompt: r.prompt, session: r.session, set: r.set, publish: r.publish, call: r.call, trust: r.trust }));
+		if (at === "routes") return cfg.routes.map((r) => ({ name: r.name, on: r.on, when: r.when, throttleMs: r.throttleMs, debounceMs: r.debounceMs, agent: r.agent, prompt: r.prompt, session: r.session, set: r.set, publish: r.publish, call: r.call, ask: r.ask, trust: r.trust }));
 		if (at === "sources/types") return this.need(this.sources, "event sources").typeList().map((t) => ({ name: t.name, summary: t.summary, options: t.options, own: t.name in cfg.sourceTypes }));
 		// (Each model with its own number of runs at a time, where it has one; and what holds for the others.)
 		if (at === "models/servers") return listModelServers(cfg.home).map((x) => ({ ...x, models: x.models.map((m) => ({ ...m, ...(cfg.limits.models[`${x.name}/${m.id}`] !== undefined ? { limit: cfg.limits.models[`${x.name}/${m.id}`] } : {}) })), runs: cfg.limits.maxConcurrentRuns }));
