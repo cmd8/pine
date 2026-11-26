@@ -1154,7 +1154,14 @@ test("in a short pane a question card keeps the composer in view and typable: it
 test("a sign-in's choices are a question card answered by a pick; what it then asks to be typed opens the approval dialog", async () => {
 	// Amazon Bedrock's sign-in in pi asks first how to sign in (a select), then for a token (a secret).
 	// The window is behind another app: what is asked is told in a notification.
-	const focus = (on: boolean) => app.evaluate(({ BrowserWindow }: any, on: boolean) => BrowserWindow.getAllWindows()[0].webContents.send("pine:focus", on), on);
+	// The main process asks the window too: under xvfb with no window manager, a window never shown says it is focused.
+	const focus = (on: boolean) =>
+		app.evaluate(({ BrowserWindow }: any, on: boolean) => {
+			const win = BrowserWindow.getAllWindows()[0];
+			if (on) delete win.isFocused;
+			else win.isFocused = () => false;
+			win.webContents.send("pine:focus", on);
+		}, on);
 	const notified = () => app.evaluate(() => (globalThis as any).quiet.notified.map((n: any) => n.body) as string[]);
 	const had = (await notified()).length;
 	// In a conversation of its own: the app says the same thing of one conversation once in two seconds (`recentNotifs`
