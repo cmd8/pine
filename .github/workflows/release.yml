@@ -36,7 +36,10 @@ name: Release
 #   ANDROID_KEY_ALIAS          the alias of the key in it
 #   ANDROID_KEY_PASSWORD       the password of the key (for PKCS12, the same as the file's)
 # Without any of them no APK is built, and the job says so; with only some of them it fails. Keep
-# that key: Android installs an update only over an app signed with the same key.
+# that key: Android installs an update only over an app signed with the same key. The keystore
+# (pine-release.p12, alias "pine", one password for the file and the key) is kept by the owner, with
+# a copy in a private Drive folder: https://drive.google.com/drive/folders/1q7zBdpHUBbL4LfyK0PcnNuiLbFdGm7K0
+# Its certificate's SHA-256: 7E:B3:9B:29:D0:39:58:42:E7:E5:76:C4:A0:40:93:1B:89:AB:EC:CA:D6:0E:4D:2C:90:8B:5F:D1:71:40:A5:EC
 #
 # The iOS app (mobile/) is not built here for now: its core's tests do not pass on GitHub's Xcode 27
 # preview image. Its IPA is made by hand on a Mac (npm run ipa in mobile/).
