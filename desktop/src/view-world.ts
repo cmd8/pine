@@ -294,16 +294,19 @@ export class World {
 		this.touch();
 	}
 
-	/** The event sources there are, also those that have reported nothing yet. */
-	setSources(list: Array<{ name: string; type: string; last?: { ts: number }; events: number; subscribers?: string[]; running?: boolean; error?: string }>): void {
+	/** The event sources there are, also those that have reported nothing yet; one that is gone is gone here too. */
+	setSources(list: Array<{ name: string; type: string; topic?: string; last?: { ts: number }; events: number; subscribers?: string[]; running?: boolean; error?: string }>): void {
+		const listed = new Set<string>();
 		for (const s of list) {
-			const id = `source:${s.name}`;
-			// A subscriber is an agent, or one conversation of it ("agent:session"): the agent is what a view is told.
+			const id = `source:${s.topic?.startsWith("source/") ? s.topic.slice("source/".length) : s.name}`;
+			listed.add(id);
 			const agents = [...new Set((s.subscribers ?? []).map((x) => String(x).split(":")[0]).filter((a) => this.places.has(a)))];
 			this.sourceInfo.set(id, { agents, failing: Boolean(s.error) });
 			const was = this.stations.get(id);
 			this.stations.set(id, { id, kind: "source", name: s.name, type: s.type, last: Math.max(was?.last ?? 0, s.last?.ts ?? 0) || undefined, count: Math.max(was?.count ?? 0, s.events) });
 		}
+		for (const [id, station] of this.stations) if (station.kind === "source" && !listed.has(id)) this.stations.delete(id);
+		for (const id of this.sourceInfo.keys()) if (!listed.has(id)) this.sourceInfo.delete(id);
 		this.touch();
 	}
 

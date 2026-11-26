@@ -144,3 +144,19 @@ test("work whose end was never heard is not at work for ever: what the daemon no
 	w.settle(1, { status: "done" });
 	assert.equal(w.jobs.get(1)!.doing, "failed", "what has ended stays as it ended");
 });
+
+test("an event source that is removed leaves the view, also one of a single agent that the events name with its agent", () => {
+	const w = new World();
+	w.setPlaces([{ id: "main", main: true, mode: "auto", description: "" }]);
+	w.setSources([
+		{ name: "pr-102", type: "http", topic: "source/pr-102@main", events: 0, subscribers: ["main:main-branch"] },
+		{ name: "inbox", type: "mail", topic: "source/inbox", events: 0, subscribers: ["main"] },
+	]);
+	w.take([ev("source/pr-102@main/changed", { values: {} }, { source: "source:pr-102@main", trust: "untrusted" })]);
+	const sources = () => w.inputs().filter((s) => s.kind === "source").map((s) => [s.id, s.name, s.count]);
+	assert.deepEqual(sources(), [["source:inbox", "inbox", 0], ["source:pr-102@main", "pr-102", 1]], "the source and its events are one card");
+
+	w.setSources([{ name: "inbox", type: "mail", topic: "source/inbox", events: 0, subscribers: ["main"] }]);
+	assert.deepEqual(sources(), [["source:inbox", "inbox", 0]]);
+	assert.equal(w.sourceInfo.has("source:pr-102@main"), false);
+});

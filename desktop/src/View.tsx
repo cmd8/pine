@@ -56,13 +56,14 @@ const announce = (list: ViewHappening[]) => {
 	for (const h of list) for (const fn of happenings) fn(h);
 };
 /** What the events do not say and the view shows: asked again when an event says it may have changed. */
-const stale = { conversations: true, schedules: true, boards: true };
+const stale = { conversations: true, schedules: true, boards: true, sources: true };
 store.taps.add((batch) => {
 	world.take(batch);
 	for (const e of batch) {
 		// A conversation was made, removed, branched or given a worktree; work began or ended in one (a branch is new with its first work).
 		if (e.topic === "pine/conversation" || /^agent\/[^/]+\/(started|done|failed)$/.test(e.topic)) stale.conversations = true;
 		if (e.topic === "pine/board") stale.boards = true;
+		if (e.topic === "pine/conversation" || e.topic === "pine/settings" || (/^agent\/[^/]+\/tool$/.test(e.topic) && /source|subscribe/.test(String((e.payload as { tool?: unknown })?.tool ?? "")))) stale.sources = true;
 		if (e.source === "timer" || e.topic === "pine/settings" || /^agent\/[^/]+\/tool$/.test(e.topic)) stale.schedules ||= e.source === "timer" || e.topic === "pine/settings" || /schedule/.test(String((e.payload as { tool?: unknown })?.tool ?? ""));
 	}
 	if (!happenings.size) return;
@@ -190,6 +191,13 @@ function useSeed(): void {
 			const list = await api.schedules().catch(() => undefined);
 			if (!gone && list) world.setSchedules(list);
 		};
+		let sourced = Date.now();
+		const sources = async () => {
+			sourced = Date.now();
+			stale.sources = false;
+			const list = await api.sources().catch(() => undefined);
+			if (!gone && list) world.setSources(list);
+		};
 		const id = window.setInterval(() => {
 			const working = world.working();
 			const now = working.map((j) => j.id).join(",");
@@ -202,6 +210,7 @@ function useSeed(): void {
 			const due = world.schedules.some((s) => s.next !== undefined && s.next - world.skew < t - 1500);
 			if ((stale.schedules && t - timed > 700) || (due && t - timed > 3000) || t - timed > 30_000) void schedules();
 			if ((stale.boards && t - boarded > 500) || t - boarded > 30_000) void boards();
+			if ((stale.sources && t - sourced > 700) || t - sourced > 30_000) void sources();
 		}, 300);
 		return () => ((gone = true), window.clearInterval(id));
 	}, [s.home, s.remote]);
