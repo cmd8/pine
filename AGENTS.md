@@ -958,7 +958,14 @@ uploaded. npm does not wait for the app: a release has no disk images for the mi
 takes. The app of a release can be built again by hand, without publishing anything
 (`gh workflow run release.yml -f version=0.38.0`, from `main`): from that release's tag, with
 the workflow as it is on `main` now, which is the way to repair a release whose `app` job
-failed. The helpers need the macOS 26 SDK, so the job selects the newest Xcode on the runner.
+failed. Such a run adds only what the release is missing and replaces nothing: a file that is
+there already keeps its bytes, which Homebrew, winget, Scoop and the AUR pin by their hash, and
+the log names each one it kept. `-f replace=true` replaces them, for when that is meant; to
+replace one file only, delete it from the release first and run without it. `-f apps=android`
+builds one app alone (a comma list without spaces of `mac`, `linux`, `windows`, `android`; empty
+is all of them). The release's notes say that the Windows app is signed only when
+`app-windows-sign` signed and uploaded its installers: that job adds the sentence with the link to
+the code signing policy, `scripts/release.mjs` does not. The helpers need the macOS 26 SDK, so the job selects the newest Xcode on the runner.
 
 A release from `main` gets the Pine app for Linux (`app-linux`: an AppImage and a deb for x64 and
 arm64, started under a virtual screen, with checksums and GitHub's attestation) and for Windows
