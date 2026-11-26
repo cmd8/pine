@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- What a Linux software catalog (AppImageHub, GNOME Software, KDE Discover) shows about the Pine app.
+     Not packed yet: packaging/linux.md says where it would go and why. -->
+<component type="desktop-application">
+  <id>dev.pine.desktop</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Pine</name>
+  <summary>Agents that work for you, on your computer</summary>
+  <developer id="io.github.pmndre">
+    <name>pine contributors</name>
+  </developer>
+  <description>
+    <p>
+      The desktop app for pine, an event-driven multi-agent daemon built on the pi coding agent SDK.
+      Conversations, code and settings in one window.
+    </p>
+    <p>
+      Agents run on your computer, in a sandbox where the system has one, and act on what you ask, on a
+      schedule, or on an event from a source they watch: a folder, a feed, a chat, a mailbox, a device.
+    </p>
+  </description>
+  <launchable type="desktop-id">pine-desktop.desktop</launchable>
+  <url type="homepage">https://github.com/pmndre/pine</url>
+  <url type="bugtracker">https://github.com/pmndre/pine/issues</url>
+  <url type="vcs-browser">https://github.com/pmndre/pine</url>
+  <categories>
+    <category>Development</category>
+  </categories>
+  <provides>
+    <binary>pine-desktop</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.62.0" date="2026-11-25">
+      <url type="details">https://github.com/pmndre/pine/releases/tag/v0.62.0</url>
+    </release>
+  </releases>
+</component>
