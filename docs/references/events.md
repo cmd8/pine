@@ -84,6 +84,7 @@ unless a conversation is subscribed to it anyway.
 | `publish` | Publish another event: `{ "topic": "...", "payload": {...} }`. Without `payload` the original payload is passed on; after a `call` it is `{ "text": <the answer>, "of": <the original payload> }`. |
 | `call` | One model call: `{ "prompt": "...", "system": "...", "model": "provider/id" }`. Its answer is `{{result}}`. |
 | `ask` | Typed questions about the event: `{ "questions": {...}, "data": "...", "model": "provider/id" }` or `"source": "<name>"` instead of `model`. Its answers are `{{answers.<name>}}`; without a `payload` of its own, `publish` sends `{ "answers": ..., "of": <the original payload> }`. With `ask`, `set` runs after the answers, so it can write them into shared state. See "Typed questions" below. |
+| `run` | Run a command, with no model: `{ "command": "python3 ui/answer.py", "agent": "main", "timeout": "30s" }`. It runs in that agent's sandbox and workspace (default: the main agent) and is given the event as JSON on stdin; what it prints is `{{output}}`. See "Running a script" below. |
 | `agent` | Give an agent a task. |
 | `prompt` | The task text. Default: the payload's `text`, or the payload as JSON. |
 | `label` | A short line for the task in listings (`pine tasks`, the UIs). A template. |
@@ -93,10 +94,36 @@ unless a conversation is subscribed to it anyway.
 | `reply` | Where the agent's answer goes: `{ "topic": "...", "payload": {...} }`. Default: the event's own reply target. `false`: nowhere. |
 | `trust` | Override the event's trust. `"owner"` gives events on this route the agent's full tool set: only for sources nobody else can write to. `pine check` lists such routes. |
 
-A route needs at least one of `set`, `publish`, `call`, `ask`, `agent`. They run in the order `set`,
-`call`, `ask`, `publish`, `agent`, so one route can classify with `call` and pass the result on with
+A route needs at least one of `set`, `publish`, `call`, `ask`, `run`, `agent`. They run in the order `set`,
+`call`, `ask`, `run`, `publish`, `agent` (with `ask` or `run`, `set` comes after them), so one route can classify with `call` and pass the result on with
 `publish`. `call` and `agent` cannot be in the same route: publish the result and let a second
-route start the agent, as in the example below. `ask` stands with `publish` or `set` in the same way.
+route start the agent, as in the example below. `ask` stands with `run`, `publish` or `set` in the same way.
+
+### Running a script
+
+`run` is how a route reacts at once, without a model and without waking an agent: a script the
+agent wrote does what has to happen. A page that shows a decision, a light that is switched, a file
+that is written. An agent builds it once; from then on each event costs the script, not a turn.
+
+```json
+{ "name": "desk", "on": "source/ui@main/message",
+  "ask": { "source": "decider", "data": "{{payload.value.text}}",
+           "questions": { "urgent": { "type": "yesno", "question": "Is it urgent?" } } },
+  "run": { "command": "python3 ui/answer.py" } }
+```
+
+The script is handed one line of JSON on stdin: `topic`, `payload`, `trust`, `ts`, `elapsedMs` (since
+the event arrived), and `answers` after `ask`, `result` after `call`. Here it writes the answer and
+the time into the page's `state.json`. What it prints is `{{output}}` for `publish` and `set`, as JSON
+when it is JSON. The command is fixed text: nothing of the event goes into the command line, only
+into stdin. It runs in the sandbox of `run.agent` (the main agent unless the route names another),
+in its workspace, as that agent's sources run their commands: in every mode, and not at all where
+there is no sandbox. 30 seconds at most unless `timeout` says otherwise; when it fails, the route
+fails (`pine/route-failed`) with the end of what it wrote on stderr.
+
+A route and a subscription are separate: an agent subscribed to the same source is still woken for
+every event. For "a script, and the agent only sometimes", do not subscribe it; add a second route
+that wakes it with a `when` on the answers or the output.
 
 ### Trying a route
 

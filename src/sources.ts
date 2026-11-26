@@ -695,8 +695,8 @@ export class SourceHost {
 	}
 
 	/** A source's shell command, started the way the shell of the agent it belongs to would start it. Throws when it cannot be. */
-	private shell(key: string, command: string) {
-		const agent = this.cfg.agents[key.includes("@") ? key.slice(key.lastIndexOf("@") + 1) : mainAgentId(this.cfg)];
+	private shell(key: string, command: string, opts: { agent?: string; stdin?: boolean } = {}) {
+		const agent = this.cfg.agents[opts.agent ?? (key.includes("@") ? key.slice(key.lastIndexOf("@") + 1) : mainAgentId(this.cfg))];
 		if (!agent) throw new Error("the agent this source belongs to is gone");
 		const roots = rootsFor(this.cfg, agent);
 		// Where the agent's own shell is withheld because nothing could confine it, a source's command is not run either.
@@ -705,7 +705,7 @@ export class SourceHost {
 		const argv = [...sandboxArgv(this.cfg, agent, roots, "restricted"), bin("bash"), "-c", command];
 		// On Linux a protected file that did not exist cannot be forbidden, only taken away again.
 		const guard = sandboxGuard(roots, "restricted");
-		const child = spawn(argv[0], argv.slice(1), { cwd: roots.workspace, env: shellEnv(agent, roots, {}), stdio: ["ignore", "pipe", "pipe"], detached: true });
+		const child = spawn(argv[0], argv.slice(1), { cwd: roots.workspace, env: shellEnv(agent, roots, {}), stdio: [opts.stdin ? "pipe" : "ignore", "pipe", "pipe"], detached: true });
 		// The whole group: a command that started others must not leave them behind.
 		const kill = () => {
 			try {
@@ -718,18 +718,24 @@ export class SourceHost {
 	}
 
 	/** A source's shell command, run the way the shell of the agent it belongs to would run it. */
-	private exec(key: string, command: string, opts: { timeoutMs?: number; maxBytes?: number; signal?: AbortSignal } = {}): Promise<{ code: number; output: string; truncated: boolean }> {
+	private exec(key: string, command: string, opts: { timeoutMs?: number; maxBytes?: number; signal?: AbortSignal; agent?: string; input?: string; stdout?: boolean } = {}): Promise<{ code: number; output: string; truncated: boolean }> {
 		const max = opts.maxBytes ?? 256 * 1024;
 		const timeoutMs = opts.timeoutMs ?? 30_000;
 		return new Promise((resolve, reject) => {
 			if (opts.signal?.aborted) return reject(new Error("stopped"));
 			let sh: ReturnType<SourceHost["shell"]>;
 			try {
-				sh = this.shell(key, command);
+				sh = this.shell(key, command, { agent: opts.agent, stdin: opts.input !== undefined });
 			} catch (e) {
 				return reject(e);
 			}
 			const { child, guard } = sh;
+			if (opts.input !== undefined) {
+				// A command that does not read what it is given closes its end early: that is no failure.
+				child.stdin!.on("error", () => {});
+				child.stdin!.end(opts.input);
+			}
+			const errors: Buffer[] = [];
 			const chunks: Buffer[] = [];
 			let size = 0;
 			let why = "";
@@ -742,8 +748,9 @@ export class SourceHost {
 				size += d.length;
 				if (size > max * 4) kill("");
 			};
-			child.stdout.on("data", take);
-			child.stderr.on("data", take);
+			child.stdout!.on("data", take);
+			// With `stdout`, what the command prints is kept apart from what it complains about.
+			child.stderr!.on("data", opts.stdout ? (d: Buffer) => void (errors.length < 64 && errors.push(d)) : take);
 			const timer = setTimeout(() => kill(`it took longer than ${timeoutMs / 1000} s`), timeoutMs);
 			const stop = () => kill("stopped");
 			opts.signal?.addEventListener("abort", stop, { once: true });
@@ -756,9 +763,20 @@ export class SourceHost {
 				done();
 				guard?.restore();
 				if (why) return reject(new Error(why));
+				if (opts.stdout && code) return reject(new Error(`it ended with ${code}${errors.length ? `: ${Buffer.concat(errors).toString("utf8").trim().slice(-300)}` : ""}`));
 				resolve({ code: code ?? 1, output: Buffer.concat(chunks).toString("utf8"), truncated: size > max });
 			});
 		});
+	}
+
+	/**
+	 * A route's `run`: the command in the sandbox of the agent it names, as that agent's sources run theirs
+	 * (its workspace, nothing of pine's, nowhere without a sandbox). What the route knows is handed in on
+	 * stdin; what it prints on stdout comes back. Throws when it fails, with the end of what it wrote on stderr.
+	 */
+	runCommand(agentId: string, command: string, input: string, timeoutMs: number): Promise<string> {
+		if (!this.cfg.agents[agentId]) return Promise.reject(new Error(`there is no agent "${agentId}" to run the command for`));
+		return this.exec(`route@${agentId}`, command, { agent: agentId, input, timeoutMs, maxBytes: 64 * 1024, stdout: true }).then((r) => r.output);
 	}
 
 	/** A source's command that keeps running: what it prints is handed on line by line until it ends or is stopped. */
@@ -784,7 +802,7 @@ export class SourceHost {
 					this.log.warn(`source ${key} failed on a line`, errText(e));
 				}
 			};
-			child.stdout.on("data", (d: Buffer) => {
+			child.stdout!.on("data", (d: Buffer) => {
 				rest += text.write(d);
 				for (let at = rest.indexOf("\n"); at >= 0; at = rest.indexOf("\n")) {
 					hand(rest.slice(0, at).replace(/\r$/, ""));
@@ -797,7 +815,7 @@ export class SourceHost {
 				}
 			});
 			let error = "";
-			child.stderr.on("data", (d: Buffer) => (error = (error + d.toString("utf8")).slice(-2000)));
+			child.stderr!.on("data", (d: Buffer) => (error = (error + d.toString("utf8")).slice(-2000)));
 			signal.addEventListener("abort", kill, { once: true });
 			child.on("error", (e) => (signal.removeEventListener("abort", kill), reject(new Error(`could not be started: ${errText(e)}`))));
 			child.on("close", (code) => {

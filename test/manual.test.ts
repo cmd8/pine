@@ -45,6 +45,7 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["set up jev with my typesafe key", /^source-types#typesafe/],
 		["use the decision model pinecone serves on my mac for a route", /^source-types#typesafe/],
 		["test a route without waiting for a real event", /^events#trying-a-route/],
+		["react to each click on my page with a script instead of waking the agent", /^(events#running-a-script|interfaces)/],
 		["can the agent use bold text and formatting in telegram messages, markdown", /^source-types#telegram$/],
 		["why do questions of one agent show up in the telegram bot of another agent", /^source-types#telegram$/],
 		["how do sub-agents know which of them looks at which file", /^boards(#a-pool-of-sub-agents)?$/],

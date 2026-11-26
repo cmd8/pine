@@ -130,6 +130,12 @@ export interface RouteConfig {
 	call?: { model?: string; system?: string; prompt: string };
 	/** Typed questions about the event, answered by a model or a source that decides (src/ask.ts). `{{answers.<name>}}` in `publish`. */
 	ask?: AskConfig;
+	/**
+	 * A command run in the sandbox of `agent` (default: the main agent), in its workspace, with no model.
+	 * It is handed what the route knows as JSON on stdin; what it prints is `{{output}}` (parsed when it is JSON).
+	 * The command is fixed text: nothing of the event goes into it.
+	 */
+	run?: { command: string; agent?: string; timeoutMs?: number };
 	/** Full agent turn. */
 	agent?: string;
 	prompt?: string;
@@ -531,13 +537,18 @@ function loadRoutes(raw: unknown, problems: string[]): RouteConfig[] {
 			problems.push(`${where}: needs "on" (topic pattern)`);
 			return [];
 		}
-		if (!r.agent && !r.call && !r.ask && !r.publish && !r.set) problems.push(`${where}: needs one of agent, call, ask, publish, set`);
+		if (!r.agent && !r.call && !r.ask && !r.publish && !r.set && !r.run) problems.push(`${where}: needs one of agent, call, ask, publish, set, run`);
+		if (r.run !== undefined) {
+			if (!r.run || typeof r.run.command !== "string" || !r.run.command.trim()) problems.push(`${where}: run needs "command": what is run, e.g. "python3 ui/answer.py"`);
+			else if (/\{\{/.test(r.run.command)) problems.push(`${where}: run's command is fixed text: it is given the event as JSON on stdin, so leave {{...}} out of it`);
+			if (r.run?.agent !== undefined && typeof r.run.agent !== "string") problems.push(`${where}: run's "agent" is the agent in whose sandbox it runs`);
+		}
 		if (r.agent && r.call) problems.push(`${where}: use either agent or call, not both`);
 		if (r.ask !== undefined) {
 			const wrong = askProblem(r.ask);
 			if (wrong) problems.push(`${where}: ${wrong}`);
-			if (r.agent || r.call) problems.push(`${where}: ask stands with publish or set, not with agent or call: it publishes its answers or writes them into shared state, and a second route acts on them`);
-			if (!r.publish && !r.set) problems.push(`${where}: ask needs "publish" or "set": its answers go out as an event, or into shared state ({{answers.<name>}})`);
+			if (r.agent || r.call) problems.push(`${where}: ask stands with run, publish or set, not with agent or call: a script acts on its answers, they go out as an event or into shared state, and a second route can wake an agent`);
+			if (!r.publish && !r.set && !r.run) problems.push(`${where}: ask needs "run", "publish" or "set": a script acts on its answers, or they go out as an event, or into shared state ({{answers.<name>}})`);
 		}
 		if (r.call && typeof r.call.prompt !== "string") problems.push(`${where}: call needs "prompt"`);
 		if (r.publish && typeof r.publish.topic !== "string") problems.push(`${where}: publish needs "topic"`);
@@ -548,6 +559,7 @@ function loadRoutes(raw: unknown, problems: string[]): RouteConfig[] {
 				on: Array.isArray(r.on) ? r.on : [r.on],
 				debounceMs: r.debounceMs !== undefined ? parseDuration(r.debounceMs) : undefined,
 				throttleMs: r.throttleMs !== undefined ? parseDuration(r.throttleMs) : undefined,
+				...(r.run && typeof r.run === "object" ? { run: { ...r.run, timeoutMs: r.run.timeout !== undefined ? parseDuration(r.run.timeout) : r.run.timeoutMs } } : {}),
 			},
 		];
 	});

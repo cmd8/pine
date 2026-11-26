@@ -119,7 +119,7 @@ const BRIEF: Record<string, string> = {
 	settings: "pine's settings with what is in force: the answer to how pine is set up",
 	set_setting: "change one of pine's settings; key as settings lists it, e.g. defaults.model, defaults.bashTimeoutSec",
 	routes: "pine's routes: rules for what happens when an event arrives. What agents subscribe to is not here (that is sources)",
-	add_route: 'add a rule for arriving events, only for what a subscription or a schedule cannot do: write shared state from an event (set), publish another event, wake an agent only when a condition holds (when). For an agent to react to a source, add_source or subscribe with "agent" instead',
+	add_route: 'add a rule for arriving events, only for what a subscription or a schedule cannot do: run a script on each event with no model (run_command, the fast way to react), write shared state from an event (set), publish another event, wake an agent only when a condition holds (when). For an agent to react to a source, add_source or subscribe with "agent" instead',
 	remove_route: "remove a route",
 	add_model_server: "add a model server your owner names (an OpenAI-compatible address); not for looking: agents shows which models are in use",
 	remove_model_server: "remove a model server",

@@ -56,6 +56,8 @@ const SYNONYMS: string[][] = [
 	["board", "blackboard", "kanban", "backlog", "coordinate", "coordination", "collaborate", "claim", "findings"],
 	["swarm", "team", "crew", "fleet", "orchestrate", "orchestrator", "orchestration", "lead", "coordinator", "parallelize", "fan-out"],
 	["check", "verify", "verifier", "critic", "reviewer", "review", "validate", "judge", "audit"],
+	// A route's run: what people call reacting to an event with code of their own, no model in between.
+	["script", "automation", "automate", "react", "reaction", "instantly", "realtime", "immediately"],
 	// Typed questions on a route: what people call a model that answers with numbers and labels.
 	["typed", "classify", "classifier", "probability", "likely", "likelihood", "label", "labels", "categorize", "decision", "structured", "rating", "triage", "urgent", "jev", "typesafe", "decider", "pinecone"],
 	["stages", "stage", "phases", "phase", "dependency", "dependencies", "depends", "pipeline", "sequence"],

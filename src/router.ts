@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import type { AgentManager } from "./agents.ts";
-import type { PineConfig, RouteConfig } from "./config.ts";
+import { mainAgentId, type PineConfig, type RouteConfig } from "./config.ts";
 /** One model call without tools or history, as a route's "call" makes it. */
 export interface CompleteOptions {
 	prompt: string;
@@ -106,11 +106,11 @@ export class Router {
 		const trust: Trust = route.trust ?? e.trust;
 		try {
 			let ctx = this.context(e);
-			// With typed questions, state is written after they are answered, so that it can hold the answers ({{answers.<name>}}).
+			// With typed questions or a command, state is written after them, so that it can hold what they gave ({{answers.<name>}}, {{output}}).
 			const setState = () => {
 				for (const [k, v] of Object.entries(route.set ?? {})) this.state.set(render(k, ctx), renderDeep(v, ctx), { source, cause: e });
 			};
-			if (!route.ask) setState();
+			if (!route.ask && !route.run) setState();
 
 			if (route.call) {
 				const images = this.imagesOf(e).flatMap((i) => {
@@ -123,12 +123,20 @@ export class Router {
 				const result = await this.complete({ model: route.call.model, system: route.call.system ? render(route.call.system, ctx) : undefined, prompt: this.guard(render(route.call.prompt, ctx), e, trust), images });
 				ctx = this.context(e, { result });
 			}
-			if (route.ask) {
-				ctx = this.context(e, { answers: await this.ask(route, e, ctx) });
-				setState();
-			}
+			if (route.ask) ctx = this.context(e, { answers: await this.ask(route, e, ctx) });
+			if (route.run) ctx = this.context(e, { ...pick(ctx, ["result", "answers"]), output: await this.run(route, e, ctx, trust) });
+			if (route.ask || route.run) setState();
 			if (route.publish) {
-				const payload = route.publish.payload !== undefined ? renderDeep(route.publish.payload, ctx) : route.call ? { text: (ctx as any).result, of: e.payload } : route.ask ? { answers: (ctx as any).answers, of: e.payload } : e.payload;
+				const payload =
+					route.publish.payload !== undefined
+						? renderDeep(route.publish.payload, ctx)
+						: route.run
+							? { ...pick(ctx, ["answers"]), output: (ctx as any).output, of: e.payload }
+							: route.call
+								? { text: (ctx as any).result, of: e.payload }
+								: route.ask
+									? { answers: (ctx as any).answers, of: e.payload }
+									: e.payload;
 				this.bus.publish(render(route.publish.topic, ctx), payload, { source, cause: e, hop: true, reply: e.reply, trust });
 			}
 			if (route.agent) {
@@ -193,6 +201,23 @@ export class Router {
 	}
 
 	/**
+	 * A route's command, in the sandbox of the agent it names, with no model: it is handed what the route
+	 * knows as JSON on stdin (never in the command line), and what it prints is {{output}}.
+	 */
+	private async run(route: RouteConfig, e: PineEvent, ctx: Record<string, unknown>, trust: Trust): Promise<unknown> {
+		const sources = this.manager.sources;
+		if (!sources) throw new Error("sources are not running");
+		const r = route.run!;
+		const input = JSON.stringify({ topic: e.topic, payload: e.payload, trust, ts: e.ts, elapsedMs: Date.now() - e.ts, ...pick(ctx, ["result", "answers"]) });
+		const printed = (await sources.runCommand(r.agent ?? mainAgentId(this.cfg), r.command, input, r.timeoutMs ?? RUN_TIMEOUT_MS)).trim();
+		try {
+			return JSON.parse(printed);
+		} catch {
+			return printed;
+		}
+	}
+
+	/**
 	 * Images an event carries. A file path is only honoured inside a directory a source declared as
 	 * media storage; otherwise an event could make the daemon read any file and hand it to the model.
 	 */
@@ -219,6 +244,11 @@ function defaultPrompt(e: PineEvent, whole = false): string {
 	if (!whole && p && typeof p.text === "string" && p.text) return p.text;
 	return `Event ${e.topic}:\n${JSON.stringify(p, null, 2)}`;
 }
+
+/** How long a route's command may take, unless it says otherwise. */
+const RUN_TIMEOUT_MS = 30_000;
+
+const pick = (ctx: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.filter((k) => ctx[k] !== undefined).map((k) => [k, ctx[k]]));
 
 /** How long a route's questions may take, a second try included: a decision server of the owner's may first have to load its model. */
 const ASK_TIMEOUT_MS = 180_000;

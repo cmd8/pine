@@ -543,6 +543,10 @@ export interface RouteInput {
 	ask_source?: string;
 	/** What the questions are about, as a template. Default: the event's payload. */
 	ask_data?: string;
+	/** A command run in an agent's sandbox, with no model, given the event as JSON on stdin. */
+	run_command?: string;
+	/** The agent in whose sandbox and workspace it runs. Default: the main agent. */
+	run_agent?: string;
 	trust?: string;
 }
 
@@ -609,13 +613,22 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[],
 		if (input.ask_model && !models.includes(input.ask_model)) throw new Error(`there is no model "${input.ask_model}". Models: ${models.slice(0, 40).join(", ")}`);
 		const decider = input.ask_source ? deciders.find((d) => d.name === input.ask_source) : undefined;
 		if (input.ask_source && !decider) throw new Error(`"${input.ask_source}" is not a source that answers typed questions. ${deciders.length ? `Those that do: ${deciders.map((d) => d.name).join(", ")}` : "There is none: leave ask_source out, and a model answers"}`);
-		if (!input.publish_topic && !input.set) throw new Error('typed questions need "publish_topic" (the answers go out as an event, and a second route filters on payload.answers.<name>) or "set" (the answers go into shared state: {"agent/main/answer": "{{answers}}"})');
+		if (!input.publish_topic && !input.set && !input.run_command) throw new Error('typed questions need "run_command" (a script acts on the answers, with no model), "publish_topic" (the answers go out as an event, and a second route filters on payload.answers.<name>) or "set" (the answers go into shared state: {"agent/main/answer": "{{answers}}"})');
 		entry.ask = ask;
 		const questions = ask.questions as AskQuestions;
 		const shown = ask.data === undefined ? "the event's whole payload" : `${JSON.stringify(ask.data)}`;
 		lines.push(`ask ${decider ? `the source ${decider.name}` : `the model ${input.ask_model ?? cfg.defaults.model ?? "pine's default"}`} about ${shown}: ${Object.entries(questions).map(([n, q]) => `${n} (${q.type}): ${q.question}`).join("; ")}`);
 		lines.push(decider ? `what it is asked about leaves this computer: ${decider.decides}` : "what it is asked about goes to that model, as a route's model call does");
 	} else if (input.ask_model || input.ask_source || input.ask_data) throw new Error('typed questions need "ask_questions"');
+	if (input.run_command) {
+		const command = input.run_command.trim();
+		if (/\{\{/.test(command)) throw new Error("run_command is fixed text: the command is given the event (and the answers, the model's result) as JSON on stdin, so leave {{...}} out of it");
+		const runAgent = input.run_agent || mainAgentId(cfg);
+		if (!cfg.agents[runAgent]) throw new Error(`there is no agent "${runAgent}". Agents: ${Object.keys(cfg.agents).join(", ")}`);
+		entry.run = { command, ...(input.run_agent ? { agent: input.run_agent } : {}) };
+		lines.push(`run in ${runAgent}'s sandbox and workspace, with no model: ${command}`);
+		lines.push(`it is given the event${entry.ask ? ", the answers" : ""}${entry.call ? ", the model's answer" : ""} as JSON on stdin; what it prints is {{output}}`);
+	} else if (input.run_agent) throw new Error('"run_agent" belongs to "run_command": what is run');
 	if (input.publish_topic) {
 		const topic = input.publish_topic.trim();
 		if (matchesAny(RESERVED_TOPICS, topic)) throw new Error(`"${topic}" is a topic only pine itself publishes on. Pick one of your own, for example cam/classified`);
@@ -639,7 +652,7 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[],
 		lines.push(`wake the agent ${input.agent}${input.session ? ` (conversation: ${input.session})` : ""}${input.prompt ? ` with: ${input.prompt}` : " with the event"}`);
 	} else if (input.prompt || input.session) throw new Error('"prompt" and "session" belong to "agent": name the agent the route wakes');
 	if (entry.ask && entry.agent) throw new Error("a route asks typed questions or wakes an agent, not both. Let it publish the answers, and a second route wake the agent when payload.answers.<name> is what you want");
-	if (!entry.set && !entry.call && !entry.publish && !entry.agent) throw new Error("a route has to do something: give at least one of agent (wake an agent), set (write shared state), publish_topic (publish another event), call_prompt (one model call)");
+	if (!entry.set && !entry.call && !entry.publish && !entry.agent && !entry.run) throw new Error("a route has to do something: give at least one of agent (wake an agent), run_command (run a script, no model), set (write shared state), publish_topic (publish another event), call_prompt (one model call)");
 	let wider: string | undefined;
 	if (input.trust !== undefined && input.trust !== "") {
 		if (input.trust !== "owner" && input.trust !== "untrusted") throw new Error('"trust" is owner or untrusted. Leave it out: an event keeps the trust it came with');
@@ -687,7 +700,7 @@ export function dropRoute(cfg: PineConfig, name: string): boolean {
 /** The routes as a list for the agent. */
 export function routesText(cfg: PineConfig): string {
 	const does = (r: RouteConfig) =>
-		[r.set ? `sets ${JSON.stringify(r.set)}` : "", r.call ? `asks a model: ${r.call.prompt}` : "", r.ask ? `asks ${r.ask.source ? `the source ${r.ask.source}` : r.ask.model ? `the model ${r.ask.model}` : "a model"}: ${Object.entries(r.ask.questions).map(([n, q]) => `${n} (${q.type})`).join(", ")}` : "", r.publish ? `publishes ${r.publish.topic}` : "", r.agent ? `wakes ${r.agent}${r.session ? ` (conversation: ${r.session})` : ""}${r.prompt ? ` with: ${r.prompt}` : ""}` : ""].filter(Boolean).join("; ");
+		[r.set ? `sets ${JSON.stringify(r.set)}` : "", r.call ? `asks a model: ${r.call.prompt}` : "", r.ask ? `asks ${r.ask.source ? `the source ${r.ask.source}` : r.ask.model ? `the model ${r.ask.model}` : "a model"}: ${Object.entries(r.ask.questions).map(([n, q]) => `${n} (${q.type})`).join(", ")}` : "", r.run ? `runs "${r.run.command}" in ${r.run.agent ?? mainAgentId(cfg)}'s sandbox` : "", r.publish ? `publishes ${r.publish.topic}` : "", r.agent ? `wakes ${r.agent}${r.session ? ` (conversation: ${r.session})` : ""}${r.prompt ? ` with: ${r.prompt}` : ""}` : ""].filter(Boolean).join("; ");
 	return cfg.routes.map((r) => `- ${r.name}: on ${r.on.join(", ")}${r.when ? ` when ${JSON.stringify(r.when)}` : ""}${r.throttleMs ? ` · at most one per ${ms(r.throttleMs)}` : ""}${r.debounceMs ? ` · after ${ms(r.debounceMs)} of quiet` : ""}${r.trust === "owner" ? " · its events count as the owner's words" : ""}\n    ${does(r)}`).join("\n");
 }
 

@@ -1886,6 +1886,7 @@ function routeSaid(r: Route): { when: string; then: string } {
 		r.set ? `set ${Object.entries(r.set).map(([k, v]) => `${k} to ${JSON.stringify(v)}`).join(" and ")}` : "",
 		r.call ? `ask ${r.call.model ?? "the default model"} once: “${short(r.call.prompt, 80)}”` : "",
 		r.ask ? `decide with ${r.ask.source ? `the source ${r.ask.source}` : r.ask.model ?? "the default model"}, ${decideSaid(r.ask.questions)}` : "",
+		r.run ? `run “${short(r.run.command, 80)}”${r.run.agent ? ` as ${r.run.agent}` : ""}` : "",
 		r.publish ? (r.ask && r.publish.payload === undefined ? `publish the answers as ${r.publish.topic}` : r.call && r.publish.payload === undefined ? `publish the answer as ${r.publish.topic}` : `publish ${r.publish.topic}${r.publish.payload !== undefined ? ` with ${short(JSON.stringify(r.publish.payload), 60)}` : ""}`) : "",
 		r.agent ? `wake ${r.agent} ${conversationOf(r.session)}${r.prompt ? `: “${short(r.prompt, 100)}”` : ", with the event"}` : "",
 	].filter(Boolean).join(", then ");

@@ -385,6 +385,8 @@ export interface Route {
 	call?: { prompt: string; system?: string; model?: string };
 	/** Typed questions (src/ask.ts): answered by `model` or by the source `source`. */
 	ask?: { questions: Record<string, AskQuestion>; model?: string; source?: string; data?: unknown };
+	/** A command run in an agent's sandbox with no model, given the event as JSON on stdin. */
+	run?: { command: string; agent?: string };
 	trust?: string;
 }
 

@@ -15,6 +15,11 @@ Nothing in pine is special for this. It is three things pine has anyway, put tog
 | The way back | The server offers what the page reports as an event stream. A `stream` event source listens to it and wakes the agent | `stream` in [source-types.md](source-types.md) |
 | The window | The agent's browser. In the Pine app it is beside the conversation, at the right of the window; elsewhere `browser_show` puts it on the screen | [mcp.md](mcp.md), [desktop.md](desktop.md) |
 
+A click that only needs a fixed reaction (a decision shown, a value written) does not need the
+agent at all: a route with `run` on the stream source's events runs a script that writes
+`state.json`, in a fraction of a second, and the agent is not woken ([events.md](events.md),
+"Running a script"). Leave the conversation unsubscribed then.
+
 ## The steps
 
 For the agent that is asked for such a page. Each step is a tool call it has.
