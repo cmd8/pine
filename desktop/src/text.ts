@@ -175,6 +175,12 @@ export const MODES: Array<{ value: string; label: string; about: string }> = [
 
 export const REASONING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
+/** Where a conversation goes when you send a message (an agent's `scroll`), the default first. */
+export const SCROLLS: Array<{ value: "follow" | "top"; label: string; about: string }> = [
+	{ value: "top", label: "Message to the top", about: "Your message moves to the top of the window, and the answer is written below it." },
+	{ value: "follow", label: "Follow the answer", about: "Your message is added at the end, and the conversation follows the answer as it is written." },
+];
+
 /**
  * The host and port of an address on this computer or the local network, as the daemon's
  * `localTarget` (src/net.ts) finds one: a name that says it is local, or an address in a private

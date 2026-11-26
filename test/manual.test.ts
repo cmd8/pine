@@ -172,6 +172,8 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["open the terminal ui on the pine running on my server, from my laptop", /^(tui#the-pine-of-another-machine|operations#commands\/pine---ssh)/],
 		["voice input does not work on linux", /^tui#dictating-a-message/],
 		["how many tokens per second does my model make, and how fast does it process the prompt", /^tui#(how-fast-the-model-is|what-a-model-thinks)/],
+		["when I send a message the conversation jumps and my message goes to the top", /^(configuration#identity-and-model|setup#changing-and-removing-an-agent|desktop#)/],
+		["keep my message at the bottom and follow the answer like a terminal", /^(configuration#identity-and-model|setup#changing-and-removing-an-agent|desktop#)/],
 		["how do I give an agent its own colour", /^(setup#(changing-and-removing-an-agent\/color|changing-and-removing-an-agent|creating-an-agent)|configuration#.*color)/],
 		["my owner wants an agent deleted together with its folder", /^(setup#(changing-and-removing-an-agent|the-main-agent-administers-pine|the-tools)|pine#if-you-are-an-agent-running-inside-pine)/],
 		["give another agent a different model and let it read a folder", /^setup#(changing-and-removing-an-agent|the-main-agent-administers-pine|the-tools)/],

@@ -113,7 +113,7 @@ const BRIEF: Record<string, string> = {
 	remove_skill: "remove a skill (to change one: add it again under the same name)",
 	agents: "pine's agents: what each is for, the model, mode, reach and what each has; with \"id\", one agent in full with the instructions",
 	create_agent: "create a new agent when your owner asks for one: it has a separate job, workspace and instructions, and exists at once. Never for sub-agents: those are copies of an agent for one task, started with subagent, and are not created. The job goes into the agent's instructions and belongs to that agent from then on: do not start on it yourself",
-	update_agent: "change an agent when your owner asks: color, instructions (the first paragraph is what the agent is for), model, reasoning, mode, tools, whom it may hand work to, reach. Give only what changes",
+	update_agent: "change an agent when your owner asks: color, scroll, instructions (the first paragraph is what the agent is for), model, reasoning, mode, tools, whom it may hand work to, reach. Give only what changes",
 	rename_agent: "give an agent another id when your owner asks; everything that names it follows",
 	remove_agent: "remove an agent for good, with everything it has and the agent's folders",
 	settings: "pine's settings with what is in force: the answer to how pine is set up",
@@ -199,6 +199,7 @@ const ARG_HINT: Record<string, string> = {
 	"update_agent.instructions": "the whole new text, which replaces what is there; the first paragraph says what the agent is for. Read the present text first (pine_list: agents with id)",
 	"agents.id": "with agents: one agent in full",
 	"update_agent.color": 'the agent\'s color in the Pine app, #rrggbb; "none" takes it away',
+	"update_agent.scroll": "where the agent's conversations go in the Pine app when your owner sends a message: top (the message moves to the top; the default) or follow (stay at the end, follow the answer)",
 	"update_agent.soul": "the whole new text of the agent's SOUL.md (character and tone), when your owner speaks of how it should be or sound",
 	"update_agent.tooling": "the whole new text of the agent's own TOOLS.md: defaults and preferences for tools for this agent alone, on top of the TOOLS.md for all agents",
 	"update_agent.model": 'provider/model, or "default"',
@@ -252,6 +253,7 @@ const ARG_HINT: Record<string, string> = {
 const CHOICES: Record<string, string[]> = {
 	"update_agent.mode": ["auto", "safe", "manual", "bypass", "plan", "default"],
 	"update_agent.thinking": ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+	"update_agent.scroll": ["top", "follow", "default"],
 };
 
 /** What a sub-agent is told when it calls what is not its to do. */

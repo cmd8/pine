@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { AGENT_TOOLS } from "./agent-admin.ts";
-import { type AgentConfig, delegatesText, isColor, loadConfig, mainAgentId, MAX_MODEL_RUNS, MODEL_KEY, modelLimit, type Mode, MODES, PINE_ROOT, SERVER_KEY, type PineConfig, RESERVED_TOPICS, type RouteConfig, unsandboxed } from "./config.ts";
+import { type AgentConfig, delegatesText, isColor, isScroll, loadConfig, mainAgentId, MAX_MODEL_RUNS, MODEL_KEY, modelLimit, type Mode, MODES, PINE_ROOT, SERVER_KEY, type PineConfig, RESERVED_TOPICS, type RouteConfig, unsandboxed } from "./config.ts";
 import { renameEnv, secretName, unsetEnv } from "./env-file.ts";
 import { DEFAULT_THEME, listThemes } from "./themes.ts";
 import { listViews, viewInForce } from "./views.ts";
@@ -28,6 +28,8 @@ export const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "ma
 export interface AgentChange {
 	/** Its color in the Pine app, `#rrggbb`; "none" or empty takes it away. */
 	color?: string;
+	/** Where its conversations go in the Pine app when the owner sends a message: top or follow (`SCROLLS`); "default" is top. */
+	scroll?: string;
 	/** The whole new text of its instruction file (AGENTS.md in its workspace), whose first paragraph says what it is for. */
 	instructions?: string;
 	/** The whole new text of its SOUL.md: who it is, its character and tone. */
@@ -50,6 +52,8 @@ export interface AgentChange {
 	/** Folders to take out of both lists again. */
 	forget?: string[];
 }
+
+const scrollText = (s: string) => (s === "top" ? "your message moves to the top" : "the conversation follows the answer");
 
 /**
  * An agent's color as a change gives it: `#rrggbb` in any case, kept in lower case; "none" (in any case) or
@@ -82,6 +86,13 @@ export function checkAgentChange(cfg: PineConfig, agent: AgentConfig, change: Ag
 		const color = checkColor(change.color);
 		lines.push(`color: ${color ?? "none"}`);
 		steps.push((raw) => (color ? (raw.color = color) : delete raw.color));
+	}
+	if (change.scroll !== undefined) {
+		const none = change.scroll === "default" || change.scroll === "";
+		if (!none && !isScroll(change.scroll)) throw new Error(`"scroll" is top (your message moves to the top and the answer is written below it) or follow (your message stays at the end and the answer is followed as it is written), or default (top)`);
+		const next = none ? "top" : change.scroll;
+		lines.push(`when you send a message: ${scrollText(agent.scroll)} -> ${scrollText(next)}`);
+		steps.push((raw) => (none || next === "top" ? delete raw.scroll : (raw.scroll = next)));
 	}
 	if (change.model !== undefined) {
 		const none = change.model === "default" || change.model === "";
@@ -175,7 +186,7 @@ export function checkAgentChange(cfg: PineConfig, agent: AgentConfig, change: Ag
 	// Its own tooling can be empty: then only what holds for all agents holds for it.
 	const tooling = change.tooling?.trim();
 	if (tooling !== undefined) lines.push(tooling ? `the agent's own defaults and preferences for tools (the agent's TOOLS.md) replaced by:\n${tooling.length > 1200 ? `${tooling.slice(0, 1200)}...` : tooling}` : "the agent's own defaults and preferences for tools (the agent's TOOLS.md) taken back: the file is emptied");
-	if (!lines.length) throw new Error("nothing to change: give at least one of description, color, instructions, soul, tooling, model, thinking, mode, tools, delegates, network, read, write, forget");
+	if (!lines.length) throw new Error("nothing to change: give at least one of description, color, scroll, instructions, soul, tooling, model, thinking, mode, tools, delegates, network, read, write, forget");
 	return { lines, warnings, json: (raw) => steps.forEach((s) => s(raw)), instructions, soul, tooling };
 }
 

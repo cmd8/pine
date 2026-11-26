@@ -48,6 +48,8 @@ const SYNONYMS: string[][] = [
 	["quote", "quotes", "quoting", "quoted", "cite", "excerpt", "passage", "sentence", "selection", "select", "selected", "highlight"],
 	["group", "groups", "folders", "organise", "organize", "categorise", "categorize", "categories", "sort", "tidy", "order", "arrange"],
 	["theme", "colour", "color", "colorscheme", "appearance", "skin"],
+	// An agent's `scroll`: what somebody says who saw the conversation move when they sent a message.
+	["scroll", "scrolls", "scrolling", "scrolled", "jump", "jumps", "jumping", "glide", "glides"],
 	["branch", "fork", "split", "offshoot", "copy", "duplicate", "clone", "sidetrack", "tangent"],
 	["worktree", "worktrees", "checkout", "isolated", "collide", "clash", "interfere", "overwrite", "simultaneously"],
 	// Boards: what somebody who has not heard the word calls agents that share tasks and findings.

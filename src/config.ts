@@ -238,6 +238,8 @@ export interface AgentConfig {
 	description: string;
 	/** Its own color in the Pine app (`#rrggbb`, lower case): the seed of its avatar's scheme. Display only. */
 	color?: string;
+	/** Where a conversation with it goes when the owner sends a message (`SCROLLS`). Display only. */
+	scroll: Scroll;
 	workspace: string;
 	model?: string;
 	thinking: string;
@@ -427,6 +429,15 @@ const noPlugins = (list: unknown, where: string, problems: string[]): void => {
 	if (Array.isArray(list) && list.length) problems.push(`${where}: plugins are gone. Telegram, MQTT and watched folders are event sources now, which an agent sets up when you ask it to ("watch telegram", "watch ~/Scans"); see docs/references/sources.md. Take the "plugins" entry out`);
 };
 
+/**
+ * Where a conversation goes in the Pine app when the owner sends a message: "top" moves the message to the top
+ * of the window and writes the answer below it (the default); "follow" adds the message at the end and follows
+ * the answer as it is written, as a terminal does.
+ */
+export const SCROLLS = ["top", "follow"] as const;
+export type Scroll = (typeof SCROLLS)[number];
+export const isScroll = (v: unknown): v is Scroll => SCROLLS.includes(v as Scroll);
+
 /** An agent's color as agent.json keeps it: `#rrggbb`, in any case. */
 export const isColor = (v: unknown): v is string => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
 
@@ -447,12 +458,14 @@ function loadAgent(id: string, dir: string, raw: any, cfg: PineConfig, problems:
 	const sub = raw.subagents === false ? { enabled: false } : raw.subagents === true || raw.subagents === undefined ? {} : raw.subagents;
 	const state = raw.state ?? {};
 	if (raw.color !== undefined && !isColor(raw.color)) problems.push(`${where}: color must be written #rrggbb, for example #e0805a (got ${JSON.stringify(raw.color)})`);
+	if (raw.scroll !== undefined && !isScroll(raw.scroll)) problems.push(`${where}: scroll is one of ${SCROLLS.join(", ")} (got ${JSON.stringify(raw.scroll)})`);
 	return {
 		id,
 		dir,
 		description: raw.description ?? "",
 		// Always a key, also without a color: a change that takes it away is taken over with Object.assign.
 		color: isColor(raw.color) ? raw.color.toLowerCase() : undefined,
+		scroll: isScroll(raw.scroll) ? raw.scroll : "top",
 		workspace,
 		model: raw.model,
 		thinking: raw.thinking ?? cfg.defaults.thinking,

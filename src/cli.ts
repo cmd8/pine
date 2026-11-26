@@ -87,7 +87,7 @@ Agents (the main agent does the same when you ask it: create_agent, update_agent
   pine agent list                 the agents: what each is for, the model, the reach, what it has
   pine agent add <id> [--description "what it is for"] [--instructions "who it is and how it works"]
        [--instructions-file <file>] [--model provider/model] [--tools read,bash,...]
-  pine agent update <id> [--instructions ... | --instructions-file <file>] [--color #rrggbb|none]
+  pine agent update <id> [--instructions ... | --instructions-file <file>] [--color #rrggbb|none] [--scroll top|follow]
        [--soul ... | --soul-file <file>] [--tooling ... | --tooling-file <file>]
        [--model provider/model|default] [--thinking off|low|...|max]
        [--mode auto|safe|manual|bypass|plan|default] [--tools read,bash,...] [--delegates id,id|*]
@@ -210,7 +210,7 @@ async function agentCommand(cfg: PineConfig, argv: string[], out: (v: unknown) =
 		}
 		case "update": {
 			const id = rest[0];
-			const usage = 'usage: pine agent update <id> [--color #rrggbb|none] [--instructions "..." | --instructions-file <file>] [--soul "..." | --soul-file <file>] [--tooling "..." | --tooling-file <file>] [--model provider/model|default] [--thinking off|minimal|low|medium|high|xhigh|max] [--mode auto|safe|manual|bypass|plan|default] [--tools read,bash,...] [--delegates id,id|*] [--network | --no-network] [--read /path,/path] [--write /path] [--forget /path]';
+			const usage = 'usage: pine agent update <id> [--color #rrggbb|none] [--scroll top|follow|default] [--instructions "..." | --instructions-file <file>] [--soul "..." | --soul-file <file>] [--tooling "..." | --tooling-file <file>] [--model provider/model|default] [--thinking off|minimal|low|medium|high|xhigh|max] [--mode auto|safe|manual|bypass|plan|default] [--tools read,bash,...] [--delegates id,id|*] [--network | --no-network] [--read /path,/path] [--write /path] [--forget /path]';
 			if (!id) throw new Error(usage);
 			const agent = cfg.agents[id];
 			if (!agent) throw new Error(`there is no agent "${id}". Agents: ${Object.keys(cfg.agents).join(", ")}`);
@@ -220,6 +220,7 @@ async function agentCommand(cfg: PineConfig, argv: string[], out: (v: unknown) =
 			if (flags.description !== undefined) throw new Error("what an agent is for is the first paragraph of the agent's instructions (AGENTS.md in the agent's workspace): change it with --instructions or --instructions-file");
 			const change = {
 				color: str(flags.color),
+				scroll: str(flags.scroll),
 				instructions: fromFile ?? str(flags.instructions),
 				soul: typeof flags["soul-file"] === "string" ? fs.readFileSync(expandHome(flags["soul-file"]), "utf8") : str(flags.soul),
 				tooling: typeof flags["tooling-file"] === "string" ? fs.readFileSync(expandHome(flags["tooling-file"]), "utf8") : str(flags.tooling),

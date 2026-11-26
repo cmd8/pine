@@ -24,7 +24,7 @@ import { type AgentDetail, api, type LoginState, type ModelServer, type Provider
 import { bridge } from "./bridge.ts";
 import { Editor } from "./CodePanel.tsx";
 import { store, type UpdatePhase, useModel, useSignal } from "./model.ts";
-import { ago, errText, MODES, newApp, plural, REASONING, short, tilde } from "./text.ts";
+import { ago, errText, MODES, newApp, plural, REASONING, SCROLLS, short, tilde } from "./text.ts";
 import type { DialogRootActions } from "@base-ui/react/dialog";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { CodeBlock, CodeBlockContent } from "@/components/ui/code-block";
@@ -542,6 +542,8 @@ function AgentPage({ id, back }: { id: string; back: () => void }) {
 	const forget = (change.forget as string[]) ?? [];
 	const modelItems = [{ value: "", label: d.defaultModel ? `${d.defaultModel} (the default)` : "the default" }, ...(d.model && !(models.data ?? []).includes(d.model) ? [d.model] : []).concat(models.data ?? []).map((m) => ({ value: m, label: m }))];
 	const reasoningItems = REASONING.map((r) => ({ value: r, label: r }));
+	const scroll = now("scroll") ?? "top";
+	const scrollItems = SCROLLS.map((x) => ({ value: x.value, label: x.label }));
 	const modeItems = MODES.map((m) => ({ value: m.value, label: m.label }));
 	const modeAbout = MODES.find((m) => m.value === mode)?.about;
 	const tools = now("tools");
@@ -596,6 +598,18 @@ function AgentPage({ id, back }: { id: string; back: () => void }) {
 							<FieldDescription>How long the model thinks before it answers. A higher level takes longer.</FieldDescription>
 						</FieldContent>
 						{select(`${field}-reasoning`, reasoningItems, now("thinking"), (v) => put("thinking", v))}
+					</Field>
+				</FieldGroup>
+			</Section>
+			<FieldSeparator />
+			<Section title="Conversation">
+				<FieldGroup>
+					<Field orientation="responsive" data-find="agent-scroll">
+						<FieldContent className="min-w-0">
+							<FieldLabel htmlFor={`${field}-scroll`}>When you send a message</FieldLabel>
+							<FieldDescription>{SCROLLS.find((x) => x.value === scroll)?.about}</FieldDescription>
+						</FieldContent>
+						{select(`${field}-scroll`, scrollItems, scroll, (v) => v && put("scroll", v))}
 					</Field>
 				</FieldGroup>
 			</Section>

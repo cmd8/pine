@@ -90,6 +90,8 @@ export interface AgentInfo {
 	description: string;
 	/** Its own color (`#rrggbb`), where it has one: the source of its avatar's scheme. */
 	color?: string;
+	/** Where its conversations go when the owner sends a message (`Scroll`). A pine older than it says nothing: top, as it did then. */
+	scroll?: Scroll;
 	workspace: string;
 	model: string;
 	mode: Mode;
@@ -100,6 +102,8 @@ export interface AgentInfo {
 }
 
 export type Mode = "manual" | "safe" | "auto" | "bypass" | "plan";
+/** Where a conversation goes when the owner sends a message: move the message to the top, or follow the answer at the end (`SCROLLS` in src/config.ts). */
+export type Scroll = "follow" | "top";
 
 export interface Conversation {
 	session: string;
@@ -320,6 +324,7 @@ export interface AgentDetail {
 	main: boolean;
 	description: string;
 	color?: string;
+	scroll?: Scroll;
 	workspace: string;
 	dir: string;
 	model?: string;

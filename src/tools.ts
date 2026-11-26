@@ -1720,7 +1720,7 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 				const reach = unsandboxed(levelOf(a)) ? "your owner's whole account + network, no sandbox" : `the agent's own folders, in the sandbox${a.sandbox.network ? " + network" : ""}`;
 				const opened = [...a.sandbox.read.map((p) => `${p} (read)`), ...a.sandbox.write.map((p) => `${p} (read and change)`)];
 				return `- ${a.id}${a.id === mainId ? " (the main agent: you)" : ""}: ${purposeOf(a) || "no purpose given"}
-    model ${a.model ?? `${cfg.defaults.model ?? "none yet"} (the default)`} · reasoning ${a.thinking} · mode ${a.mode} · reach ${reach} · built-in tools ${some(a.tools ?? AGENT_TOOLS)}${a.color ? ` · color ${a.color}` : ""}
+    model ${a.model ?? `${cfg.defaults.model ?? "none yet"} (the default)`} · reasoning ${a.thinking} · mode ${a.mode} · reach ${reach} · built-in tools ${some(a.tools ?? AGENT_TOOLS)}${a.color ? ` · color ${a.color}` : ""}${a.scroll === "follow" ? " · scroll follow" : ""}
     conversations: ${some(has.conversations)} · event sources: ${some(has.sources)} · MCP servers: ${some(has.servers)} · schedules: ${some(has.schedules)} · skills: ${some(has.skills)} · ${has.files} file${has.files === 1 ? "" : "s"} in the agent's workspace${has.working ? " · working right now" : ""}${opened.length ? `\n    folders opened for it: ${opened.join(", ")}` : ""}`;
 			};
 			tools.push(
@@ -1744,10 +1744,11 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 				defineTool({
 					name: "update_agent",
 					label: "Change agent",
-					description: `Change an agent's settings, when your owner asks for it: the agent's color in the Pine app, instructions (whose first paragraph says what the agent is for), model, how much it reasons, mode, built-in tools, whom it may hand work to, how far the agent's shell and file tools reach, and folders outside the agent's workspace that it may use. Give only what changes; the rest stays. Your owner sees the change and confirms it, and it holds from the agent's next message on. What an agent has (event sources, MCP servers, schedules, skills) is not changed here: use those tools with "agent".`,
+					description: `Change an agent's settings, when your owner asks for it: the agent's color in the Pine app, where its conversations scroll when your owner sends a message, instructions (whose first paragraph says what the agent is for), model, how much it reasons, mode, built-in tools, whom it may hand work to, how far the agent's shell and file tools reach, and folders outside the agent's workspace that it may use. Give only what changes; the rest stays. Your owner sees the change and confirms it, and it holds from the agent's next message on. What an agent has (event sources, MCP servers, schedules, skills) is not changed here: use those tools with "agent".`,
 					parameters: Type.Object({
 						id: Type.String({ description: `The agent. Agents: ${Object.keys(cfg.agents).join(", ")}` }),
 						color: Type.Optional(Type.String({ description: 'The agent\'s color in the Pine app, as #rrggbb (for example #3366cc for blue). "none" takes it away' })),
+						scroll: Type.Optional(Type.String({ description: "Where the agent's conversations go in the Pine app when your owner sends a message: top (the message moves to the top of the window and the answer is written below it; the default) or follow (the message stays at the end and the answer is followed as it is written)" })),
 						instructions: Type.Optional(Type.String({ description: "The whole new text of the agent's instructions, written to the agent itself; the first paragraph says what it is for. It replaces what is there: read the present text with agents (id) first and give back all of it with your change" })),
 						soul: Type.Optional(Type.String({ description: "The whole new text of the agent's SOUL.md: who the agent is, character and tone, written to the agent itself. It replaces what is there: read the present text with agents (id) first and give back all of it with your change. Use this, not instructions, when your owner speaks of the agent's personality or how it should sound" })),
 						tooling: Type.Optional(Type.String({ description: "The whole new text of the agent's own TOOLS.md: defaults and preferences for tools that are for this agent alone, on top of the TOOLS.md for all agents. It replaces what is there: read the present text with agents (id) first and give back all of it with your change. What is for all agents is not set here: you write that into the TOOLS.md in pine's home" })),
@@ -1766,7 +1767,7 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 						notHere("changing an agent");
 						const target = cfg.agents[p.id];
 						if (!target) throw new Error(`there is no agent "${p.id}". Agents: ${Object.keys(cfg.agents).join(", ")}`);
-						const change: AgentChange = { color: p.color, instructions: p.instructions, soul: p.soul, tooling: p.tooling, model: p.model, thinking: p.thinking, mode: p.mode, tools: listOf(p.tools), delegates: listOf(p.delegates), network: p.network, read: p.read, write: p.write, forget: p.forget };
+						const change: AgentChange = { color: p.color, scroll: p.scroll, instructions: p.instructions, soul: p.soul, tooling: p.tooling, model: p.model, thinking: p.thinking, mode: p.mode, tools: listOf(p.tools), delegates: listOf(p.delegates), network: p.network, read: p.read, write: p.write, forget: p.forget };
 						const checked = checkAgentChange(cfg, target, change, p.model && p.model !== "default" ? await manager.availableModels() : []);
 						const decision = await confirm("update_agent", `change the agent "${target.id}"\n${checked.lines.join("\n")}`, `this changes an agent in pine's configuration${checked.warnings.length ? `. Note: ${checked.warnings.join("; ")}` : ""}`, signal);
 						if (!decision.allow) throw new Error(`not changed (${decision.by}). Do not retry; tell your owner what you proposed.`);

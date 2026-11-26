@@ -1106,6 +1106,19 @@ function BookmarkJump({ tab, root }: { tab: Tab; root: RefObject<HTMLElement | n
 }
 
 /**
+ * With "follow" (an agent's `scroll`), a message the owner sent brings the view to the end, also when they had
+ * gone up: Message Scroller follows what arrives only while the view is at the end. At the end already, this
+ * scroll has nowhere to go.
+ */
+function FollowSent({ sent }: { sent?: number }) {
+	const { scrollToEnd } = useMessageScroller();
+	useEffect(() => {
+		if (sent !== undefined) scrollToEnd({ behavior: "smooth" });
+	}, [sent]);
+	return null;
+}
+
+/**
  * The column of the transcript, and the size of what is said in it, set once here: messages and the owner's
  * bubbles read at the reading size (text-read, snug), larger than the stock parts' text-sm, which the lines of
  * work, the notes and the requests keep. The stock Message and Bubble Content set their own size, so it is
@@ -1156,13 +1169,37 @@ export function Conversation({ tab }: { tab: Tab }) {
 		window.getSelection()?.removeAllRanges();
 		unselect();
 	};
+	// Where the conversation goes when the owner sends a message: the agent's `scroll`, "top" when it says
+	// nothing (Settings > the agent > When you send a message). Read when the message comes, which renders this.
+	const scroll = store.agent(tab.agent)?.scroll ?? "top";
 	// What the conversation held when this view of it was opened: its history, or what was said while another tab
-	// was in front. Message Scroller goes to a message of the owner's when it arrives (`scrollAnchor`), and takes
-	// for arrived whichever such message it has not gone to yet. So one that was there from the start is no
-	// anchor: it would be gone to, the oldest first, as soon as a line of the list is exchanged for another
-	// (the mark before the last message for a message that comes), and the view would jump to the very top.
+	// was in front. With "top", Message Scroller goes to a message of the owner's when it arrives (`scrollAnchor`),
+	// and takes for arrived whichever such message it has not gone to yet. So one that was there from the start is
+	// no anchor: it would be gone to, the oldest first, as soon as a line of the list is exchanged for another
+	// (the mark before the last message for a message that comes), and the view would jump to the very top. For
+	// the same reason the list starts again when the agent's `scroll` changes: what came under "follow" was never
+	// gone to, and would all be gone to at once.
 	const before = useRef<Set<number> | undefined>(undefined);
-	if (loaded && !before.current) before.current = new Set(tab.items.map((item) => item.id));
+	const scrolled = useRef(scroll);
+	if (loaded && (!before.current || scrolled.current !== scroll)) before.current = new Set(tab.items.map((item) => item.id));
+	scrolled.current = scroll;
+	// The owner's latest message, when it came after this view was opened. While the view goes to it (or, with
+	// "follow", to the end below it) the viewport scrolls smoothly: Message Scroller scrolls at once, and the
+	// viewport's own smooth scrolling turns that scroll into an animation without taking its place.
+	const owner = lastOwnerMessage(tab.items);
+	const sent = owner >= 0 && before.current && !before.current.has(tab.items[owner].id) ? tab.items[owner].id : undefined;
+	const [seen, setSeen] = useState(sent);
+	const [glide, setGlide] = useState(false);
+	if (sent !== seen) {
+		setSeen(sent);
+		if (sent !== undefined) setGlide(true);
+	}
+	useEffect(() => {
+		if (!glide) return;
+		// The end of the scroll ends it (`onScrollEnd`); this is for a scroll that had nowhere to go.
+		const t = setTimeout(() => setGlide(false), 1500);
+		return () => clearTimeout(t);
+	}, [glide, seen]);
 	const chat = tab.kind === "chat";
 	const checkpoint = chat && !tab.busy ? lastOwnerMessage(tab.items) : -1;
 	return (
@@ -1184,8 +1221,9 @@ export function Conversation({ tab }: { tab: Tab }) {
 				<MessageScrollerProvider autoScroll defaultScrollPosition="end">
 					<QuoteJump tab={tab} root={scroller} />
 					<BookmarkJump tab={tab} root={scroller} />
+					<FollowSent sent={scroll === "follow" ? sent : undefined} />
 					<MessageScroller className="flex-1">
-						<MessageScrollerViewport ref={scroller}>
+						<MessageScrollerViewport ref={scroller} data-glide={glide ? "" : undefined} onScrollEnd={() => setGlide(false)} className="motion-safe:data-glide:scroll-smooth">
 							{/* The column of the conversation, under the head and above the input. */}
 							<MessageScrollerContent className={TRANSCRIPT} aria-busy={tab.busy}>
 								{/* The main agent's main conversation begins with pine's welcome, above everything said in it: under the agent while nothing was said yet. */}
@@ -1215,7 +1253,7 @@ export function Conversation({ tab }: { tab: Tab }) {
 													<Checkpoint tab={tab} />
 												</MessageScrollerItem>
 											) : null}
-											<MessageScrollerItem messageId={String(item.id)} scrollAnchor={item.t === "user" && !before.current?.has(item.id)}>
+											<MessageScrollerItem messageId={String(item.id)} scrollAnchor={scroll === "top" && item.t === "user" && !before.current?.has(item.id)}>
 												<Row item={item} v={item.v} tab={tab} />
 											</MessageScrollerItem>
 										</Fragment>

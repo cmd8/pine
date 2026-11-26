@@ -1260,8 +1260,8 @@ export class Store extends Model {
 		if (this.service.status !== "ready") return;
 		const list = await this.askAgents().catch(() => undefined);
 		if (!list) return;
-		const was = this.agents.map((a) => `${a.id}|${a.description}|${a.color ?? ""}|${a.model}|${a.mode}|${a.thinking}|${a.modelProblem ?? ""}`).join("\n");
-		const now = list.map((a) => `${a.id}|${a.description}|${a.color ?? ""}|${a.model}|${a.mode}|${a.thinking}|${a.modelProblem ?? ""}`).join("\n");
+		const was = this.agents.map((a) => `${a.id}|${a.description}|${a.color ?? ""}|${a.scroll ?? ""}|${a.model}|${a.mode}|${a.thinking}|${a.modelProblem ?? ""}`).join("\n");
+		const now = list.map((a) => `${a.id}|${a.description}|${a.color ?? ""}|${a.scroll ?? ""}|${a.model}|${a.mode}|${a.thinking}|${a.modelProblem ?? ""}`).join("\n");
 		if (was === now) return;
 		const fresh = list.filter((a) => !this.agents.some((x) => x.id === a.id)).map((a) => a.id);
 		const gone = this.agents.filter((a) => !list.some((x) => x.id === a.id)).map((a) => a.id);

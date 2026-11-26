@@ -294,7 +294,7 @@ The ones only it has:
 | Tool | Does |
 |---|---|
 | `agents` [`id`] | Lists the agents: what each is for, its model, reasoning, mode and reach, and what it has (conversations, event sources, MCP servers, schedules, skills, files in its workspace). With `id`, one agent in full, with its workspace and its instructions. Asks nobody. |
-| `update_agent` `id` [`color`] [`instructions`] [`soul`] [`tooling`] [`model`] [`thinking`] [`mode`] [`tools`] [`delegates`] [`network`] [`read`] [`write`] [`forget`] | Changes an agent's settings; only what is given changes. You see the change line by line and confirm it. See "Changing and removing an agent". |
+| `update_agent` `id` [`color`] [`scroll`] [`instructions`] [`soul`] [`tooling`] [`model`] [`thinking`] [`mode`] [`tools`] [`delegates`] [`network`] [`read`] [`write`] [`forget`] | Changes an agent's settings; only what is given changes. You see the change line by line and confirm it. See "Changing and removing an agent". |
 | `rename_agent` `id` `to` | Gives an agent another id, and everything that names it follows. You see what follows and confirm it. Not the main agent itself. See "Renaming an agent". |
 | `remove_agent` `id` [`keep_files`] | Removes an agent for good, with everything it has. You see what goes and confirm it. See "Changing and removing an agent". |
 | `settings` | Lists the settings it can change, with what is in force and what each means. Asks nobody. |
@@ -325,6 +325,7 @@ Tell the main agent what to change about another agent ("give the books agent an
 | Value | What it is |
 |---|---|
 | `color` | Its own color in the Pine app, `#rrggbb` (its avatar is drawn in it); `"none"` takes it away. "Make scout blue" is a `color` change, which you confirm like any other; anything that is not `#rrggbb` is refused before you are asked |
+| `scroll` | Where its conversations go in the Pine app when you send a message: `top` (your message moves to the top of the window and the answer is written below it; the default) or `follow` (your message stays at the end, at the bottom of the window, and the answer is followed as it is written, as a terminal does); `default` is `top`. "Keep my message at the bottom when I write to scout" is a `scroll` change |
 | `instructions` | The whole new text of its `AGENTS.md`, whose first paragraph says what it is for. It replaces the file, so the main agent reads the present text first (`agents` with `id`) |
 | `soul` | The whole new text of its `SOUL.md`: who it is, its character and tone. It replaces the file the same way. This is what the main agent uses when you speak of an agent's personality or how it should sound |
 | `tooling` | The whole new text of its own `TOOLS.md`: tooling defaults and preferences for it alone. It replaces the file the same way; empty takes them back |
