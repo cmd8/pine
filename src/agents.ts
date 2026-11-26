@@ -18,7 +18,6 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { mcpNamespace } from "@earendil-works/pi-mcp";
 import { dropConversationSkills, renameConversationSkills, skillDirs } from "./skills.ts";
-import { whereIs } from "./decisions.ts";
 import { type AgentConfig, loadConfig, agentSkillsDir, conversationsDir, delegateTargets, effectiveMcp, type Level, mainAgentId, type McpServerConfig, mcpTaints, type Mode, MODES, ownText, PINE_ROOT, type PineConfig, purposeOf, sharedFiles, stricter, toPiMcp, unsandboxed, WORKSPACE_FILES } from "./config.ts";
 import { Limiter, type Slot } from "./limiter.ts";
 import { modelRuntime } from "./models.ts";
@@ -146,6 +145,7 @@ const BASE_PROMPT = `You are an agent in pine, a system that runs several AI age
 <limits>
 - {{REACH}} When a tool call is refused, do not look for a way around it: say what you could not do.
 - pine's setup is changed through tools, never by writing pine's files: they are closed to you, and pine writes them itself. With your tools you can set up, subscribe to and remove event sources (add_source, subscribe, unsubscribe, remove_source), connect and remove MCP servers, remote ones by their address and local ones by their command (add_mcp_server, remove_mcp_server), write down how something is done as a skill (add_skill, remove_skill), and do things at set times (add_schedule, remove_schedule); a source that can also send (Telegram, MQTT) you send through with the send tool. What you set up is for the conversation it is asked for in and goes away with it; when your owner says so, it is for you as an agent and stays. What you have of each, and whom it is for, a tool tells you: sources (event sources and subscriptions), mcp_servers, skills, schedules. Call it when your owner asks what you have or what is connected; never guess it, and never look for it in pine's files. {{ROLE}} What has no tool (the control API, secrets) your owner changes in pine's home folder, followed by a restart: look it up in pine's manual and explain the steps for them to take.
+- What pine has, and what each is for: event sources (something outside reports what happens: a folder, mail, a chat, a device), schedules (something at a time), routes (rules that act on each event at once, without an agent's turn: a script, a decision, an agent woken only when it matters), decision models (answer a typed question about a text in a fraction of a second: how likely, which option, which level), models (what agents think with), MCP servers (more tools), skills (written-down ways of doing something), and other agents and sub-agents (work handed on). Pick what fits the task; the manual has each.
 - How pine itself works is in pine's manual, which you search with the manual tool: your tools and what they take, event sources and their options, schedules, the configuration files and every key in them, modes and approvals, the sandbox, the terminal UI, the pine command. Search it before you answer a question about pine, before you say that pine cannot do something, and when one of your tools refuses and you want to know why. Do not answer such questions from memory.
 - Passwords, tokens and keys are not yours to handle. Never ask your owner to write one into the conversation, and do not look for one in files: a tool that needs one gets it from your owner through pine's own dialog, or by the key's name in pine's .env file.
 - Some actions need your owner's approval. If one is not approved, do not retry it: report what you wanted to do and why.
@@ -176,6 +176,7 @@ const SHORT_PROMPT = `You are an agent in pine, a system that runs several AI ag
 <limits>
 - {{REACH}} When a tool call is refused, do not look for a way around it: say what you could not do.
 - pine's setup is changed through tools, never by writing pine's files. Event sources, MCP servers, skills and schedules you set up and remove with your tools pine_sources, pine_mcp, pine_skills and pine_schedules. What you set up is for the conversation it is asked for in and goes away with it; when your owner says so, it is for you as an agent and stays. What is to happen by itself from now on (when something arrives or changes, or at a time), you set up with these tools: a promise or a note in your memory makes nothing happen. What you have of each, pine_list tells you: when your owner asks about one of them, ask for that one list and answer from it, and never guess it. {{ROLE}} What has no tool (the control API, secrets) your owner changes in pine's home folder, followed by a restart: look it up in the manual and explain the steps.
+- What pine has, and what each is for: event sources (something outside reports what happens: a folder, mail, a chat, a device), schedules (something at a time), routes (rules that act on each event at once, without an agent's turn: a script, a decision, an agent woken only when it matters), decision models (answer a typed question about a text in a fraction of a second: how likely, which option, which level), models (what agents think with), MCP servers (more tools), skills (written-down ways of doing something), and other agents and sub-agents (work handed on). Pick what fits the task; the manual has each.
 - How pine itself works is in pine's manual (the manual tool). Search it before you answer a question about pine, before you say that pine cannot do something, and when a tool refuses and you want to know why. Do not answer such questions from memory.
 - Passwords, tokens and keys are not yours to handle. Never ask your owner to write one into the conversation, and do not look for one in files: a tool that needs one gets it from your owner through pine's own dialog, or by the key's name in pine's .env file.
 - Some actions need your owner's approval. If one is not approved, do not retry it: report what you wanted to do and why.
@@ -4198,12 +4199,6 @@ export class AgentManager {
 			const theirOwn = new Set(this.sources?.ownTypes().map((t) => t.name));
 			const ownTypes = live.trust === "owner" && !live.leaf ? (this.sources?.typeList() ?? []).filter((t) => theirOwn.has(t.name)) : [];
 			if (ownTypes.length) lines.push(`Kinds of event source this pine has besides the built-in ones: ${ownTypes.map((t) => `${t.name} (${t.summary}. Options: ${describeOptions(t.options)})`).join("; ")}`);
-		}
-		// Which decision models there are changes, and an agent that is not told does not know they exist: said here, in general words.
-		const decisions = live.trust === "owner" && !live.leaf ? Object.entries(this.cfg.decisions) : [];
-		if (decisions.length) {
-			const main = mainAgentId(this.cfg);
-			lines.push(`Decision models: ${decisions.map(([name, d]) => `${name} (${whereIs(d)})`).join("; ")}. A decision model answers typed questions about a text in a fraction of a second (how likely yes is, which of named options, which level), not in words, and no agent runs on one. A route asks one about every event of a kind and acts on the answers with no model turn: a script, an event, or waking an agent only when an answer says so. ${agent.id === main ? "You set routes up (add_route with ask_model)" : `The main agent (${main}) sets routes up`}; the manual has it under "Typed questions".`);
 		}
 		// What its commands left running, so that it knows without looking and can stop it.
 		const running = live.trust === "owner" ? this.programs.list(live.perm) : [];

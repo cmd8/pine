@@ -365,9 +365,6 @@ Settings > Models, Decision models, with `pine login typesafe`, or by asking the
 and kept in `.env` as `TYPESAFE_API_KEY`; `pine logout typesafe` takes it out. Then add Jev as a
 decision model: `{ "server": "typesafe" }`.
 
-Every agent is told in the note in front of a message which decision models there are and what they
-are for, so that none has to look it up to know they exist.
-
 **Adding one.** Settings > Models, Decision models, or ask the main agent ("add the decider model
 my studio serves as a decision model": `add_decision_model`). One on a model server pine has asks
 for nothing more. What a route asks a decision model about goes to that server, which you are
