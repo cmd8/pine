@@ -3921,8 +3921,11 @@ export class AgentManager {
 				// until it is reset, a no until then or a restart). No answer is no answer: the next change asks
 				// again. A sub-agent has its conversation's answer and does not ask.
 				if (ownAsks()) {
-					const ownCall = classify(tool, input, { roots, cwd: agent.workspace, shellReaches: true, sends: false, reachable: () => false, ownWrites: tool === "bash" ? ownWrites : undefined });
-					const file = ownCall.cls === "own" && tool !== "add_skill" ? (fileKind ? (ownFileOf(roots, String(input.path ?? ""), agent.workspace) ?? "") : (ownWrites(String(input.command ?? "")) ?? "")) : undefined;
+					// A command is asked about by the own file it names, whatever else it does: one that also plants a hook
+					// is critical for that, and the owner's yes to the hook must not stand in for this question.
+					let file: string | undefined;
+					if (tool === "bash") file = ownWrites(String(input.command ?? ""));
+					else if (tool !== "add_skill" && classify(tool, input, { roots, cwd: agent.workspace, shellReaches: true, sends: false, reachable: () => false }).cls === "own") file = fileKind ? (ownFileOf(roots, String(input.path ?? ""), agent.workspace) ?? "") : "";
 					if (file !== undefined) {
 						const name = path.basename(file);
 						const refusal = (by: string) => `Not done: ${name} is your own memory or instructions, which every later conversation reads, and this conversation has read content from outside. Your owner has not let it change them (${by}). Do not retry and do not look for another way: go on without it, or tell your owner what you wanted to write and why.`;

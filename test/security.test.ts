@@ -450,6 +450,25 @@ test("own memory and instructions after outside content: a no holds for the conv
 	await h.close();
 });
 
+test("own memory after outside content: a command that is critical for something else and names the memory asks about the memory too", { skip: !sandboxAvailable() }, async () => {
+	const h = await harness({ pine: { security: { approvalTimeout: "5s" } }, agents: { main: { agent: { mcp: { feed } }, files: { "MEMORY.md": "OLD\n" } } } });
+	const asked: any[] = [];
+	h.pine.bus.subscribe("approval/requested", (e) => {
+		asked.push(e.payload);
+		h.pine.approvals.decide((e.payload as any).id, true, "test");
+	});
+	const ws = h.workspace("main");
+	await h.pine.agents.run({
+		agent: "main",
+		prompt: mockMsg([{ tools: [{ name: "mcp__feed__echo", args: { text: "x" } }] }, { tools: [{ name: "bash", args: { command: "mkdir -p .git/hooks && echo evil | tee .git/hooks/pre-commit > /dev/null; echo MINE | tee -a MEMORY.md > /dev/null" } }] }]),
+		...owner,
+	});
+	// The hook makes the command critical; the owner's yes to that is no yes to the memory, which is asked on its own.
+	assert.ok(asked.some((a) => /main's own memory/.test(a.summary)), asked.map((a) => a.summary).join(" | "));
+	assert.equal(fs.readFileSync(path.join(ws, "MEMORY.md"), "utf8"), "OLD\nMINE\n");
+	await h.close();
+});
+
 test("a tainted session can use git in a repository but not change what makes git run programs", { skip: !sandboxAvailable() }, async () => {
 	const h = await harness({ agents: { main: { agent: { mcp: { feed } }, files: { "a.txt": "one\n" } } } });
 	// A command that names a hook or a repository's configuration is critical, and the owner is asked. A yes changes nothing here: the sandbox refuses it all the same.
