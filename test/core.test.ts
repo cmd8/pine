@@ -61,7 +61,7 @@ test("configuration problems are reported together and name the file", async () 
 	assert.throws(() => loadConfig(h.home), (e: any) => {
 		assert.ok(e instanceof ConfigError);
 		const all = e.problems.join("\n");
-		for (const expected of ['main agent "nobody"', 'unknown agent "ghost"', "needs one of agent, call, publish, set", 'mcp.bad needs "command", "url" or "pine"', "PINE_TEST_UNSET_VAR is not set", 'needs a "secret"', "pine.json: plugins: plugins are gone. Telegram, MQTT and watched folders are event sources now"]) assert.ok(all.includes(expected), `missing: ${expected}\n${all}`);
+		for (const expected of ['main agent "nobody"', 'unknown agent "ghost"', "needs one of agent, call, ask, publish, set", 'mcp.bad needs "command", "url" or "pine"', "PINE_TEST_UNSET_VAR is not set", 'needs a "secret"', "pine.json: plugins: plugins are gone. Telegram, MQTT and watched folders are event sources now"]) assert.ok(all.includes(expected), `missing: ${expected}\n${all}`);
 		assert.ok(!all.includes("no model"), "no model is how a new home starts, not a problem");
 		return true;
 	});

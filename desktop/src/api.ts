@@ -295,6 +295,8 @@ export interface SourceInfo {
 	topic: string;
 	last?: { ts: number; topic: string };
 	events: number;
+	/** A source of all agents that answers routes' typed questions: where what it is asked about goes. */
+	decides?: string;
 }
 
 export interface McpServer {
@@ -362,6 +364,13 @@ export interface Schedule {
 	topic: string;
 }
 
+export interface AskQuestion {
+	type: "yesno" | "choice" | "score";
+	question: string;
+	options?: Record<string, string>;
+	levels?: string[];
+}
+
 export interface Route {
 	name: string;
 	on: string[];
@@ -374,6 +383,8 @@ export interface Route {
 	set?: Record<string, unknown>;
 	publish?: { topic: string; payload?: unknown };
 	call?: { prompt: string; system?: string; model?: string };
+	/** Typed questions (src/ask.ts): answered by `model` or by the source `source`. */
+	ask?: { questions: Record<string, AskQuestion>; model?: string; source?: string; data?: unknown };
 	trust?: string;
 }
 

@@ -123,7 +123,9 @@ export async function startPine(opts: { home?: string; config?: PineConfig; log?
 		const content: any[] = [{ type: "text", text: o.prompt }, ...(o.images ?? []).map((i) => ({ type: "image", data: i.data, mimeType: i.mimeType }))];
 		const slot = await agents.limiterOf(ref).acquire(5);
 		try {
-			const msg: any = await agents.models.completeSimple(model, { systemPrompt: o.system, messages: [{ role: "user", content, timestamp: Date.now() }] } as any, { signal: o.signal, sessionId: "pine-call" } as any);
+			// An OpenAI-compatible server is asked to hold the answer to the schema (llama.cpp makes a grammar of it). Elsewhere the answer is checked all the same.
+			const onPayload = o.schema && model.api === "openai-completions" ? (payload: any) => ({ ...payload, response_format: { type: "json_schema", json_schema: { name: "answers", schema: o.schema } } }) : undefined;
+			const msg: any = await agents.models.completeSimple(model, { systemPrompt: o.system, messages: [{ role: "user", content, timestamp: Date.now() }] } as any, { signal: o.signal, sessionId: "pine-call", onPayload } as any);
 			if (msg.stopReason === "error" || msg.stopReason === "aborted") throw new Error(msg.errorMessage ?? `model call ${msg.stopReason}`);
 			return (msg.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
 		} finally {

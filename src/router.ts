@@ -7,8 +7,11 @@ export interface CompleteOptions {
 	system?: string;
 	model?: string;
 	images?: Array<{ data: string; mimeType: string }>;
+	/** A JSON schema the answer is held to, where the model server can hold it to one (OpenAI-compatible servers, llama.cpp). */
+	schema?: Record<string, unknown>;
 	signal?: AbortSignal;
 }
+import { answerSchema, type AskAnswers, askPrompt, checkAnswers, dataText } from "./ask.ts";
 import type { Bus, State } from "./store.ts";
 import type { ImageRef, PineEvent, Trust } from "./types.ts";
 import { isInside, realish } from "./security.ts";
@@ -116,8 +119,9 @@ export class Router {
 				const result = await this.complete({ model: route.call.model, system: route.call.system ? render(route.call.system, ctx) : undefined, prompt: this.guard(render(route.call.prompt, ctx), e, trust), images });
 				ctx = this.context(e, { result });
 			}
+			if (route.ask) ctx = this.context(e, { answers: await this.ask(route, e, ctx) });
 			if (route.publish) {
-				const payload = route.publish.payload !== undefined ? renderDeep(route.publish.payload, ctx) : route.call ? { text: (ctx as any).result, of: e.payload } : e.payload;
+				const payload = route.publish.payload !== undefined ? renderDeep(route.publish.payload, ctx) : route.call ? { text: (ctx as any).result, of: e.payload } : route.ask ? { answers: (ctx as any).answers, of: e.payload } : e.payload;
 				this.bus.publish(render(route.publish.topic, ctx), payload, { source, cause: e, hop: true, reply: e.reply, trust });
 			}
 			if (route.agent) {
@@ -147,6 +151,37 @@ export class Router {
 	}
 
 	/**
+	 * A route's typed questions, put to its model or its source. Only answers of the questions' types come
+	 * back (a probability, one of the owner's option names or levels): nothing of the event's text passes
+	 * through them, which is why what is published with them keeps the event's trust. A model that says
+	 * anything else is asked once more; then the route fails and publishes nothing.
+	 */
+	private async ask(route: RouteConfig, e: PineEvent, ctx: Record<string, unknown>): Promise<AskAnswers> {
+		const a = route.ask!;
+		const data = a.data !== undefined ? renderDeep(a.data, ctx) : e.payload;
+		const text = truncate(dataText(data), this.cfg.limits.maxEventChars);
+		const signal = AbortSignal.timeout(ASK_TIMEOUT_MS);
+		if (a.source) {
+			const sources = this.manager.sources;
+			if (!sources) throw new Error("sources are not running");
+			// A source is handed the data as it is, unless it is long: then the same text a model would read.
+			const given = text.length < this.cfg.limits.maxEventChars ? data : text;
+			return checkAnswers(await sources.decide(a.source, { questions: a.questions, data: given }, signal), a.questions);
+		}
+		const { system, user } = askPrompt(a.questions, text);
+		let wrong: unknown;
+		for (let i = 0; i < 2; i++) {
+			const said = await this.complete({ model: a.model, system, prompt: user, schema: answerSchema(a.questions), signal });
+			try {
+				return checkAnswers(said, a.questions);
+			} catch (err) {
+				wrong = err;
+			}
+		}
+		throw new Error(`the model gave no usable answer twice (${errText(wrong)})`);
+	}
+
+	/**
 	 * Images an event carries. A file path is only honoured inside a directory a source declared as
 	 * media storage; otherwise an event could make the daemon read any file and hand it to the model.
 	 */
@@ -173,5 +208,8 @@ function defaultPrompt(e: PineEvent, whole = false): string {
 	if (!whole && p && typeof p.text === "string" && p.text) return p.text;
 	return `Event ${e.topic}:\n${JSON.stringify(p, null, 2)}`;
 }
+
+/** How long a route's questions may take, a second try included: a decision server of the owner's may first have to load its model. */
+const ASK_TIMEOUT_MS = 180_000;
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];

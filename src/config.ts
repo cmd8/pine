@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
+import { type AskConfig, askProblem } from "./ask.ts";
 import type { ReplyTarget } from "./types.ts";
 import { expandHome, parseDuration, resolvePath, type LogLevel } from "./util.ts";
 
@@ -63,7 +64,7 @@ export interface SourceConfig {
 	options: Record<string, any>;
 }
 
-export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "telegram", "http", "command", "feed", "calendar", "stream", "mail", "slack", "matrix", "discord", "zulip", "smtp", "syslog", "system", "presence", "modbus", "serial", "onvif"];
+export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "telegram", "http", "command", "feed", "calendar", "stream", "mail", "slack", "matrix", "discord", "zulip", "smtp", "syslog", "system", "presence", "modbus", "serial", "onvif", "typesafe"];
 
 /**
  * The types an agent is told about with all their options, in the description of its add_source
@@ -127,6 +128,8 @@ export interface RouteConfig {
 	publish?: { topic: string; payload?: unknown };
 	/** One model call without tools or history. */
 	call?: { model?: string; system?: string; prompt: string };
+	/** Typed questions about the event, answered by a model or a source that decides (src/ask.ts). `{{answers.<name>}}` in `publish`. */
+	ask?: AskConfig;
 	/** Full agent turn. */
 	agent?: string;
 	prompt?: string;
@@ -528,8 +531,14 @@ function loadRoutes(raw: unknown, problems: string[]): RouteConfig[] {
 			problems.push(`${where}: needs "on" (topic pattern)`);
 			return [];
 		}
-		if (!r.agent && !r.call && !r.publish && !r.set) problems.push(`${where}: needs one of agent, call, publish, set`);
+		if (!r.agent && !r.call && !r.ask && !r.publish && !r.set) problems.push(`${where}: needs one of agent, call, ask, publish, set`);
 		if (r.agent && r.call) problems.push(`${where}: use either agent or call, not both`);
+		if (r.ask !== undefined) {
+			const wrong = askProblem(r.ask);
+			if (wrong) problems.push(`${where}: ${wrong}`);
+			if (r.agent || r.call) problems.push(`${where}: ask stands alone with publish: it publishes its answers, and a second route acts on them`);
+			if (!r.publish) problems.push(`${where}: ask needs "publish": its answers go out as an event`);
+		}
 		if (r.call && typeof r.call.prompt !== "string") problems.push(`${where}: call needs "prompt"`);
 		if (r.publish && typeof r.publish.topic !== "string") problems.push(`${where}: publish needs "topic"`);
 		return [
