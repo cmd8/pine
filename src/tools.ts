@@ -1871,7 +1871,7 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 				defineTool({
 					name: "add_route",
 					label: "Add route",
-					description: `Add a route: a rule that says what happens when an event arrives. Only when your owner asks for a rule that a subscription or a schedule cannot do: write shared state from an event ("set"), ask a model one question without tools and publish the answer ("call_prompt" with "publish_topic"; {{result}} is the answer), publish another event, or wake an agent only when a condition holds ("when"). To have an agent react to a source, use subscribe instead; for a time, add_schedule. In texts, {{payload.x}}, {{topic}} and {{time}} stand for the event's values. Your owner sees the route and confirms it; it works at once.`,
+					description: `Add a route: a rule that says what happens when an event arrives. Only when your owner asks for a rule that a subscription or a schedule cannot do: write shared state from an event ("set"), ask a model one question without tools and publish the answer ("call_prompt" with "publish_topic"; {{result}} is the answer), ask typed questions about each event and publish the answers as numbers and names a second route filters on ("ask_questions" with "publish_topic"; for a filter on a judgement, such as "only urgent mail"), publish another event, or wake an agent only when a condition holds ("when"). To have an agent react to a source, use subscribe instead; for a time, add_schedule. In texts, {{payload.x}}, {{topic}} and {{time}} stand for the event's values. Your owner sees the route and confirms it; it works at once.`,
 					parameters: Type.Object({
 						name: Type.String({ description: "Short name for it: lowercase letters, digits, - and _ (for example front-door)" }),
 						on: Type.String({ description: "The topic it listens to, as the sources tool shows it for a source (for example source/house/message). Several separated by commas; + and # are wildcards" }),
@@ -1885,6 +1885,10 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 						call_prompt: Type.Optional(Type.String({ description: "Ask a model this, once, without tools. The answer is {{result}} in publish_payload" })),
 						call_system: Type.Optional(Type.String({ description: "The instructions for that one call" })),
 						call_model: Type.Optional(Type.String({ description: "The model for that call, as provider/model. Default: pine's default model" })),
+						ask_questions: Type.Optional(Type.String({ description: 'Typed questions about each event, as JSON, each under a name: {"urgent": {"type": "yesno", "question": "Does this need an answer today?"}, "kind": {"type": "choice", "question": "What is it?", "options": {"invoice": "a bill to pay", "other": "anything else"}}, "mood": {"type": "score", "question": "How upset is the sender?", "levels": ["calm", "annoyed", "angry"]}}. Fixed text: no {{...}}. The event published carries payload.answers.urgent.yes (0 to 1), payload.answers.kind.choice, payload.answers.mood.level and .score (0 is the lowest), and payload.of, the event asked about' })),
+						ask_model: Type.Optional(Type.String({ description: "The model that answers, as provider/model. Default: pine's default model" })),
+						ask_source: Type.Optional(Type.String({ description: "Instead of a model: a source of all agents that answers typed questions" })),
+						ask_data: Type.Optional(Type.String({ description: 'What the questions are about, for example "{{payload.subject}}\n{{payload.text}}". Default: the whole event' })),
 						throttle: Type.Optional(Type.String({ description: 'After one event, ignore matching ones for this long, for example "5m"' })),
 						debounce: Type.Optional(Type.String({ description: 'Wait until this long has passed without a new event, then handle the last one, for example "4s"' })),
 						trust: Type.Optional(Type.String({ description: 'Leave out. "owner" only when your owner said that nobody but them can cause these events: they are then treated like their own messages' })),
@@ -1892,7 +1896,7 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					execute: async (_id, p, signal) => {
 						run();
 						notHere("adding a route");
-						const checked = checkRoute(cfg, p, p.call_model ? await manager.availableModels() : []);
+						const checked = checkRoute(cfg, p, p.call_model || p.ask_model ? await manager.availableModels() : [], manager.sources?.deciders() ?? []);
 						const decision = await confirm("add_route", `add the route "${p.name}"\n${checked.lines.join("\n")}`, `this adds a rule to pine's configuration that acts on events by itself${checked.wider ? `. Note: ${checked.wider}` : ""}`, signal);
 						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what you proposed.`);
 						manager.router?.add(addRoute(cfg, checked.entry));

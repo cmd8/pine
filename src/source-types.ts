@@ -83,6 +83,14 @@ export interface SourceType {
 	 */
 	reads?: string;
 	/**
+	 * It answers typed questions about an event (a probability of yes, one of named options, one of
+	 * levels) for a route's "ask": a decision model behind a service of its own. One line for the
+	 * owner on where what it is asked about goes, for example "the event's data goes to
+	 * api.example.com". The type fixes that address in its code; it is never an option. pine checks
+	 * every answer against the question's type before anything is published (src/ask.ts).
+	 */
+	decides?: string;
+	/**
 	 * What it sends reaches the owner and nobody else: the type itself sees to that (a Telegram bot
 	 * that writes only to the chat the owner paired). A message to the owner is not information
 	 * leaving, so the `send` tool is not asked about for such a source after outside content.

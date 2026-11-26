@@ -888,5 +888,6 @@ export function audit(cfg: PineConfig): string[] {
 		}
 	}
 	for (const r of cfg.routes) if (r.trust === "owner") out.push(`route "${r.name}" treats events on ${r.on.join(", ")} as coming from you; whoever can publish there gets the agent's full tool set`);
+	for (const r of cfg.routes) if (r.ask?.source && !cfg.sources[r.ask.source]) out.push(`route "${r.name}" asks the source "${r.ask.source}", which is not a source of all agents: it fails on every event until there is one`);
 	return out;
 }

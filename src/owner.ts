@@ -426,7 +426,7 @@ export class OwnerApi {
 
 		if (at === "routes") {
 			const input = body as RouteInput;
-			const checked = checkRoute(cfg, input, input.call_model ? await manager.availableModels() : []);
+			const checked = checkRoute(cfg, input, input.call_model || input.ask_model ? await manager.availableModels() : [], manager.sources?.deciders() ?? []);
 			this.router?.add(addRoute(cfg, checked.entry));
 			return { name: String(checked.entry.name), lines: checked.lines, ...(checked.wider ? { wider: checked.wider } : {}) };
 		}

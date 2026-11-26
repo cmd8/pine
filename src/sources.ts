@@ -3,6 +3,7 @@ import { StringDecoder } from "node:string_decoder";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import type { AskQuestions } from "./ask.ts";
 import { EXT, loadConfig, mainAgentId, type PineConfig, rawSubscriptions, type RouteConfig, type SourceConfig, sourceFor, SOURCE_TYPES, type SubscriptionConfig, subscriptionFrom } from "./config.ts";
 import crypto from "node:crypto";
 import os from "node:os";
@@ -68,6 +69,12 @@ export interface SourceApi {
 	 * set up for. What it returns is outside content.
 	 */
 	onRead(handler: (query: Record<string, any>) => string | Promise<string>): void;
+	/**
+	 * For a source whose type `decides`: called with a route's typed questions and the data they are
+	 * about, and returns the answers, an object with one entry per question ({ yes }, { choice },
+	 * { level }). pine checks them against the questions; anything else is refused. Throw to refuse.
+	 */
+	onDecide(handler: (ask: { questions: AskQuestions; data: unknown; signal: AbortSignal }) => unknown | Promise<unknown>): void;
 	/**
 	 * Say in one line how things stand, for whoever lists the sources: who it is connected to,
 	 * what it is waiting for. Call it again when that changes.
@@ -177,6 +184,7 @@ interface Running {
 	hook?: (req: { headers: Record<string, string | string[] | undefined>; body: Buffer }) => void | Promise<void>;
 	send?: (message: Record<string, any>) => void | string | Promise<void | string>;
 	read?: (query: Record<string, any>) => string | Promise<string>;
+	decide?: (ask: { questions: AskQuestions; data: unknown; signal: AbortSignal }) => unknown | Promise<unknown>;
 }
 
 /** The settings every source has, whatever its type. A type's options cannot have these names. */
@@ -591,6 +599,7 @@ export class SourceHost {
 			},
 			onSend: (handler) => void (run.send = handler),
 			onRead: (handler) => void (run.read = handler),
+			onDecide: (handler) => void (run.decide = handler),
 			status: (line) => void this.statuses.set(key, String(line).slice(0, 300)),
 			on: (pattern, handler) => void run.stops.push(this.bus.subscribe(pattern, async (e) => {
 				try {
@@ -828,6 +837,26 @@ export class SourceHost {
 		const read = this.running.get(found.key)?.read;
 		if (!read) throw new Error(`${name} ${this.running.has(found.key) ? "cannot be read as it is set up" : `is not running${this.errors.get(found.key) ? `: ${this.errors.get(found.key)}` : ""}`}`);
 		return String(await read(query));
+	}
+
+	/** The sources of all agents that answer a route's typed questions, with where what they are asked about goes. */
+	deciders(): Array<{ name: string; type: string; decides: string }> {
+		return Object.entries(this.cfg.sources).flatMap(([name, s]) => {
+			const decides = s.type ? this.types.get(s.type)?.type?.decides : undefined;
+			return decides ? [{ name, type: s.type!, decides }] : [];
+		});
+	}
+
+	/**
+	 * Put a route's typed questions to a source that decides, started if it is not running. Only a source
+	 * of all agents: routes are pine's, not an agent's. What comes back is unchecked; the router checks it.
+	 */
+	async decide(name: string, ask: { questions: AskQuestions; data: unknown }, signal: AbortSignal): Promise<unknown> {
+		if (!this.deciders().some((s) => s.name === name)) throw new Error(`"${name}" is not a source that answers typed questions. ${this.deciders().map((s) => s.name).join(", ") || "There is none: leave ask.source out, and a model answers"}`);
+		await this.ensure(name);
+		const decide = this.running.get(name)?.decide;
+		if (!decide) throw new Error(`${name} ${this.running.has(name) ? "cannot answer as it is set up" : `is not running${this.errors.get(name) ? `: ${this.errors.get(name)}` : ""}`}`);
+		return await decide({ ...ask, signal });
 	}
 
 	/** Whether sending through this source reaches the owner and nobody else. The source's type says so, never the call. */
