@@ -1,17 +1,16 @@
 import fs from "node:fs";
 import type { AgentManager } from "./agents.ts";
-import type { PineConfig, RouteConfig } from "./config.ts";
+import { mainAgentId, type PineConfig, type RouteConfig } from "./config.ts";
 /** One model call without tools or history, as a route's "call" makes it. */
 export interface CompleteOptions {
 	prompt: string;
 	system?: string;
 	model?: string;
 	images?: Array<{ data: string; mimeType: string }>;
-	/** A JSON schema the answer is held to, where the model server can hold it to one (OpenAI-compatible servers, llama.cpp). */
-	schema?: Record<string, unknown>;
 	signal?: AbortSignal;
 }
-import { answerSchema, type AskAnswers, type AskConfig, askPrompt, checkAnswers, dataText } from "./ask.ts";
+import { askDecision } from "./decisions.ts";
+import { type AskAnswers, type AskConfig, checkAnswers, dataText } from "./ask.ts";
 import type { Bus, State } from "./store.ts";
 import type { ImageRef, PineEvent, Trust } from "./types.ts";
 import { isInside, realish } from "./security.ts";
@@ -106,11 +105,11 @@ export class Router {
 		const trust: Trust = route.trust ?? e.trust;
 		try {
 			let ctx = this.context(e);
-			// With typed questions, state is written after they are answered, so that it can hold the answers ({{answers.<name>}}).
+			// With typed questions or a command, state is written after them, so that it can hold what they gave ({{answers.<name>}}, {{output}}).
 			const setState = () => {
 				for (const [k, v] of Object.entries(route.set ?? {})) this.state.set(render(k, ctx), renderDeep(v, ctx), { source, cause: e });
 			};
-			if (!route.ask) setState();
+			if (!route.ask && !route.run) setState();
 
 			if (route.call) {
 				const images = this.imagesOf(e).flatMap((i) => {
@@ -123,12 +122,20 @@ export class Router {
 				const result = await this.complete({ model: route.call.model, system: route.call.system ? render(route.call.system, ctx) : undefined, prompt: this.guard(render(route.call.prompt, ctx), e, trust), images });
 				ctx = this.context(e, { result });
 			}
-			if (route.ask) {
-				ctx = this.context(e, { answers: await this.ask(route, e, ctx) });
-				setState();
-			}
+			if (route.ask) ctx = this.context(e, { answers: await this.ask(route, e, ctx) });
+			if (route.run) ctx = this.context(e, { ...pick(ctx, ["result", "answers"]), output: await this.run(route, e, ctx, trust) });
+			if (route.ask || route.run) setState();
 			if (route.publish) {
-				const payload = route.publish.payload !== undefined ? renderDeep(route.publish.payload, ctx) : route.call ? { text: (ctx as any).result, of: e.payload } : route.ask ? { answers: (ctx as any).answers, of: e.payload } : e.payload;
+				const payload =
+					route.publish.payload !== undefined
+						? renderDeep(route.publish.payload, ctx)
+						: route.run
+							? { ...pick(ctx, ["answers"]), output: (ctx as any).output, of: e.payload }
+							: route.call
+								? { text: (ctx as any).result, of: e.payload }
+								: route.ask
+									? { answers: (ctx as any).answers, of: e.payload }
+									: e.payload;
 				this.bus.publish(render(route.publish.topic, ctx), payload, { source, cause: e, hop: true, reply: e.reply, trust });
 			}
 			if (route.agent) {
@@ -158,38 +165,40 @@ export class Router {
 	}
 
 	/**
-	 * A route's typed questions, put to its model or its source. Only answers of the questions' types come
+	 * A route's typed questions, put to its decision model. Only answers of the questions' types come
 	 * back (a probability, one of the owner's option names or levels): nothing of the event's text passes
-	 * through them, which is why what is published with them keeps the event's trust. A model that says
-	 * anything else is asked once more; then the route fails and publishes nothing.
+	 * through them, which is why what is published with them keeps the event's trust. Anything else, and
+	 * the route fails and publishes nothing.
 	 */
 	private async ask(route: RouteConfig, e: PineEvent, ctx: Record<string, unknown>): Promise<AskAnswers> {
 		const a = route.ask!;
 		return this.decide(a, a.data !== undefined ? renderDeep(a.data, ctx) : e.payload);
 	}
 
-	/** Typed questions about `data`, as a route asks them: by its model or its source, the answers checked. */
+	/** Typed questions about `data`, put to the route's decision model, the answers checked. */
 	async decide(a: AskConfig, data: unknown): Promise<AskAnswers> {
+		if (!this.cfg.decisions[a.model]) throw new Error(`there is no decision model "${a.model}". ${Object.keys(this.cfg.decisions).join(", ") || "There is none"}: add one under Settings > Models, or ask the main agent`);
 		const text = truncate(dataText(data), this.cfg.limits.maxEventChars);
-		const signal = AbortSignal.timeout(ASK_TIMEOUT_MS);
-		if (a.source) {
-			const sources = this.manager.sources;
-			if (!sources) throw new Error("sources are not running");
-			// A source is handed the data as it is, unless it is long: then the same text a model would read.
-			const given = text.length < this.cfg.limits.maxEventChars ? data : text;
-			return checkAnswers(await sources.decide(a.source, { questions: a.questions, data: given }, signal), a.questions);
+		// The data as it is, unless it is long: then cut, as text.
+		const given = text.length < this.cfg.limits.maxEventChars ? data : text;
+		return checkAnswers(await askDecision(this.cfg, a.model, a.questions, given, AbortSignal.timeout(ASK_TIMEOUT_MS)), a.questions);
+	}
+
+	/**
+	 * A route's command, in the sandbox of the agent it names, with no model: it is handed what the route
+	 * knows as JSON on stdin (never in the command line), and what it prints is {{output}}.
+	 */
+	private async run(route: RouteConfig, e: PineEvent, ctx: Record<string, unknown>, trust: Trust): Promise<unknown> {
+		const sources = this.manager.sources;
+		if (!sources) throw new Error("sources are not running");
+		const r = route.run!;
+		const input = JSON.stringify({ topic: e.topic, payload: e.payload, trust, ts: e.ts, elapsedMs: Date.now() - e.ts, ...pick(ctx, ["result", "answers"]) });
+		const printed = (await sources.runCommand(r.agent ?? mainAgentId(this.cfg), r.command, input, r.timeoutMs ?? RUN_TIMEOUT_MS)).trim();
+		try {
+			return JSON.parse(printed);
+		} catch {
+			return printed;
 		}
-		const { system, user } = askPrompt(a.questions, text);
-		let wrong: unknown;
-		for (let i = 0; i < 2; i++) {
-			const said = await this.complete({ model: a.model, system, prompt: user, schema: answerSchema(a.questions), signal });
-			try {
-				return checkAnswers(said, a.questions);
-			} catch (err) {
-				wrong = err;
-			}
-		}
-		throw new Error(`the model gave no usable answer twice (${errText(wrong)})`);
 	}
 
 	/**
@@ -220,7 +229,12 @@ function defaultPrompt(e: PineEvent, whole = false): string {
 	return `Event ${e.topic}:\n${JSON.stringify(p, null, 2)}`;
 }
 
-/** How long a route's questions may take, a second try included: a decision server of the owner's may first have to load its model. */
+/** How long a route's command may take, unless it says otherwise. */
+const RUN_TIMEOUT_MS = 30_000;
+
+const pick = (ctx: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.filter((k) => ctx[k] !== undefined).map((k) => [k, ctx[k]]));
+
+/** How long a route's questions may take: a decision server of the owner's may first have to load its model. */
 const ASK_TIMEOUT_MS = 180_000;
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];

@@ -624,6 +624,33 @@ async function main(): Promise<void> {
 		return runTui(cfg, { folder, worktree: typeof flags.worktree === "string" ? flags.worktree : flags.worktree === true ? true : undefined });
 	}
 
+	if ((cmd === "login" || cmd === "logout") && rest[0] === "typesafe") {
+		// TypeSafe is no model provider of pi's: its key is for decision models (src/decisions.ts).
+		const { readSecret } = await import("./login.ts");
+		const { signInTypesafe, signOutTypesafe, TYPESAFE } = await import("./decisions.ts");
+		const daemon = async (pathname: string, body: unknown) => {
+			try {
+				const api = client(cfg);
+				if (!(await fetch(`${api.base}/health`, { signal: AbortSignal.timeout(800) })).ok) return false;
+				await api.post(pathname, body);
+				return true;
+			} catch (e) {
+				if (e instanceof Error && !/fetch failed|ECONNREFUSED|aborted|timeout/i.test(e.message)) throw e;
+				return false;
+			}
+		};
+		if (cmd === "login") {
+			const key = (await readSecret(`TypeSafe API key (from ${TYPESAFE.console})`)).trim();
+			// A running daemon takes it at once; without one it is written here and read at the next start.
+			if (!(await daemon("/decisions/typesafe", { key }))) await signInTypesafe(cfg, key);
+			out("Signed in to TypeSafe. Add Jev as a decision model in Settings > Models, or ask the main agent.");
+		} else {
+			if (!(await daemon("/decisions/typesafe/remove", {}))) signOutTypesafe(cfg);
+			out("Signed out of TypeSafe.");
+		}
+		return;
+	}
+
 	if (cmd === "login" || cmd === "logout") {
 		const { login, logout } = await import("./login.ts");
 		if (!rest[0]) throw new Error(`usage: pine ${cmd} <provider>   (for example opencode-go, opencode, anthropic, openai-codex)`);

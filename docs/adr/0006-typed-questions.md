@@ -173,3 +173,21 @@ the `jev` block in `pine.json`, `TYPESAFE_API_KEY` as a name core knows, `pine l
   model is bought for.
 - Whether `ask` should get a default model of its own (`defaults.ask`, like `defaults.judge`) so
   that a small local model answers while agents run on a large one.
+
+## Revised after the first trials
+
+- **Decision models are models, not sources.** They are kept by name under `decisions` in
+  `pine.json` (`src/decisions.ts`): on a model server pine has (its address and key), at TypeSafe
+  (signed in to like a provider: Settings, `sign_in typesafe`, `pine login typesafe`), or at an
+  address. A route names one in `ask.model`, as it names a chat model. The `typesafe` source type,
+  `ask.source` and a source's `decides` are gone; a `typesafe` source in an older `pine.json` is
+  read as a decision model.
+- **Acting on a decision needs no model.** A route's `run` runs a script in an agent's sandbox,
+  handed the event and the answers on stdin. A decision that wakes an agent for each event costs a
+  model turn and loses what a decision model is for.
+- **An agent tries a route by writing shared state** (`state/agent/<id>/...`), and a route with
+  `ask` can write its answers back with `set`. No tool of its own for it.
+- **Only decision models answer.** The chat-model path (a prompt, a JSON schema for the server, a
+  second try) is gone: it took seconds per event and its numbers were guesses, which is what a
+  decision is meant to avoid, and it made a route fall back to a large model unnoticed. `call` is
+  how a chat model is asked, in words.

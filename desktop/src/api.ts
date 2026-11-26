@@ -199,6 +199,12 @@ export interface Approval {
 	holds?: string;
 	inputs?: Array<{ name: string; label: string; secret?: boolean }>;
 	choices?: string[];
+	/** An agent's question: the answers it offers, each with what it means, the recommended one first. */
+	options?: Array<{ label: string; description?: string }>;
+	/** Several of `options` may be picked. */
+	multiSelect?: boolean;
+	/** A few words over a question. */
+	header?: string;
 }
 
 export interface Todo {
@@ -295,8 +301,12 @@ export interface SourceInfo {
 	topic: string;
 	last?: { ts: number; topic: string };
 	events: number;
-	/** A source of all agents that answers routes' typed questions: where what it is asked about goes. */
-	decides?: string;
+}
+
+/** Decision models (src/decisions.ts): by name, where each is, and which routes ask it; whether pine is signed in to TypeSafe. */
+export interface Decisions {
+	typesafe: { signedIn: boolean; console: string };
+	models: Array<{ name: string; model: string; server?: string; host?: string; where: string; routes: string[] }>;
 }
 
 export interface McpServer {
@@ -383,8 +393,10 @@ export interface Route {
 	set?: Record<string, unknown>;
 	publish?: { topic: string; payload?: unknown };
 	call?: { prompt: string; system?: string; model?: string };
-	/** Typed questions (src/ask.ts): answered by `model` or by the source `source`. */
-	ask?: { questions: Record<string, AskQuestion>; model?: string; source?: string; data?: unknown };
+	/** Typed questions (src/ask.ts): answered by `model`, a decision model by its name or a chat model. */
+	ask?: { questions: Record<string, AskQuestion>; model?: string; data?: unknown };
+	/** A command run in an agent's sandbox with no model, given the event as JSON on stdin. */
+	run?: { command: string; agent?: string };
 	trust?: string;
 }
 
@@ -405,10 +417,25 @@ export interface ModelServer {
 	runs?: number;
 }
 
+/** A model server that answered on one of the usual ports of this computer (`GET /models/local`). */
+export interface LocalServer {
+	/** The name it is added under. */
+	id: string;
+	title: string;
+	url: string;
+	/** It wants a key. */
+	locked: boolean;
+	models: string[];
+	/** Pinecone's MCP server, which answered beside it. */
+	mcp?: string;
+}
+
 export interface Provider {
 	id: string;
 	name?: string;
 	signedIn: boolean;
+	/** How it is signed in now: in the browser, or with a key. None while it is not. */
+	via?: "oauth" | "api_key";
 	models: number;
 	oauth: boolean;
 }
@@ -606,11 +633,18 @@ export const api = {
 	removeMcp: (name: string, agent?: string) => post<{ ok: boolean }>("/mcp", { name, agent, remove: true }),
 	mcpLogin: (name: string, agent?: string) => post<{ code: number; out: string }>("/mcp/login", { name, agent }),
 	modelServers: () => get<ModelServer[]>("/models/servers"),
+	/** The model servers on the usual ports of this computer, asked by the daemon. */
+	localServers: () => get<{ found: LocalServer[] }>("/models/local"),
 	addModelServer: (body: { name: string; url: string; key?: string; context?: number }) => post<{ models: string[]; chosen?: string }>("/models/servers", body),
 	/** How many runs a model takes at a time: a number, or `null` for pine's own limit. */
 	limitModel: (name: string, model: string, limit: number | null) => post<{ name: string; model: string; limit?: number; runs: number }>("/models/servers/limit", { name, model, limit }),
 	removeModelServer: (name: string) => post<{ removed: boolean }>("/models/servers/remove", { name }),
 	providers: () => get<Provider[]>("/models/providers"),
+	decisions: () => get<Decisions>("/decisions"),
+	addDecision: (body: { name: string; server?: string; url?: string; model?: string; local?: boolean; key?: string }) => post<{ name: string; model: string; where: string; lines: string[] }>("/decisions", body),
+	removeDecision: (name: string) => post<{ removed: boolean }>("/decisions/remove", { name }),
+	typesafeSignIn: (key: string) => post<{ signedIn: boolean }>("/decisions/typesafe", { key }),
+	typesafeSignOut: () => post<{ signedIn: boolean }>("/decisions/typesafe/remove", {}),
 	login: (provider: string, type?: "api_key" | "oauth") => post<{ id: string }>("/models/login", { provider, type }),
 	loginState: (id: string) => get<LoginState>(`/models/login/${e(id)}`),
 	loginAnswer: (id: string, body: { answer: string } | { cancel: true }) => post<{ ok: boolean }>(`/models/login/${e(id)}`, body),

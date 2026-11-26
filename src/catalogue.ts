@@ -59,7 +59,7 @@ const GROUPS: Array<[id: string, name: string, about: string, tools: string[]]> 
 		"settings",
 		"pine_settings",
 		"Changes to pine's settings, routes (rules for events that arrive, such as: a source's events wake another agent), models and model servers (add, configure, remove) and sign-ins to model providers.",
-		["set_setting", "add_route", "remove_route", "add_model_server", "remove_model_server", "add_model", "configure_model", "remove_model", "sign_in", "sign_out"],
+		["set_setting", "add_route", "remove_route", "add_decision_model", "remove_decision_model", "add_model_server", "remove_model_server", "add_model", "configure_model", "remove_model", "sign_in", "sign_out"],
 	],
 	[
 		"board",
@@ -119,8 +119,10 @@ const BRIEF: Record<string, string> = {
 	settings: "pine's settings with what is in force: the answer to how pine is set up",
 	set_setting: "change one of pine's settings; key as settings lists it, e.g. defaults.model, defaults.bashTimeoutSec",
 	routes: "pine's routes: rules for what happens when an event arrives. What agents subscribe to is not here (that is sources)",
-	add_route: 'add a rule for arriving events, only for what a subscription or a schedule cannot do: write shared state from an event (set), publish another event, wake an agent only when a condition holds (when). For an agent to react to a source, add_source or subscribe with "agent" instead',
+	add_route: 'add a rule for arriving events, only for what a subscription or a schedule cannot do: run a script on each event with no model (run_command, the fast way to react), write shared state from an event (set), publish another event, wake an agent only when a condition holds (when). For an agent to react to a source, add_source or subscribe with "agent" instead',
 	remove_route: "remove a route",
+	add_decision_model: "add a decision model, which answers routes' typed questions fast: a model a model server of pine's serves (Pinecone), TypeSafe's Jev, or a server at an address",
+	remove_decision_model: "remove a decision model",
 	add_model_server: "add a model server your owner names (an OpenAI-compatible address); not for looking: agents shows which models are in use",
 	remove_model_server: "remove a model server",
 	add_model: "add a model that a server your owner added already serves and pine does not have yet, as server/model",
@@ -337,7 +339,7 @@ const SHORT: Record<string, string> = {
 	delegate: 'Hand a task to another agent and get the answer. Not for sub-agents: those are copies of you, started with subagent. It sees only what you write in "task", so include everything it needs. What your owner asked for goes in their words, never reworded: "sub-agents" stays "sub-agents", and tasks of a board go with the board\'s name and the tasks\' numbers: post them first, then hand them out. To give tasks to several agents at once, call delegate for each of them in the same message: they work side by side, and you get every answer.',
 	subagent: "Start sub-agents: copies of you that run independent sub-tasks in parallel, as many as the job has pieces. When a task says \"sub-agents\", also \"create new sub-agents\", this is the tool: you start them yourself, nothing is created. Each has an empty context and returns only the answer, so each task must be self-contained. Split a job only after you know the pieces: list the folders or files yourself first, then give one task per piece, each naming one piece by path. Never one task for the whole job, and never \"the first folder\". For research or checks that would fill your context. With \"model\" the copies run on another model than yours, for work it does better (models lists them). With \"worktree\" each changes files on a separate checkout, and the work comes back as a branch.",
 	todo: "Keep a short list of the steps of a task that has several. Send the whole list each time: at the start, when a step begins (in_progress, one at a time) and when one is done. Your owner sees it. An empty list clears it.",
-	question: "Ask your owner one question you cannot go on without. Offer two to six short answers when you can, the one you recommend first. Not for permission: that is asked by itself.",
+	question: "Ask your owner one question you cannot go on without. Offer two to six options when you can, each a short label with a line on what it means, the one you recommend first; multiSelect when several may be picked. Not for permission: that is asked by itself.",
 	manual: 'Search pine\'s own manual: how pine works and is set up (your tools, event sources and their options, schedules, MCP servers, skills, agents, every configuration key, modes and approvals, the sandbox, the terminal UI, the pine command). "search": short queries in plain words, one thing each. "read": ids of parts to read in full. Search first, then read the part that fits.',
 };
 
@@ -626,7 +628,7 @@ export function ease(name: string, args: any): any {
 	return args;
 }
 
-/** Arguments made to fit a schema where the difference is one of form: a number as text, one value where a list is taken, a choice in other letters, an object as JSON text and JSON text as an object, a key in other spelling. */
+/** Arguments made to fit a schema where the difference is one of form: a number as text, one value where a list is taken, a choice in other letters or with other joints, an object as JSON text and JSON text as an object, a key in other spelling. */
 export function fit(schema: any, args: any): any {
 	if (!schema || typeof schema !== "object" || !args || typeof args !== "object" || Array.isArray(args)) return args;
 	const props = (schema.properties ?? {}) as Record<string, any>;
@@ -657,7 +659,8 @@ export function fit(schema: any, args: any): any {
 				}
 			}
 			if (typeof v === "string" && choices && !choices.includes(v)) {
-				const hit = choices.filter((c) => typeof c === "string" && c.toLowerCase() === t.toLowerCase());
+				// In other letters, or written together or apart: "Large" for large, "yesno" for yes_no.
+				const hit = choices.filter((c) => typeof c === "string" && plain(c) === plain(t));
 				if (hit.length === 1) v = hit[0];
 			}
 		}

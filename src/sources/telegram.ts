@@ -216,7 +216,7 @@ export default async function telegram(source: SourceApi): Promise<void> {
 	const api = async (method: string, body: Record<string, unknown> = {}, timeoutMs = 20_000): Promise<any> => {
 		const res = await fetch(`${base}/bot${token}/${method}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.any([stop.signal, AbortSignal.timeout(timeoutMs)]) });
 		const json: any = await res.json().catch(() => ({}));
-		if (!json.ok) throw new Error(`Telegram refused ${method}: ${json.description ?? res.status}`);
+		if (!json.ok) throw Object.assign(new Error(`Telegram refused ${method}: ${json.description ?? res.status}`), { code: Number(json.error_code ?? res.status) });
 		return json.result;
 	};
 	// A wrong token is found out here, and shows as the reason the source is not running.
@@ -330,6 +330,12 @@ export default async function telegram(source: SourceApi): Promise<void> {
 	source.onStop(() => typing.forEach((h) => clearInterval(h)));
 
 	// ---- approval requests, to answer from the phone ---------------------------------------------------
+	/**
+	 * Questions with several answers that were sent here, oldest first, with the id of the message that
+	 * asked and how many options it numbered. A reply to that message answers it, and so does a message
+	 * of nothing but its numbers for the last one; anything else the owner writes is a message as usual.
+	 */
+	const typed: Array<{ id: string; message?: number; count: number }> = [];
 	if (o.approvals !== false) {
 		const asked = new Map<string, number>();
 		source.on("approval/requested", async (e) => {
@@ -338,10 +344,25 @@ export default async function telegram(source: SourceApi): Promise<void> {
 			if (source.agent !== undefined && r.agent !== source.agent && r.of !== source.agent) return;
 			const chat = ownerChat();
 			if (chat === undefined) return;
-			// A question of the agent's with answers to pick from: one button each. (Their own words they type on their machine.)
-			if (r.tool === "question" && Array.isArray(r.choices) && r.choices.length) {
-				const rows = r.choices.slice(0, 6).map((c: string, i: number) => [{ text: truncate(String(c), 60), callback_data: `ap:${r.id}:c${i}` }]);
-				const msg = await send(chat, `${r.agent} asks:\n${truncate(String(r.summary), 1200)}`, { reply_markup: { inline_keyboard: [...rows, [{ text: "No answer", callback_data: `ap:${r.id}:0` }]] } });
+			// A question of the agent's with answers to pick from. One answer: a button for each. Several:
+			// the options numbered, and the owner's reply to it is the answer ("1,3", or words of their own).
+			const options: Array<{ label: string; description?: string }> = r.tool !== "question" ? [] : Array.isArray(r.options) && r.options.length ? r.options : Array.isArray(r.choices) ? r.choices.map((label: string) => ({ label })) : [];
+			if (options.length) {
+				const shown = options.slice(0, 6);
+				const head = `${r.agent} asks${r.header ? ` (${truncate(String(r.header), 12)})` : ""}:\n${truncate(String(r.summary), 1200)}`;
+				const line = (x: { label: string; description?: string }) => `${truncate(String(x.label), 80)}${x.description ? `: ${truncate(String(x.description), 200)}` : ""}`;
+				const noAnswer = [{ text: "No answer", callback_data: `ap:${r.id}:0` }];
+				if (r.multiSelect === true) {
+					const list = shown.map((x, i) => `${i + 1}. ${line(x)}`).join("\n");
+					const waiting: (typeof typed)[number] = { id: r.id, count: shown.length };
+					typed.push(waiting);
+					const msg = await send(chat, `${head}\n\n${list}\n\nSeveral answers: reply to this message with their numbers, such as 1,3, or your own words.`, { reply_markup: { inline_keyboard: [noAnswer] } });
+					if (msg?.message_id) asked.set(r.id, (waiting.message = msg.message_id));
+					return;
+				}
+				const described = shown.some((x) => x.description) ? `\n\n${shown.map(line).join("\n")}` : "";
+				const rows = shown.map((x, i) => [{ text: truncate(String(x.label), 60), callback_data: `ap:${r.id}:c${i}` }]);
+				const msg = await send(chat, `${head}${described}`, { reply_markup: { inline_keyboard: [...rows, noAnswer] } });
 				if (msg?.message_id) asked.set(r.id, msg.message_id);
 				return;
 			}
@@ -355,6 +376,8 @@ export default async function telegram(source: SourceApi): Promise<void> {
 			const d = e.payload as any;
 			const messageId = asked.get(d.id);
 			asked.delete(d.id);
+			const done = typed.findIndex((q) => q.id === d.id);
+			if (done >= 0) typed.splice(done, 1);
 			if (messageId) await api("editMessageReplyMarkup", { chat_id: ownerChat(), message_id: messageId, reply_markup: { inline_keyboard: [[{ text: d.tool === "question" ? (d.allow ? `Answered (${d.by})` : `No answer (${d.by})`) : d.allow ? `Allowed (${d.by})` : `Denied (${d.by})`, callback_data: "noop" }]] } }).catch(() => {});
 		});
 	}
@@ -429,6 +452,12 @@ export default async function telegram(source: SourceApi): Promise<void> {
 			const ok = id ? source.approvals.decide(id, verdict[1] === "allow", `telegram:${userId}`) : false;
 			return void send(chatId, ok ? "Noted." : "No such open request.").catch(() => {});
 		}
+		// The answer to a question with several answers that was sent here: a message, not a button.
+		const replyTo = m.reply_to_message?.message_id;
+		const last = typed.at(-1);
+		const numbers = (q: (typeof typed)[number]) => /^\d+(\s*,\s*\d+)*$/.test(text) && text.split(",").every((n) => Number(n) >= 1 && Number(n) <= q.count);
+		const waiting = (replyTo !== undefined ? typed.find((q) => q.message === replyTo) : undefined) ?? (last && numbers(last) ? last : undefined);
+		if (waiting && text && source.approvals.answer(waiting.id, text, `telegram:${userId}`)) return;
 		source.emit("message", { text: text || "(a picture)", name, username: m.from?.username, chatId, messageId: m.message_id, images: images.length ? images : undefined }, { reply: { chatId } });
 	};
 
@@ -448,10 +477,17 @@ export default async function telegram(source: SourceApi): Promise<void> {
 		const pollSec = 25;
 		let offset = source.kv.get<number>("offset") ?? 0;
 		let backoff = 1000;
+		// Telegram hands a bot's messages to one reader only: with a second one (another pine with this
+		// token, a script) this bot gets nothing, which is said where the sources are listed, in pine's words.
+		let conflict = false;
 		while (!stop.signal.aborted) {
 			try {
 				const updates: any[] = await api("getUpdates", { offset, timeout: pollSec, allowed_updates: ["message", "callback_query"] }, (pollSec + 10) * 1000);
 				backoff = 1000;
+				if (conflict) {
+					conflict = false;
+					say();
+				}
 				for (const u of updates) {
 					offset = u.update_id + 1;
 					source.kv.set("offset", offset);
@@ -461,6 +497,10 @@ export default async function telegram(source: SourceApi): Promise<void> {
 				}
 			} catch (e) {
 				if (stop.signal.aborted) break;
+				if ((e as any)?.code === 409 && !conflict) {
+					conflict = true;
+					source.status(`@${me.username} gets no messages: another program reads this bot's messages, and Telegram gives them to one only. Stop that one (another pine with this bot's token, a script), or make a new token for the bot with BotFather (/revoke) and set this source up again with it`);
+				}
 				source.log.warn(`asking Telegram for messages failed, trying again in ${backoff} ms`, errText(e));
 				await sleep(backoff);
 				backoff = Math.min(backoff * 2, 60_000);

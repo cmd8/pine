@@ -725,6 +725,21 @@ export interface ApprovalRequest {
 	 * picked, or the owner's own words, comes back as the input `answer`.
 	 */
 	choices?: string[];
+	/**
+	 * An agent's `question`: the answers it offers, each with a line that says what it means, the
+	 * recommended one first. `choices` holds their labels too, for what reads only those.
+	 */
+	options?: QuestionOption[];
+	/** Several of `options` may be picked: the answer is their labels, or their numbers, joined by ", ". */
+	multiSelect?: boolean;
+	/** A few words over a question (12 characters at most), such as "Database". */
+	header?: string;
+}
+
+/** One answer an agent offers to its question. */
+export interface QuestionOption {
+	label: string;
+	description?: string;
 }
 
 export interface ApprovalDecision {
@@ -888,6 +903,7 @@ export function audit(cfg: PineConfig): string[] {
 		}
 	}
 	for (const r of cfg.routes) if (r.trust === "owner") out.push(`route "${r.name}" treats events on ${r.on.join(", ")} as coming from you; whoever can publish there gets the agent's full tool set`);
-	for (const r of cfg.routes) if (r.ask?.source && !cfg.sources[r.ask.source]) out.push(`route "${r.name}" asks the source "${r.ask.source}", which is not a source of all agents: it fails on every event until there is one`);
+	for (const r of cfg.routes) if (r.ask && !cfg.decisions[r.ask.model]) out.push(`route "${r.name}" asks "${r.ask.model}", which is no decision model: it fails on every event until there is one (add_decision_model, or Settings > Models)`);
+	for (const [name, d] of Object.entries(cfg.decisions)) if (d.server === "typesafe" && !d.key) out.push(`the decision model "${name}" is at TypeSafe, and pine is not signed in there: it fails until it is (Settings > Models, or: pine login typesafe)`);
 	return out;
 }

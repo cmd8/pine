@@ -64,7 +64,7 @@ export interface SourceConfig {
 	options: Record<string, any>;
 }
 
-export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "telegram", "http", "command", "feed", "calendar", "stream", "mail", "slack", "matrix", "discord", "zulip", "smtp", "syslog", "system", "presence", "modbus", "serial", "onvif", "typesafe"];
+export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "telegram", "http", "command", "feed", "calendar", "stream", "mail", "slack", "matrix", "discord", "zulip", "smtp", "syslog", "system", "presence", "modbus", "serial", "onvif"];
 
 /**
  * The types an agent is told about with all their options, in the description of its add_source
@@ -106,6 +106,23 @@ export interface SubscriptionConfig {
 	prompt?: string;
 }
 
+/**
+ * A model that answers typed questions over TypeSafe's API (POST /v1/systemone), by the name a route's
+ * `ask.model` gives. On a model server pine has (`server`, its address and key), at TypeSafe itself
+ * (`server: "typesafe"`, the key from signing in), or at an address of its own (`url`, `key`).
+ */
+export interface DecisionModel {
+	server?: string;
+	url?: string;
+	/** For `url`: its key, from .env. For TypeSafe: the key pine was signed in with. */
+	key?: string;
+	/** For `url`: on the owner's network under a name that does not say so. */
+	local?: boolean;
+	/** The server's name for the model. */
+	model: string;
+	timeoutMs?: number;
+}
+
 export interface RouteConfig {
 	name: string;
 	on: string[];
@@ -130,6 +147,14 @@ export interface RouteConfig {
 	call?: { model?: string; system?: string; prompt: string };
 	/** Typed questions about the event, answered by a model or a source that decides (src/ask.ts). `{{answers.<name>}}` in `publish`. */
 	ask?: AskConfig;
+	/**
+	 * A command run in the sandbox of `agent` (default: the main agent), in its workspace, with no model.
+	 * It is handed what the route knows as JSON on stdin; what it prints is `{{output}}` (parsed when it is JSON).
+	 * The command is fixed text: nothing of the event goes into it.
+	 */
+	run?: { command: string; agent?: string; timeoutMs?: number };
+	/** The agent this route is of, when an agent other than the main one made it: it listens to that agent's own sources and acts within it (src/admin.ts, checkRoute). Goes with the agent. */
+	of?: string;
 	/** Full agent turn. */
 	agent?: string;
 	prompt?: string;
@@ -366,6 +391,8 @@ export interface PineConfig {
 	ui: { theme?: string; view?: string };
 	/** Values that must never leave the daemon in events or messages. */
 	secrets: string[];
+	/** Decision models by name (src/decisions.ts): what a route's `ask.model` can name besides a chat model. */
+	decisions: Record<string, DecisionModel>;
 	mcp: Record<string, McpServerConfig>;
 	/** Event sources every agent can subscribe to (or the agents an entry lists). */
 	sources: Record<string, SourceConfig>;
@@ -531,13 +558,18 @@ function loadRoutes(raw: unknown, problems: string[]): RouteConfig[] {
 			problems.push(`${where}: needs "on" (topic pattern)`);
 			return [];
 		}
-		if (!r.agent && !r.call && !r.ask && !r.publish && !r.set) problems.push(`${where}: needs one of agent, call, ask, publish, set`);
+		if (!r.agent && !r.call && !r.ask && !r.publish && !r.set && !r.run) problems.push(`${where}: needs one of agent, call, ask, publish, set, run`);
+		if (r.run !== undefined) {
+			if (!r.run || typeof r.run.command !== "string" || !r.run.command.trim()) problems.push(`${where}: run needs "command": what is run, e.g. "python3 ui/answer.py"`);
+			else if (/\{\{/.test(r.run.command)) problems.push(`${where}: run's command is fixed text: it is given the event as JSON on stdin, so leave {{...}} out of it`);
+			if (r.run?.agent !== undefined && typeof r.run.agent !== "string") problems.push(`${where}: run's "agent" is the agent in whose sandbox it runs`);
+		}
 		if (r.agent && r.call) problems.push(`${where}: use either agent or call, not both`);
 		if (r.ask !== undefined) {
 			const wrong = askProblem(r.ask);
 			if (wrong) problems.push(`${where}: ${wrong}`);
-			if (r.agent || r.call) problems.push(`${where}: ask stands with publish or set, not with agent or call: it publishes its answers or writes them into shared state, and a second route acts on them`);
-			if (!r.publish && !r.set) problems.push(`${where}: ask needs "publish" or "set": its answers go out as an event, or into shared state ({{answers.<name>}})`);
+			if (r.agent || r.call) problems.push(`${where}: ask stands with run, publish or set, not with agent or call: a script acts on its answers, they go out as an event or into shared state, and a second route can wake an agent`);
+			if (!r.publish && !r.set && !r.run) problems.push(`${where}: ask needs "run", "publish" or "set": a script acts on its answers, or they go out as an event, or into shared state ({{answers.<name>}})`);
 		}
 		if (r.call && typeof r.call.prompt !== "string") problems.push(`${where}: call needs "prompt"`);
 		if (r.publish && typeof r.publish.topic !== "string") problems.push(`${where}: publish needs "topic"`);
@@ -548,6 +580,7 @@ function loadRoutes(raw: unknown, problems: string[]): RouteConfig[] {
 				on: Array.isArray(r.on) ? r.on : [r.on],
 				debounceMs: r.debounceMs !== undefined ? parseDuration(r.debounceMs) : undefined,
 				throttleMs: r.throttleMs !== undefined ? parseDuration(r.throttleMs) : undefined,
+				...(r.run && typeof r.run === "object" ? { run: { ...r.run, timeoutMs: r.run.timeout !== undefined ? parseDuration(r.run.timeout) : r.run.timeoutMs } } : {}),
 			},
 		];
 	});
@@ -670,6 +703,7 @@ export function loadConfig(home = defaultHome()): PineConfig {
 		},
 		ui: { theme: typeof raw.ui?.theme === "string" && raw.ui.theme ? raw.ui.theme : undefined, view: typeof raw.ui?.view === "string" && raw.ui.view ? raw.ui.view : undefined },
 		secrets: Object.values(fileEnv).filter((v) => v.length >= 8),
+		decisions: loadDecisions(raw.decisions, raw.sources, env, problems),
 		mcp: raw.mcp ?? {},
 		sources: loadSources(raw.sources, home, "pine.json: sources", problems, Object.keys(sourceTypes)),
 		sourceTypes,
@@ -891,6 +925,29 @@ export function toPiMcp(name: string, server: McpServerConfig, extraOptions: Rec
 
 const SOURCE_KEYS = ["type", "use", "description", "agents", "trust", "start", "enabled", "session"];
 
+/** The decision models in pine.json, and the sources of the old `typesafe` type (pine 0.63's previews), which are decision models now. */
+function loadDecisions(raw: any, sources: any, env: Record<string, string | undefined>, problems: string[]): Record<string, DecisionModel> {
+	const out: Record<string, DecisionModel> = {};
+	const one = (name: string, v: any, where: string) => {
+		if (!/^[a-z][a-z0-9_-]{0,39}$/.test(name)) return problems.push(`${where}: a decision model's name is lowercase letters, digits, - and _`);
+		if (!v || typeof v !== "object") return problems.push(`${where} must be an object: {"server": "studio", "model": "decider"}`);
+		if (!v.server === !v.url) return problems.push(`${where} needs "server" (a model server pine has, or "typesafe") or "url" (another server that speaks TypeSafe's API)`);
+		const model = typeof v.model === "string" && v.model ? v.model : v.server === "typesafe" ? "jev-latest" : "";
+		if (!model) return problems.push(`${where} needs "model": the server's name for the decision model`);
+		const key = v.server === "typesafe" ? env.TYPESAFE_API_KEY || undefined : typeof v.key === "string" && v.key ? v.key : undefined;
+		const timeout = v.timeout !== undefined ? parseDuration(v.timeout) : undefined;
+		out[name] = { ...(v.server ? { server: String(v.server) } : { url: String(v.url).replace(/\/+$/, "").replace(/\/v1$/, "") }), model, ...(key ? { key } : {}), ...(v.local === true ? { local: true } : {}), ...(timeout ? { timeoutMs: timeout } : {}) };
+	};
+	if (raw !== undefined && (typeof raw !== "object" || Array.isArray(raw) || raw === null)) problems.push('pine.json: decisions is an object of named decision models: {"decider": {"server": "studio", "model": "decider"}}');
+	else for (const [name, v] of Object.entries<any>(raw ?? {})) one(name, v, `pine.json: decisions.${name}`);
+	// What was a source of the type typesafe for a while is a decision model now; loadSources leaves it out.
+	for (const [name, v] of Object.entries<any>(sources && typeof sources === "object" ? sources : {})) {
+		if (v?.type !== "typesafe" || out[name]) continue;
+		one(name, v.server ? v : v.url ? v : { ...v, server: "typesafe" }, `pine.json: sources.${name}`);
+	}
+	return out;
+}
+
 function loadSources(raw: unknown, base: string, where: string, problems: string[], own: string[] = []): Record<string, SourceConfig> {
 	const types = [...SOURCE_TYPES, ...own];
 	const out: Record<string, SourceConfig> = {};
@@ -900,6 +957,8 @@ function loadSources(raw: unknown, base: string, where: string, problems: string
 		return out;
 	}
 	for (const [name, v] of Object.entries<any>(raw)) {
+		// A decision model now (loadDecisions): no source.
+		if (v?.type === "typesafe" && where === "pine.json: sources") continue;
 		if (!/^[a-z][a-z0-9_-]{0,39}$/.test(name)) problems.push(`${where}.${name}: a source name is lowercase letters, digits, - and _`);
 		if (!v || typeof v !== "object") {
 			problems.push(`${where}.${name} must be an object`);

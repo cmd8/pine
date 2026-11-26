@@ -274,7 +274,11 @@ These are invariants. A change that breaks one needs a test that shows why it is
    that agent's sandbox in `safe` and `manual` mode, with the owner's rights in `auto` and
    `bypass`, which the owner's dialog says. Never a program with the daemon's environment,
    and never through a shell. Global scope, agent creation and new source types are
-   refused to every agent but the main one. Removing something must leave things as they were
+   refused to every agent but the main one. Routes are the main agent's too, but for an agent's
+   own (`of` on the route, `checkRoute` with `own`): on its own sources' events or its own state,
+   acting only within itself (its own source to answer through, its own state, its own sandbox,
+   waking only itself, never `trust`), put to the owner, and taken along by `eraseAgent` and
+   `renameAgent`. Removing something must leave things as they were
    before it was added.
    The main agent is pine's administrator: besides `create_agent` it has `agents`,
    `update_agent`, `rename_agent`, `remove_agent`, `settings`, `set_setting`, `routes`, `add_route` and
@@ -296,7 +300,10 @@ These are invariants. A change that breaks one needs a test that shows why it is
    a few named values that are checked one by one, never text into a file; it is put to the
    owner in every mode; the configuration is read back through `loadConfig` and the file put
    back if it does not load; and the ones that change something are refused in a tainted
-   conversation without asking. A new setting gets an entry in `SETTINGS` with what a value has
+   conversation without asking, except routes and decision models (`add_route`, `remove_route`,
+   `add_decision_model`, `remove_decision_model`), which are event plumbing that such a conversation
+   is often building: they are put to the owner with the outside content named (`afterOutside`), and
+   a route with `trust: "owner"` stays refused there. A new setting gets an entry in `SETTINGS` with what a value has
    to be, never a way to write a key by name. For another agent the main agent uses the tools
    that agent has itself (`FOR_ANY_AGENT`, the end of `pineTools`): the call is handed to that
    agent's own tool with a stand-in for its conversation, so there is one implementation and
@@ -1037,6 +1044,15 @@ Publishing needs no stored secret: on npmjs.com the package names this repositor
   (`term.type("text")` does) and wait with `sees()`, not with sleeps.
 - `pine init` downloads the browser. A test that runs it sets `PINE_SKIP_DOWNLOADS=1` (see
   `test/cli.test.ts`); the variable exists for tests only and is not a user option.
+- A browser sign-in to a model provider cannot happen in a test. The daemon of one of the app's
+  tests is given `PINE_LOGIN_STAND_IN=<file>` instead (`browserStandIn` in `src/owner.ts`, for tests
+  only, not a user option): it shows a page and a device code, and once the test writes a key into
+  that file it stores it through pi's own sign-in with a key (`desktop/test/setup-conversation.test.ts`).
+- What answers on the usual ports of this computer (`GET /models/local`, `lookAround` in
+  `src/models.ts`) is asked of stand-ins on port 0: `PINE_LOCAL_PORTS=8080=<port>,8090=<port>,...`
+  (for tests only, not a user option) moves each usual port it names, and a usual port it does not
+  name is not asked, so a test never reaches a model server of the developer's
+  (`test/local-models.test.ts`, `desktop/test/setup-local.test.ts`).
 - `npm test` passes `--test-force-exit`, so a leaked handle cannot hang the run; a test that
   fails must still not leave a daemon behind (see the `after` hooks in `test/support/harness.ts`).
 - The source types are tested on stand-ins that run on any system and need no network: a web

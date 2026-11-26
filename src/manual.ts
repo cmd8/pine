@@ -39,6 +39,8 @@ const SYNONYMS: string[][] = [
 	["subscribe", "subscription", "listen", "follow", "wake", "notify", "notification"],
 	["unsubscribe", "stop", "mute", "silence"],
 	["introduce", "introduction", "hello", "hatch", "greet", "greeting", "welcome", "onboarding", "meet"],
+	// Setup Pine: what a newcomer says who has just installed pine.
+	["setup", "onboarding", "newcomer", "beginner", "installed", "install"],
 	["mcp", "server", "connector", "integration", "plugin", "extension", "tool"],
 	["skill", "procedure", "howto", "recipe", "playbook", "instruction", "knowhow"],
 	["secret", "token", "password", "key", "credential", "apikey", "env"],
@@ -56,6 +58,8 @@ const SYNONYMS: string[][] = [
 	["board", "blackboard", "kanban", "backlog", "coordinate", "coordination", "collaborate", "claim", "findings"],
 	["swarm", "team", "crew", "fleet", "orchestrate", "orchestrator", "orchestration", "lead", "coordinator", "parallelize", "fan-out"],
 	["check", "verify", "verifier", "critic", "reviewer", "review", "validate", "judge", "audit"],
+	// A route's run: what people call reacting to an event with code of their own, no model in between.
+	["script", "automation", "automate", "react", "reaction", "instantly", "realtime", "immediately"],
 	// Typed questions on a route: what people call a model that answers with numbers and labels.
 	["typed", "classify", "classifier", "probability", "likely", "likelihood", "label", "labels", "categorize", "decision", "structured", "rating", "triage", "urgent", "jev", "typesafe", "decider", "pinecone"],
 	["stages", "stage", "phases", "phase", "dependency", "dependencies", "depends", "pipeline", "sequence"],
@@ -158,6 +162,17 @@ const SYNONYMS: string[][] = [
 	["read", "write", "edit", "access", "permission"],
 	["ui", "tui", "interface", "terminal", "screen", "keyboard", "shortcut", "key"],
 	["type", "kind", "module", "custom", "own"],
+];
+
+/**
+ * Phrases of a question that stopwords would take apart ("get", "set" and "up" are stopwords), read
+ * as what they mean in the manual's words. Only the question is read this way, not the manual.
+ */
+const PHRASES: Array<[RegExp, string]> = [
+	// "how do I get started", "getting started": what a newcomer asks, which Setup Pine answers.
+	[/\bget(?:ting)?\s+started\b/gi, "setup pine getting started"],
+	// "set up", "set pine up", "setting up". Not "set something up": the setup tools answer that.
+	[/\bset(?:ting)?\s+(pine\s+)?up\b/gi, "setup $1"],
 ];
 
 const SYNONYM_MAP = new Map<string, Set<string>>();
@@ -387,7 +402,8 @@ export function createManual(parts: Part[]): Manual {
 	return {
 		parts,
 		search(query, limit = 6) {
-			const direct = [...new Set(words(query).filter((w) => !STOP.has(w)).map(stem))];
+			const read = PHRASES.reduce((q, [phrase, meant]) => q.replace(phrase, meant), query);
+			const direct = [...new Set(words(read).filter((w) => !STOP.has(w)).map(stem))];
 			if (!direct.length) return { query, total: 0, hits: [] };
 			// [word, weight, the query word it stands for]
 			const weighted: Array<[string, number, number]> = direct.map((w, i) => [w, 1, i]);

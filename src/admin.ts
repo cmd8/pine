@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { AGENT_TOOLS } from "./agent-admin.ts";
 import { askProblem, type AskQuestions } from "./ask.ts";
+import { whereIs } from "./decisions.ts";
 import { type AgentConfig, delegatesText, isColor, isScroll, loadConfig, mainAgentId, MAX_MODEL_RUNS, MODEL_KEY, modelLimit, type Mode, MODES, PINE_ROOT, SERVER_KEY, type PineConfig, RESERVED_TOPICS, type RouteConfig, unsandboxed } from "./config.ts";
 import { renameEnv, secretName, unsetEnv } from "./env-file.ts";
 import { DEFAULT_THEME, listThemes } from "./themes.ts";
@@ -222,7 +223,7 @@ export function applyAgentChange(cfg: PineConfig, agent: AgentConfig, checked: {
 /** The parts of the configuration that name an agent and stand in the way of removing it, or are corrected when it goes. */
 export function namedBy(cfg: PineConfig, id: string): { routes: string[]; delegators: string[]; sources: string[]; servers: string[] } {
 	return {
-		routes: cfg.routes.filter((r) => r.agent === id).map((r) => r.name),
+		routes: cfg.routes.filter((r) => r.agent === id || r.of === id || r.run?.agent === id).map((r) => r.name),
 		delegators: Object.values(cfg.agents).filter((a) => a.id !== id && a.delegates.includes(id)).map((a) => a.id),
 		sources: Object.entries(cfg.sources).filter(([, s]) => s.agents?.includes(id)).map(([name]) => name),
 		servers: Object.entries(cfg.mcp).filter(([, s]) => s.agents?.includes(id)).map(([name]) => name),
@@ -273,7 +274,8 @@ export function eraseAgent(cfg: PineConfig, store: { kv: Kv; tasks: TaskStore; b
 		// no file, no keys
 	}
 	unsetEnv(cfg.home, [...new Set([...raw.matchAll(/\$\{(PINE_(?:SOURCE|MCP)_[A-Z0-9_]+)\}/g)].map((m) => m[1]))]);
-	const routes = cfg.routes.filter((r) => r.agent === id).map((r) => r.name);
+	// The routes that wake it, and those of its own (`of`) or that run a command as it.
+	const routes = cfg.routes.filter((r) => r.agent === id || r.of === id || r.run?.agent === id).map((r) => r.name);
 	for (const name of routes) dropRoute(cfg, name);
 	unname(cfg, id);
 	// A worktree of one of its conversations stays in the owner's repository, which is not pine's to
@@ -394,14 +396,21 @@ export function renameAgent(cfg: PineConfig, store: { kv: Kv; tasks: TaskStore; 
 	renameEnv(cfg.home, secrets);
 
 	// pine.json: the routes that wake it or listen to its own sources and schedules, the lists of all agents' sources and servers, and which agent is the main one.
-	const routes = cfg.routes.filter((r) => r.agent === from || r.on.some((t) => topic(t) !== t)).map((r) => r.name);
+	const routes = cfg.routes.filter((r) => r.agent === from || r.of === from || r.run?.agent === from || r.on.some((t) => topic(t) !== t || t.startsWith(`state/agent/${from}/`))).map((r) => r.name);
+	// A route of its own writes its state and publishes under its name: those follow too.
+	const stateKey = (k: string) => (k.startsWith(`agent/${from}/`) ? `agent/${to}/${k.slice(`agent/${from}/`.length)}` : k);
+	const onTopic = (t: string) => (t.startsWith(`state/agent/${from}/`) ? `state/${stateKey(t.slice("state/".length))}` : topic(t));
 	const keepMain = main === from ? to : main;
 	editJson(path.join(cfg.home, "pine.json"), (raw) => {
 		for (const r of Array.isArray(raw.routes) ? raw.routes : []) {
 			if (!r || typeof r !== "object") continue;
 			if (r.agent === from) r.agent = to;
-			if (typeof r.on === "string") r.on = topic(r.on);
-			else if (Array.isArray(r.on)) r.on = r.on.map((x: unknown) => (typeof x === "string" ? topic(x) : x));
+			if (r.of === from) r.of = to;
+			if (r.run && typeof r.run === "object" && r.run.agent === from) r.run.agent = to;
+			if (r.publish && typeof r.publish.topic === "string") r.publish.topic = stateKey(topic(r.publish.topic));
+			if (r.set && typeof r.set === "object") r.set = Object.fromEntries(Object.entries(r.set).map(([k, v]) => [stateKey(k), v]));
+			if (typeof r.on === "string") r.on = onTopic(r.on);
+			else if (Array.isArray(r.on)) r.on = r.on.map((x: unknown) => (typeof x === "string" ? onTopic(x) : x));
 		}
 		for (const key of ["sources", "mcp"]) for (const entry of Object.values<any>(raw[key] ?? {})) if (Array.isArray(entry?.agents)) entry.agents = entry.agents.map((a: unknown) => (a === from ? to : a));
 		// Which agent is the main one does not change with a name: where it followed from the names alone, it is written down now.
@@ -409,7 +418,11 @@ export function renameAgent(cfg: PineConfig, store: { kv: Kv; tasks: TaskStore; 
 	});
 	for (const r of cfg.routes) {
 		if (r.agent === from) r.agent = to;
-		r.on = r.on.map(topic);
+		if (r.of === from) r.of = to;
+		if (r.run?.agent === from) r.run.agent = to;
+		if (r.publish) r.publish.topic = stateKey(topic(r.publish.topic));
+		if (r.set) r.set = Object.fromEntries(Object.entries(r.set).map(([k, v]) => [stateKey(k), v]));
+		r.on = r.on.map(onTopic);
 	}
 	for (const entry of [...Object.values(cfg.sources), ...Object.values(cfg.mcp)]) if (entry.agents?.includes(from)) entry.agents = entry.agents.map((a) => (a === from ? to : a));
 	if (cfg.main !== undefined || main !== "main") cfg.main = keepMain;
@@ -540,9 +553,12 @@ export interface RouteInput {
 	ask_questions?: string;
 	ask_model?: string;
 	/** A source of all agents whose type answers typed questions, instead of a model. */
-	ask_source?: string;
 	/** What the questions are about, as a template. Default: the event's payload. */
 	ask_data?: string;
+	/** A command run in an agent's sandbox, with no model, given the event as JSON on stdin. */
+	run_command?: string;
+	/** The agent in whose sandbox and workspace it runs. Default: the main agent. */
+	run_agent?: string;
 	trust?: string;
 }
 
@@ -559,7 +575,7 @@ const object = (text: string | undefined, what: string): Record<string, unknown>
 };
 
 /** Check a proposed route and say what it does, line by line. Nothing is written. */
-export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[], deciders: Array<{ name: string; decides: string }> = []): { entry: Record<string, unknown>; lines: string[]; wider?: string } {
+export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[], own?: string): { entry: Record<string, unknown>; lines: string[]; wider?: string } {
 	const name = String(input.name ?? "").trim();
 	if (!/^[a-z][a-z0-9_-]{0,39}$/.test(name)) throw new Error(`"${name}" is not a usable route name: lowercase letters, digits, - and _, starting with a letter`);
 	if (cfg.routes.some((r) => r.name === name)) throw new Error(`a route called "${name}" exists already. remove_route takes it out; then add it again with what you want changed`);
@@ -567,6 +583,24 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[],
 	if (!on.length) throw new Error('"on" is the topic the route listens to, for example source/house/message. The sources tool shows a source\'s topic');
 	const entry: Record<string, unknown> = { name, on: on.length === 1 ? on[0] : on };
 	const lines = [`on ${on.join(", ")}`];
+	// An agent other than the main one makes routes of its own: on its own sources' events and its own
+	// state, acting within itself. Everything else of a route is pine-wide, and the main agent's to make.
+	const mine = own ? Object.keys(cfg.agents[own]?.sources ?? {}) : [];
+	const ownSource = (t: string, prefix: string) => t.startsWith(prefix) && mine.some((n) => t.slice(prefix.length).split("/")[0] === `${n}@${own}`);
+	if (own) {
+		const wrong = on.find((t) => !ownSource(t, "source/") && !t.startsWith(`state/agent/${own}/`));
+		if (wrong) throw new Error(`"${wrong}" is not an event of yours. A route of yours listens to your own sources (source/<name>@${own}/..., the sources tool lists them: ${mine.map((n) => `${n}@${own}`).join(", ") || "you have none yet, add_source makes one"}) or your own shared state (state/agent/${own}/...). Other routes are the main agent's to make`);
+		if (input.trust !== undefined && input.trust !== "") throw new Error('a route of yours takes no "trust": its events keep the trust they came with');
+		if (input.agent && input.agent !== own) throw new Error(`a route of yours wakes only you (${own})`);
+		if (input.run_agent && input.run_agent !== own) throw new Error(`a route of yours runs its command only in your own sandbox (${own})`);
+		const keys = Object.keys(object(input.set, "set") ?? {});
+		const outside = keys.find((k) => !k.startsWith(`agent/${own}/`));
+		if (outside) throw new Error(`"${outside}" is not your shared state: a route of yours writes keys under agent/${own}/`);
+		const topic = input.publish_topic?.trim();
+		if (topic && !ownSource(topic, "out/source/") && !topic.startsWith(`agent/${own}/`)) throw new Error(`a route of yours publishes only through your own sources (out/source/<name>@${own}, a source that can send) or on agent/${own}/...`);
+		entry.of = own;
+		lines.push(`a route of ${own}'s`);
+	}
 	const when = object(input.when, "when");
 	if (when) {
 		entry.when = when;
@@ -596,7 +630,6 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[],
 		if (entry.call) throw new Error("a route makes a model call or asks typed questions, not both");
 		const ask: Record<string, unknown> = { questions: object(input.ask_questions, "ask_questions") };
 		if (input.ask_model) ask.model = input.ask_model;
-		if (input.ask_source) ask.source = input.ask_source;
 		if (input.ask_data !== undefined && input.ask_data !== "") {
 			try {
 				ask.data = JSON.parse(input.ask_data);
@@ -606,16 +639,24 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[],
 		}
 		const wrong = askProblem(ask);
 		if (wrong) throw new Error(wrong);
-		if (input.ask_model && !models.includes(input.ask_model)) throw new Error(`there is no model "${input.ask_model}". Models: ${models.slice(0, 40).join(", ")}`);
-		const decider = input.ask_source ? deciders.find((d) => d.name === input.ask_source) : undefined;
-		if (input.ask_source && !decider) throw new Error(`"${input.ask_source}" is not a source that answers typed questions. ${deciders.length ? `Those that do: ${deciders.map((d) => d.name).join(", ")}` : "There is none: leave ask_source out, and a model answers"}`);
-		if (!input.publish_topic && !input.set) throw new Error('typed questions need "publish_topic" (the answers go out as an event, and a second route filters on payload.answers.<name>) or "set" (the answers go into shared state: {"agent/main/answer": "{{answers}}"})');
+		const decider = input.ask_model ? cfg.decisions[input.ask_model] : undefined;
+		if (!decider) throw new Error(input.ask_model ? `there is no decision model "${input.ask_model}". ${Object.keys(cfg.decisions).join(", ") || "There is none: add_decision_model adds one"}` : `typed questions need "ask_model": the decision model that answers, by its name. ${Object.keys(cfg.decisions).join(", ") || "There is none: add_decision_model adds one"}`);
+		if (!input.publish_topic && !input.set && !input.run_command) throw new Error('typed questions need "run_command" (a script acts on the answers, with no model), "publish_topic" (the answers go out as an event, and a second route filters on payload.answers.<name>) or "set" (the answers go into shared state: {"agent/main/answer": "{{answers}}"})');
 		entry.ask = ask;
 		const questions = ask.questions as AskQuestions;
 		const shown = ask.data === undefined ? "the event's whole payload" : `${JSON.stringify(ask.data)}`;
-		lines.push(`ask ${decider ? `the source ${decider.name}` : `the model ${input.ask_model ?? cfg.defaults.model ?? "pine's default"}`} about ${shown}: ${Object.entries(questions).map(([n, q]) => `${n} (${q.type}): ${q.question}`).join("; ")}`);
-		lines.push(decider ? `what it is asked about leaves this computer: ${decider.decides}` : "what it is asked about goes to that model, as a route's model call does");
-	} else if (input.ask_model || input.ask_source || input.ask_data) throw new Error('typed questions need "ask_questions"');
+		lines.push(`ask the decision model ${input.ask_model} about ${shown}: ${Object.entries(questions).map(([n, q]) => `${n} (${q.type}): ${q.question}`).join("; ")}`);
+		lines.push(`what it is asked about goes to ${whereIs(decider)}`);
+	} else if (input.ask_model || input.ask_data) throw new Error('typed questions need "ask_questions"');
+	if (input.run_command) {
+		const command = input.run_command.trim();
+		if (/\{\{/.test(command)) throw new Error("run_command is fixed text: the command is given the event (and the answers, the model's result) as JSON on stdin, so leave {{...}} out of it");
+		const runAgent = input.run_agent || own || mainAgentId(cfg);
+		if (!cfg.agents[runAgent]) throw new Error(`there is no agent "${runAgent}". Agents: ${Object.keys(cfg.agents).join(", ")}`);
+		entry.run = { command, ...(input.run_agent || own ? { agent: runAgent } : {}) };
+		lines.push(`run in ${runAgent}'s sandbox and workspace, with no model: ${command}`);
+		lines.push(`it is given the event${entry.ask ? ", the answers" : ""}${entry.call ? ", the model's answer" : ""} as JSON on stdin; what it prints is {{output}}`);
+	} else if (input.run_agent) throw new Error('"run_agent" belongs to "run_command": what is run');
 	if (input.publish_topic) {
 		const topic = input.publish_topic.trim();
 		if (matchesAny(RESERVED_TOPICS, topic)) throw new Error(`"${topic}" is a topic only pine itself publishes on. Pick one of your own, for example cam/classified`);
@@ -639,7 +680,7 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[],
 		lines.push(`wake the agent ${input.agent}${input.session ? ` (conversation: ${input.session})` : ""}${input.prompt ? ` with: ${input.prompt}` : " with the event"}`);
 	} else if (input.prompt || input.session) throw new Error('"prompt" and "session" belong to "agent": name the agent the route wakes');
 	if (entry.ask && entry.agent) throw new Error("a route asks typed questions or wakes an agent, not both. Let it publish the answers, and a second route wake the agent when payload.answers.<name> is what you want");
-	if (!entry.set && !entry.call && !entry.publish && !entry.agent) throw new Error("a route has to do something: give at least one of agent (wake an agent), set (write shared state), publish_topic (publish another event), call_prompt (one model call)");
+	if (!entry.set && !entry.call && !entry.publish && !entry.agent && !entry.run) throw new Error("a route has to do something: give at least one of agent (wake an agent), run_command (run a script, no model), set (write shared state), publish_topic (publish another event), call_prompt (one model call)");
 	let wider: string | undefined;
 	if (input.trust !== undefined && input.trust !== "") {
 		if (input.trust !== "owner" && input.trust !== "untrusted") throw new Error('"trust" is owner or untrusted. Leave it out: an event keeps the trust it came with');
@@ -687,7 +728,7 @@ export function dropRoute(cfg: PineConfig, name: string): boolean {
 /** The routes as a list for the agent. */
 export function routesText(cfg: PineConfig): string {
 	const does = (r: RouteConfig) =>
-		[r.set ? `sets ${JSON.stringify(r.set)}` : "", r.call ? `asks a model: ${r.call.prompt}` : "", r.ask ? `asks ${r.ask.source ? `the source ${r.ask.source}` : r.ask.model ? `the model ${r.ask.model}` : "a model"}: ${Object.entries(r.ask.questions).map(([n, q]) => `${n} (${q.type})`).join(", ")}` : "", r.publish ? `publishes ${r.publish.topic}` : "", r.agent ? `wakes ${r.agent}${r.session ? ` (conversation: ${r.session})` : ""}${r.prompt ? ` with: ${r.prompt}` : ""}` : ""].filter(Boolean).join("; ");
+		[r.set ? `sets ${JSON.stringify(r.set)}` : "", r.call ? `asks a model: ${r.call.prompt}` : "", r.ask ? `asks the decision model ${r.ask.model}: ${Object.entries(r.ask.questions).map(([n, q]) => `${n} (${q.type})`).join(", ")}` : "", r.run ? `runs "${r.run.command}" in ${r.run.agent ?? mainAgentId(cfg)}'s sandbox` : "", r.publish ? `publishes ${r.publish.topic}` : "", r.agent ? `wakes ${r.agent}${r.session ? ` (conversation: ${r.session})` : ""}${r.prompt ? ` with: ${r.prompt}` : ""}` : ""].filter(Boolean).join("; ");
 	return cfg.routes.map((r) => `- ${r.name}: on ${r.on.join(", ")}${r.when ? ` when ${JSON.stringify(r.when)}` : ""}${r.throttleMs ? ` · at most one per ${ms(r.throttleMs)}` : ""}${r.debounceMs ? ` · after ${ms(r.debounceMs)} of quiet` : ""}${r.trust === "owner" ? " · its events count as the owner's words" : ""}\n    ${does(r)}`).join("\n");
 }
 
@@ -702,7 +743,7 @@ export function holdingsOf(cfg: PineConfig, id: string): { conversations: string
 		servers: Object.keys(agent.mcp),
 		schedules: agent.schedules.map((s) => s.name),
 		skills: names(path.join(agent.dir, "skills")),
-		routes: cfg.routes.filter((r) => r.agent === id).map((r) => r.name),
+		routes: cfg.routes.filter((r) => r.agent === id || r.of === id || r.run?.agent === id).map((r) => r.name),
 		files: countFiles(agent.workspace),
 		outside: !isInside(realish(agent.dir), realish(agent.workspace)),
 	};

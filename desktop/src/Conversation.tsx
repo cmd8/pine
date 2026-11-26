@@ -3,7 +3,7 @@
 // The parts are shadcn's chat components, composed the way its AI Elements pages show: the thread
 // is Message Scroller, a turn is Message (and Bubble for the owner's), the work of a turn is Trace
 // (Task, Tool, Reasoning, Subagent and Plan), a request is an Item (Confirmation), a note is a Marker.
-import { ArrowUpRightIcon, BookmarkIcon, BrainIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CircleCheckIcon, CircleDotIcon, CircleIcon, ClockIcon, CpuIcon, FolderIcon, GitBranchIcon, InfoIcon, ListChecksIcon, type LucideIcon, MessageCircleQuestionIcon, PaperclipIcon, PlayIcon, QuoteIcon, ReplyIcon, SearchIcon, SettingsIcon, ShieldIcon, SquareIcon, StarIcon, TargetIcon, TriangleAlertIcon, Undo2Icon, UsersIcon, XIcon, ZapIcon } from "lucide-react";
+import { ArrowUpRightIcon, BookmarkIcon, BrainIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CircleCheckIcon, CircleDotIcon, CircleIcon, ClockIcon, CpuIcon, FolderIcon, GitBranchIcon, InfoIcon, ListChecksIcon, type LucideIcon, PaperclipIcon, PlayIcon, QuoteIcon, ReplyIcon, SearchIcon, SettingsIcon, ShieldIcon, SquareIcon, StarIcon, TargetIcon, TriangleAlertIcon, Undo2Icon, UsersIcon, XIcon, ZapIcon } from "lucide-react";
 import { Fragment, memo, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import { Sound } from "@/components/sound";
 import { contextMenu } from "@/components/page-menu";
@@ -21,12 +21,14 @@ import { Dialog, DialogClose, DialogContent, DialogTitle, DialogTrigger } from "
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
-import { Item as Card, ItemActions, ItemContent, ItemDescription, ItemFooter, ItemMedia, ItemTitle } from "@/components/ui/item";
+import { Item as Card, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
+import { COMPOSER_QUESTION, ComposerCardSlot, QuestionCard, QuestionCardHost, QuestionTrace } from "@/components/question-card";
 import { Kbd } from "@/components/ui/kbd";
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker";
 import { Message, MessageContent, MessageFooter, MessageHeader } from "@/components/ui/message";
 import { MessageScroller, MessageScrollerButton, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport, useMessageScroller } from "@/components/ui/message-scroller";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Toggle } from "@/components/ui/toggle";
 import { HoverTooltip } from "@/components/hover-tooltip";
 import { QuoteChip } from "@/components/quote-chip";
@@ -42,7 +44,8 @@ import { Composer } from "./Composer.tsx";
 import { WelcomeLetter } from "./WelcomeLetter.tsx";
 import { Markdown, MEDIA } from "./markdown.tsx";
 import { runs } from "./work-runs.ts";
-import { type Bookmark, type Item, type Part, type QuoteSource, quoteId, type SentQuote, type Steer, store, type Tab, type Tone, useModel, useSignal } from "./model.ts";
+import { type Bookmark, isPick, type Item, type Part, type QuoteSource, quoteId, type SentQuote, type Steer, store, type Tab, type Tone, useModel, useSignal } from "./model.ts";
+import { SetupCard, SetupScript } from "./setup/engine.tsx";
 import { childKind, clock, count, MODES, oneLine, plural, short, shortcut, speedText, tilde, took } from "./text.ts";
 import { Pulse } from "@/components/pulse";
 import { sameSource } from "../../src/quotes.ts";
@@ -375,16 +378,17 @@ export function Entry({ entry, agent }: { entry: TranscriptEntry; agent: string 
 
 /**
  * A request of the agent's, in the conversation (Confirmation): while it is open, an Item with
- * what it wants and why and the answers; once answered, a line again. What needs typing (a secret,
- * the owner's own words) opens the dialog.
+ * what it wants and why and its buttons; once answered, a line again. What needs typing (a secret)
+ * opens the dialog. A question (or a sign-in's choice, `isPick`) is not drawn here while it is open: its card is above the composer
+ * (`ComposerQuestion`), and it folds into a line here once answered.
  */
 function ApprovalCard({ item }: { item: Extract<Item, { t: "approval" }> }) {
 	const { req, state } = item;
-	const question = req.tool === "question";
-	const choices = req.choices ?? [];
+	const question = isPick(req);
 	const typed = Boolean(req.inputs?.length);
+	if (question && (state === "allowed" || state === "denied")) return <QuestionTrace data-item="approval" data-state={state} question={req.summary} answer={item.answer} answered={state === "allowed"} by={item.by} />;
 	if (state !== "open") {
-		const head = state === "gone" ? "No longer open" : question ? (state === "allowed" ? "Answered" : "No answer") : state === "allowed" ? "Allowed" : "Denied";
+		const head = state === "gone" ? "No longer open" : state === "allowed" ? "Allowed" : "Denied";
 		const about = state === "gone" ? "pine was restarted, or the question ran out of time" : [item.by ? `(${item.by})` : "", item.always && req.remember ? `${req.remember} will not ask again in this conversation` : ""].filter(Boolean).join(" · ");
 		const what = [head, question ? "" : req.tool, oneLine(req.summary)].filter(Boolean).join(" · ");
 		return (
@@ -394,31 +398,27 @@ function ApprovalCard({ item }: { item: Extract<Item, { t: "approval" }> }) {
 					<TraceTitle className="select-text" title={req.summary}>
 						{what}
 					</TraceTitle>
-					{about ? <TraceDescription>{about}</TraceDescription> : null}
+					{about ? <TraceDescription className="select-text">{about}</TraceDescription> : null}
 				</TraceLine>
 			</Trace>
 		);
 	}
+	if (question) return null;
 	return (
 		<div data-item="approval" data-state={state}>
 			<Card variant="outline" size="sm">
-				<ItemMedia variant="icon">{question ? <MessageCircleQuestionIcon /> : <TriangleAlertIcon />}</ItemMedia>
+				<ItemMedia variant="icon"><TriangleAlertIcon /></ItemMedia>
 				<ItemContent>
 					<ItemTitle>
-						{question ? `${req.agent} asks` : "Approval needed"}
-						{question ? null : <span className="font-mono">{req.tool}</span>}
+						Approval needed
+						<span className="font-mono">{req.tool}</span>
 					</ItemTitle>
 					{/* Not clamped: what is allowed here must be read whole. */}
 					<ItemDescription className="line-clamp-none whitespace-pre-wrap wrap-anywhere text-foreground select-text">{req.summary}</ItemDescription>
-					{question || !req.why ? null : <ItemDescription className="line-clamp-none select-text">{req.why}</ItemDescription>}
+					{req.why ? <ItemDescription className="line-clamp-none select-text">{req.why}</ItemDescription> : null}
 				</ItemContent>
 				<ItemActions>
-					{question ? (
-						<>
-							<Button size="sm" variant="ghost" onClick={() => void store.decide(req.id, false)}>No answer</Button>
-							<Button size="sm" variant="outline" onClick={() => store.ask(req.id)}>{choices.length ? "In my own words…" : "Answer…"}</Button>
-						</>
-					) : typed ? (
+					{typed ? (
 						<>
 							<Button size="sm" variant="outline" onClick={() => void store.decide(req.id, false)}>Deny</Button>
 							<Button size="sm" onClick={() => store.ask(req.id)}>Decide…</Button>
@@ -431,22 +431,45 @@ function ApprovalCard({ item }: { item: Extract<Item, { t: "approval" }> }) {
 						</>
 					)}
 				</ItemActions>
-				{question && choices.length ? (
-					// The answers it offers, the recommended one first (Suggestion: a Button that answers with its words).
-					<ItemFooter className="flex-wrap justify-start">
-						{choices.map((c, i) => {
-							const answer = <Button key={i} size="sm" variant={i === 0 ? "default" : "outline"} onClick={() => void store.decide(req.id, true, false, { answer: c })}>{c}</Button>;
-							return i === 0 ? (
-								<HoverTooltip key={i}>
-									<TooltipTrigger render={answer} />
-									<TooltipContent>recommended</TooltipContent>
-								</HoverTooltip>
-							) : answer;
-						})}
-					</ItemFooter>
-				) : null}
 			</Card>
 		</div>
+	);
+}
+
+/**
+ * The question that is open in a conversation, as a card inline above its composer: never a dialog
+ * that opens by itself. One the owner put off ("Later") is not shown; the line under the
+ * conversation brings it back. It takes the keyboard as it comes only when the composer is empty,
+ * so that it never takes what the owner is typing.
+ */
+function ComposerQuestion({ tab }: { tab: Tab }) {
+	const item = store.openQuestion(tab);
+	if (!item) return null;
+	const { req } = item;
+	const options = req.options ?? (req.choices ?? []).map((label) => ({ label }));
+	const field = document.activeElement;
+	const free = !field || field === document.body || (field instanceof HTMLTextAreaElement && Boolean(field.closest("[data-slot=composer]")) && !field.value.trim());
+	// An agent's question takes what is typed below as the owner's own words; a sign-in's choice does
+	// not: words of the owner's would mean nothing to its flow, and go as an ordinary message.
+	const words = req.tool === "question";
+	return (
+		<ScrollArea data-slot="composer-question" className={COMPOSER_QUESTION}>
+			<QuestionCard
+				key={req.id}
+				question={req.summary}
+				header={req.header}
+				from={`${req.agent} asks`}
+				options={options}
+				multiple={req.multiSelect}
+				recommended={words}
+				type={words ? (text) => (void store.answerInWords(tab, item, text), true) : undefined}
+				placeholder={words ? `Answer ${req.agent}'s question in your own words…` : undefined}
+				autoFocus={free && options.length > 0}
+				onAnswer={(picked) => void store.answer(req, picked)}
+				onNoAnswer={() => void store.decide(req.id, false)}
+				onLater={() => store.putOff(req.id)}
+			/>
+		</ScrollArea>
 	);
 }
 
@@ -525,7 +548,7 @@ export const Row = memo(function Row({ item, tab }: { item: Item; v: number; tab
 		case "model": {
 			// Drawn from what is known now: once a model answers, the notice is gone.
 			const info = store.agent(item.agent);
-			return info?.modelProblem ? <ModelNotice agent={item.agent} model={info.model} problem={info.modelProblem} retry onModels={() => store.openSettings("models")} /> : null;
+			return info?.modelProblem ? <ModelNotice agent={item.agent} model={info.model} problem={info.modelProblem} retry onSetup={() => void store.openSetup()} /> : null;
 		}
 		case "event":
 			return (
@@ -676,6 +699,13 @@ function WelcomeCard({ tab }: { tab: Tab }) {
 			live = false;
 		};
 	}, [tab.agent]);
+	// The main agent without a model that answers: said once in a toast that stays, with the way to "Setup Pine".
+	const problem = info?.main ? info.modelProblem : undefined;
+	useEffect(() => {
+		if (!problem) return;
+		// Short, for the stock toast's row: its action says the rest.
+		store.noModelNotice({ title: "Connect a model first", description: "Your agents can't answer you yet." });
+	}, [problem]);
 	const mode = MODES.find((m) => m.value === info?.mode);
 	const h = has?.holdings;
 	const counts: Array<[string, number]> = h ? [["skill", h.skills.length], ["event source", h.sources.length], ["schedule", h.schedules.length], ["MCP server", h.servers.length], ["conversation", h.conversations.length]] : [];
@@ -699,7 +729,8 @@ function WelcomeCard({ tab }: { tab: Tab }) {
 					{info?.delegates.length ? <HoverTooltip><TooltipTrigger render={<Badge variant="outline" />}>hands work to <b>{info.delegates.includes("*") ? (info.main ? "all other agents" : `all agents except ${store.agents.find((a) => a.main)?.id ?? "the main one"}`) : info.delegates.join(", ")}</b></TooltipTrigger><TooltipContent>Agents it can hand work to</TooltipContent></HoverTooltip> : null}
 					{asked === tab.agent ? counts.filter(([, n]) => n > 0).map(([what, n]) => <Badge variant="outline" key={what}><b>{n}</b>{n === 1 ? what : `${what}s`}</Badge>) : <WelcomeBadgesSkeleton count={2} />}
 				</div>
-				{info?.modelProblem ? <ModelNotice agent={tab.agent} model={info.model} problem={info.modelProblem} onModels={() => store.openSettings("models")} /> : null}
+				{/* The main agent's says it in a toast (above); another agent's on its card. */}
+				{info?.modelProblem && !info.main ? <ModelNotice agent={tab.agent} model={info.model} problem={info.modelProblem} onSetup={() => void store.openSetup()} /> : null}
 				{/* The way on to what the card only names: the agent's own page, where its model, mode, tools and instructions are changed. */}
 				<Button variant="outline" size="sm" data-slot="agent-settings" onClick={() => store.openSettings("agents", tab.agent)}><SettingsIcon data-icon="inline-start" />Agent settings</Button>
 			</EmptyContent>
@@ -797,7 +828,10 @@ function StatusLine({ tab }: { tab: Tab }) {
 		const t = window.setInterval(() => tick((n) => n + 1), 1000);
 		return () => window.clearInterval(t);
 	}, [tab.busy]);
-	const waiting = [...tab.approvals.values()];
+	// What this conversation was asked. A question of another conversation this tab holds (that one has no
+	// tab of its own) is said as waiting there, and never answered from here.
+	const waiting = [...tab.approvals.values()].filter((a) => !isPick(a.req) || store.ownAsk(tab, a.req));
+	const held = [...tab.approvals.values()].find((a) => isPick(a.req) && !store.ownAsk(tab, a.req));
 	const elsewhere = store.tabs.find((t) => t !== tab && t.approvals.size > 0);
 	const goal = tab.goal?.status === "active" ? tab.goal : undefined;
 	const swarm = tab.swarm?.status === "active" ? tab.swarm : undefined;
@@ -810,10 +844,14 @@ function StatusLine({ tab }: { tab: Tab }) {
 			{action}
 		</Marker>
 	);
+	// A question put off ("Later"), with no other card above the composer: this line brings it back, while the agent waits too.
+	const putOff = waiting.find((a) => isPick(a.req) && store.later.has(a.req.id));
+	if (putOff && !store.openQuestion(tab)) return line(<TriangleAlertIcon />, "A question waits for your answer.", <Button variant="outline" size="xs" onClick={() => store.ask(putOff.req.id)}>Open</Button>, true);
 	if (!tab.busy) {
-		if (waiting.length) return line(<TriangleAlertIcon />, waiting[0].req.tool === "question" ? "A question waits for your answer." : "A request waits for your approval.", <Button variant="outline" size="xs" onClick={() => store.ask(waiting[0].req.id)}>Open</Button>, true);
+		if (waiting.length) return line(<TriangleAlertIcon />, isPick(waiting[0].req) ? "A question waits for your answer." : "A request waits for your approval.", <Button variant="outline" size="xs" onClick={() => store.ask(waiting[0].req.id)}>Open</Button>, true);
 		if (swarm) return line(<UsersIcon />, `swarm · round ${swarm.round} of ${swarm.until} · ${swarm.checking ? "checking the answer" : "looking at the board"}`, <Button variant="outline" size="xs" onClick={() => void store.setSwarm(tab, "pause")}>Pause</Button>);
 		if (goal) return line(<TargetIcon />, `goal · round ${goal.round} of ${goal.until} · checking whether it is met`, <Button variant="outline" size="xs" onClick={() => void store.setGoal(tab, "pause")}>Pause</Button>);
+		if (held) return line(<TriangleAlertIcon />, `A question of ${held.req.agent}'s in another conversation waits for you.`, <Button variant="outline" size="xs" onClick={() => void store.goToAsk(held.req)}>Go there</Button>, true);
 		if (elsewhere) return line(<TriangleAlertIcon />, `${elsewhere.agent} · ${elsewhere.session} waits for you.`, <Button variant="outline" size="xs" onClick={() => store.activate(elsewhere)}>Go there</Button>, true);
 		if (tab.programs.length) return line(<PlayIcon />, `${plural(tab.programs.length, "program")} still running`, <Button variant="ghost" size="xs" onClick={() => void store.command("code-running")}>Show</Button>);
 		return null;
@@ -1201,9 +1239,13 @@ export function Conversation({ tab }: { tab: Tab }) {
 		return () => clearTimeout(t);
 	}, [glide, seen]);
 	const chat = tab.kind === "chat";
+	const setupTab = store.isSetup(tab);
+	const above = store.cardAbove(tab);
+	// What the card above the composer tells the composer (`HostedCard`): one for this view of the conversation.
+	const [slot] = useState(() => new ComposerCardSlot());
 	const checkpoint = chat && !tab.busy ? lastOwnerMessage(tab.items) : -1;
 	return (
-		<div className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background text-sm">
+		<div data-slot="conversation" className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background text-sm">
 			<ConvHead tab={tab} />
 			{selected && chat && source ? (
 				<SelectionToolbar rect={selected.rect}>
@@ -1222,7 +1264,8 @@ export function Conversation({ tab }: { tab: Tab }) {
 					<QuoteJump tab={tab} root={scroller} />
 					<BookmarkJump tab={tab} root={scroller} />
 					<FollowSent sent={scroll === "follow" ? sent : undefined} />
-					<MessageScroller className="flex-1">
+					{/* However short the pane, the thread keeps a few lines of room above a card (`COMPOSER_QUESTION`). */}
+					<MessageScroller className="min-h-12 flex-1">
 						<MessageScrollerViewport ref={scroller} data-glide={glide ? "" : undefined} onScrollEnd={() => setGlide(false)} className="motion-safe:data-glide:scroll-smooth">
 							{/* The column of the conversation, under the head and above the input. */}
 							<MessageScrollerContent className={TRANSCRIPT} aria-busy={tab.busy}>
@@ -1239,9 +1282,16 @@ export function Conversation({ tab }: { tab: Tab }) {
 										</MessageScrollerItem>
 									</>
 								) : null}
+								{/* "Setup Pine" begins with pine's own steps, above everything said in it. */}
+								{setupTab ? (
+									<MessageScrollerItem>
+										<SetupScript tab={tab} />
+									</MessageScrollerItem>
+								) : null}
 								{!tab.items.length && chat ? (
 									store.agent(tab.agent)?.main && tab.session === "main" ? null : (
-										<MessageScrollerItem className="my-auto">
+										// "Setup Pine" has its agent above pine's steps, as main has it above its letter.
+										<MessageScrollerItem className={setupTab ? "order-first" : "my-auto"}>
 											<Welcome tab={tab} />
 										</MessageScrollerItem>
 									)
@@ -1265,11 +1315,15 @@ export function Conversation({ tab }: { tab: Tab }) {
 					</MessageScroller>
 				</MessageScrollerProvider>
 			)}
-			<div className="shrink-0 px-4 pb-4">
-				<div className="relative mx-auto max-w-3xl">
+			<div className="flex min-h-0 flex-col px-4 pb-4">
+				<div className="relative mx-auto flex min-h-0 w-full max-w-3xl flex-col gap-2">
+					{/* An agent's question comes first; pine's own step in "Setup Pine" is there when none is open. */}
+					<QuestionCardHost.Provider value={slot}>
+						{above === "question" ? <ComposerQuestion tab={tab} /> : above === "setup" ? <SetupCard tab={tab} /> : null}
+					</QuestionCardHost.Provider>
 					<StatusLine tab={tab} />
 					{chat ? (
-						<Composer tab={tab} />
+						<Composer tab={tab} host={slot} />
 					) : tab.busy ? (
 						<div className="flex items-center gap-2"><span className="min-w-0 flex-1 text-muted-foreground">This tab shows one task's work and takes no messages.</span><Button variant="outline" size="xs" onClick={() => void store.stop(tab)}><SquareIcon data-icon="inline-start" />Stop this task</Button></div>
 					) : null}

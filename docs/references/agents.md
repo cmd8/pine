@@ -248,7 +248,7 @@ declares them in **families**, which is about 11 500:
 | `pine_mcp` | `add_mcp_server`, `remove_mcp_server`, `sign_in_mcp_server` (the main agent's), and the three tools for a server's resources |
 | `pine_skills` | `add_skill`, `remove_skill` |
 | `pine_agents` | The main agent's: `create_agent`, `update_agent`, `rename_agent`, `remove_agent` |
-| `pine_settings` | The main agent's: `set_setting`, `add_route`, `remove_route`, `add_model_server`, `remove_model_server`, `add_model`, `configure_model`, `remove_model`, `sign_in`, `sign_out` |
+| `pine_settings` | The main agent's: `set_setting`, `add_route`, `remove_route`, `add_decision_model`, `remove_decision_model`, `add_model_server`, `remove_model_server`, `add_model`, `configure_model`, `remove_model`, `sign_in`, `sign_out` |
 | `pine_board` | `board_read`, `board_post`, `board_claim`, `board_done`, `board_answer`, `board_remove`: the tasks of a job that several work on ([boards.md](boards.md)) |
 | `pine_other` | `request_access`, `stop_program`, `state_get`, `state_set` |
 | `pine_conversations` | The main agent's: `read_conversation`, `set_conversation`, `remove_conversation`, `rename_group`, `remove_group` |
@@ -451,6 +451,14 @@ minutes. The Pine app writes under such a message whether the work has read it (
 runs ends), and the work goes on with the message. Reading is not answering: a model deep in
 long work may read a message and still keep going. Stop the work when you need the answer and
 it does not come. Other programs use `POST /tasks/<id>/now` ([operations.md](operations.md)).
+
+A message while the agent waits for your answer to its `question` ([setup.md](setup.md)) is no
+steered message: in the Pine app, what you send while the question's card is open answers it.
+The agent is told "Your owner answered in their own words: …", with a line that if this does not
+answer its question it should respond to what you said, and that it may ask again. So a reply
+that asks something back ("what does each mean?") gets an answer, and the question comes again.
+An answer that is one of the options it offered (its label, in any case, or its number) is told
+as that option, as a pick on the card is.
 
 ## Groups of conversations
 

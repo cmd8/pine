@@ -38,7 +38,6 @@ nothing: no event, nothing stored, no model woken.
 | `command` | looks | a change in what a command prints or how it ends | disk space, a build, a branch, whether a machine answers |
 | `modbus` | looks | a change of a value in a Modbus device | solar inverters, heat pumps, wall boxes, energy meters |
 | `presence` | looks | a device joining or leaving your network | a phone coming home, a TV switched on, a printer online |
-| `typesafe` | is asked | nothing: it answers the typed questions of routes | a decision model judging mail or messages for a filter: TypeSafe's Jev, or one on a server of your own (Pinecone) |
 
 What should happen at a time is not a source but a schedule ([events.md](events.md),
 "Schedules"). A `calendar` source reports that an entry was added or moved; "ten minutes
@@ -262,7 +261,7 @@ unknown accounts get no answer at all and cause no question.
 |---|---|---|
 | `token` | | The bot's token. Create a bot by writing `/newbot` to @BotFather in Telegram; it answers with the token. Kept in `.env`. |
 | `allow` | pairing | Telegram user ids that may talk to the bot, if you know yours. Without it the bot is paired as described above. With several ids, what the agent sends unasked and the approval requests go to the first. |
-| `approvals` | `true` | Approval requests are also sent to that chat, with buttons to answer them: Allow, Deny and, where a yes can be remembered for the conversation, Always. A bot that is one agent's own carries that agent's requests and questions and no other agent's, and answers none of theirs; a bot for all agents carries every agent's. `/allow` and `/deny` work too (with the request's id when more than one is open). A question the agent asks with its `question` tool arrives the same way when it offers answers to pick from, with one button for each and one for "No answer"; an answer in your own words, and a question without answers to pick from, you type in the terminal UI. A request that needs a secret typed is never sent there. |
+| `approvals` | `true` | Approval requests are also sent to that chat, with buttons to answer them: Allow, Deny and, where a yes can be remembered for the conversation, Always. A bot that is one agent's own carries that agent's requests and questions and no other agent's, and answers none of theirs; a bot for all agents carries every agent's. `/allow` and `/deny` work too (with the request's id when more than one is open). A question the agent asks with its `question` tool arrives the same way when it offers answers to pick from, with what each means under the question, one button for each and one for "No answer". A question where several answers may be picked has no button for them: its answers are numbered, and your next message to the bot is the answer, their numbers ("1,3") or your own words. An answer in your own words to a question with one answer, and a question without answers to pick from, you type in the terminal UI or the Pine app. A request that needs a secret typed is never sent there. |
 | `apiBase` | Telegram's | The address of a Bot API server of your own. |
 
 Event `message`: `{ text, name, username, chatId, messageId, images? }`. A photo you send (up
@@ -2020,60 +2019,6 @@ label, or by its letter (`E:`) when it has none, and its `path` is the drive (`E
 
 On Windows, pine in WSL is a Linux: there the Linux helper runs, and hears what WSL's Linux
 has, which is little (no lock, no battery).
-
-### typesafe
-
-A decision model that speaks [TypeSafe](https://docs.typesafe.ai)'s API (`POST /v1/systemone`):
-it reports nothing and only answers, when a route asks it typed questions about an event
-([events.md](events.md), "Typed questions"). Without `server` or `url` it is TypeSafe's own
-service, Jev. With `server` it is a model server pine already has that also serves a decision
-model, such as Pinecone on your Mac (pplx-decider, openjev, …): pine uses that server's address and
-key, as for its chat models, and follows when you change them. With `url` it is any other server that
-answers the same way. Which model answers is `model`, as that server names it. The same route asks one or the other by naming its
-source. A chat model needs no source: a route names it with `"ask": { "model": ... }`.
-
-> Set up Jev with my TypeSafe key, and only wake you for mail it calls urgent.
-
-```json
-"sources": { "jev": { "type": "typesafe", "key": "${PINE_SOURCE_JEV_KEY}" } },
-"routes": [
-  { "name": "mail-judge", "on": "source/inbox/mail",
-    "ask": { "source": "jev", "data": "{{payload.subject}}\n{{payload.text}}",
-             "questions": { "urgent": { "type": "yesno", "question": "Does this need an answer today?" } } },
-    "publish": { "topic": "mail/judged" } },
-  { "name": "mail-urgent", "on": "mail/judged", "when": { "payload.answers.urgent.yes": { "gte": 0.8 } },
-    "agent": "main", "prompt": "Urgent mail: {{payload.of.subject}}" }
-]
-```
-
-> Add the decider model my studio serves as a decision model.
-
-```json
-"sources": { "decider": { "type": "typesafe", "server": "studio", "model": "decider" } }
-```
-
-Here `studio` is Pinecone as a model server of pine's (`pine model add studio http://studio.tail1234.ts.net:8080`):
-nothing more is asked. A server pine does not have as a model server takes `url`, `key` and, on your
-network, `local` instead.
-
-| Option | Default | |
-|---|---|---|
-| `server` | | A model server pine has (the models tool lists them) that also serves the decision model: its address and key are used, and `url`, `key` and `local` are left out. |
-| `url` | TypeSafe | A server of your own that speaks the same API, without `/v1`: for Pinecone, port 8080 on that Mac. Over `http://` only on your own network. |
-| `model` | `jev-latest` | The model that answers. With `server` or `url` it is needed: that server's name for the model (for Pinecone, the resource's name). |
-| `key` | | TypeSafe's API key (console.typesafe.ai), or the access token of the server at `url`. Needed for both; kept in `.env`, and asked of you in pine's dialog when the main agent sets the source up. Not with `server`, whose own key is used. |
-| `local` | `false` | The server at `url` is on your own network under a name that does not say so: a Tailscale name (`.ts.net`). Not needed for an IP address, `localhost` or a `.local` name. |
-| `timeout` | `20`, or `120` with `server` or `url` | Seconds a request may take, loading the model included: a server that first has to make room for the model takes longer. |
-
-Only a source of all agents: routes are pine's, not an agent's. What a route asks about (its
-`data`, by default the event's whole payload) goes to TypeSafe or to the address you gave, with the
-key, for every event the route matches; you are told so when you confirm the source and each route
-that asks it. TypeSafe's address is fixed in the type, the key follows no redirect, and an address
-that is not local stays on the public internet. A `choice` and a `score` come back with the model's
-`confidence` (0 to 1), and a `score` may lie between two levels (`1.7`: `level` is the nearest one,
-`"angry"`). A key that is refused (401), a model the server does not have (404), a server that is
-still busy after two more tries (429, 529) or another error fails the route (`pine/route-failed`) in
-pine's words with the status, and the source's status says so.
 
 ## What there is no type for
 

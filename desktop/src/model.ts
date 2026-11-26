@@ -67,7 +67,7 @@ export type Item = Base &
 		| { t: "event"; label: string; body: string; /** A note of pine's to the agent (`notify`): what it reports, never the owner's words. */ pine?: boolean }
 		/** A message was not answered because the agent has no model that answers (`ModelNotice`). */
 		| { t: "model"; agent: string }
-		| { t: "approval"; req: Approval; state: "open" | "allowed" | "denied" | "gone"; by?: string; always?: boolean }
+		| { t: "approval"; req: Approval; state: "open" | "allowed" | "denied" | "gone"; by?: string; always?: boolean; /** What the owner answered a question with here, for the line it folds into. */ answer?: string }
 		| { t: "steps"; task: number; items: Todo[] }
 		| { t: "media"; name: string; url: string; kind: "image" | "video" | "audio" }
 		| { t: "goal"; goal: GoalInfo; full?: boolean }
@@ -160,6 +160,13 @@ export const ROOM = "(min-width: 64rem)";
 
 const MEDIA_KIND = (name: string): "image" | "video" | "audio" | undefined => (/\.(png|jpe?g|gif|webp)$/i.test(name) ? "image" : /\.(mp4|mov|webm|m4v)$/i.test(name) ? "video" : /\.(wav|mp3|m4a|ogg|flac|aiff?)$/i.test(name) ? "audio" : undefined);
 export const mediaKind = MEDIA_KIND;
+
+/**
+ * A request answered by picking one of its options, on the question card above the composer: an
+ * agent's question, or a request with choices (what a sign-in's flow asks to choose). Neither opens
+ * the approval dialog.
+ */
+export const isPick = (req: Approval): boolean => req.tool === "question" || Boolean(req.choices?.length);
 
 /** One tab: a conversation, the work of one task, or the event log. */
 export class Tab extends Model {
@@ -283,6 +290,9 @@ export class Tab extends Model {
 const STOP_GRACE = 3000;
 /** What the gate says of a pine that answered with no agent at all, until one is made there. */
 const NO_AGENTS = "This pine has no agents.";
+
+/** The main agent's conversation that sets pine up ("Setup Pine", src/setup/). */
+export const SETUP = "setup";
 /** Kept once the home-screen suggestion was made, so that it is never made again. */
 const HOME_SCREEN_KEY = "pine.homeScreen";
 const sessionName = () => `s${Date.now().toString(36)}`;
@@ -303,7 +313,7 @@ const worktreeNote = (made: WorktreeMade) =>
 export type UpdatePhase = { phase: "waiting" | "ready" | "downloading" | "link"; version: string; mine: string; url: string; reason?: string };
 
 /** `loading`: the dialog is open while what it lists is still asked for, and draws skeleton lines. */
-export type Picker = { title: string; loading?: boolean; items: Array<{ value: string; label: string; about?: string; tone?: Tone }>; current?: string; done: (value: string | undefined) => void; placeholder?: string; free?: boolean; /** With `free`: the text it starts with, and how much of it is selected (a file's name without its extension). */ initial?: string; selected?: number };
+export type Picker = { title: string; loading?: boolean; items: Array<{ value: string; label: string; about?: string; tone?: Tone; /** Not shown: more it is found by in the search (`narrow`). */ words?: string }>; current?: string; done: (value: string | undefined) => void; placeholder?: string; free?: boolean; /** With `free`: the text it starts with, and how much of it is selected (a file's name without its extension). */ initial?: string; selected?: number };
 
 /** The app as a whole. */
 export class Store extends Model {
@@ -436,8 +446,10 @@ export class Store extends Model {
 	picker?: Picker;
 	/** The form that publishes an event as the owner, while it is open. */
 	publishing = false;
-	/** The approval or question whose dialog is open. */
+	/** The approval whose dialog is open. (A question has no dialog: its card is above the composer.) */
 	asking?: string;
+	/** The questions the owner put off ("Later"): their card is not shown until they are opened again. */
+	later = new Set<string>();
 	/** The tabs of last time are open (there may be none): until then the window shows that pine is starting. */
 	opened = false;
 	/** What was typed into a conversation's input and not sent when its tab closed, given back when it opens again. */
@@ -1194,6 +1206,8 @@ export class Store extends Model {
 		void this.refreshThemes();
 		void this.refreshViews();
 		this.touch();
+		// A pine whose agents cannot answer is set up first (a window opened for one conversation is left to it).
+		if (!this.hasModel && !initialTab && !startNoTab) await this.openSetup();
 	}
 
 	/**
@@ -1265,7 +1279,12 @@ export class Store extends Model {
 		if (was === now) return;
 		const fresh = list.filter((a) => !this.agents.some((x) => x.id === a.id)).map((a) => a.id);
 		const gone = this.agents.filter((a) => !list.some((x) => x.id === a.id)).map((a) => a.id);
+		const had = this.hasModel;
 		this.agents = list;
+		// The model was lost (signed out, a server removed): the setup conversation comes again, to connect one;
+		// behind the settings, where the owner may be setting it up already.
+		if (had && !this.hasModel && this.opened) void this.openSetup(this.active?.kind !== "settings");
+		if (this.hasModel) this.endNoModelNotice();
 		for (const a of list) learnHome(a.workspace);
 		// The pine had no agents when the page was loaded and has one now: the page is loaded, not left on that screen.
 		if (!this.opened && this.loadError === NO_AGENTS && list.length) {
@@ -1316,6 +1335,7 @@ export class Store extends Model {
 	 */
 	titleOf(agent: string, session: string): string {
 		if (session === "main") return "main conversation";
+		if (session === SETUP && this.agent(agent)?.main) return "Setup Pine";
 		// A branch of a conversation that has no name of its own is called after that one's title.
 		const branch = /^(s[0-9a-z]{6,10})-branch(?:-(\d+))?$/.exec(session);
 		if (branch) return `${this.titleOf(agent, branch[1])} · branch${branch[2] ? ` ${branch[2]}` : ""}`;
@@ -1493,6 +1513,73 @@ export class Store extends Model {
 		this.touch();
 	}
 
+	/**
+	 * Open "Setup Pine", the main agent's conversation that sets pine up, in front and pinned. The
+	 * pin is the daemon's like any other; a conversation with nothing said in it is not in its list,
+	 * so the page marks it here too.
+	 */
+	async openSetup(front = true): Promise<void> {
+		const main = this.agents.find((a) => a.main);
+		if (!main) return;
+		await this.openTab(main.id, SETUP, front);
+		const key = `${main.id}:${SETUP}`;
+		if (this.pins.has(key)) return;
+		this.pins.add(key);
+		this.touch();
+		await api.pinSession(main.id, SETUP, true).catch(() => {});
+	}
+
+	/** The toast that says the main agent has no model that answers: its id while shown, `closed` once the owner closed it. */
+	private noModel: { id?: string; closed?: boolean; text?: { title: string; description: string } } = {};
+
+	/**
+	 * Say once, in a toast that stays (the stock Toaster, no timeout), that the main agent has no model
+	 * that answers, with the way to the setup conversation. Shown from `main`'s welcome card; gone when
+	 * a model answers, and not shown again for this page once the owner closed it. Kept back while
+	 * "Setup Pine" is in front, which it points to and would only cover (`placeNoModelNotice`).
+	 */
+	noModelNotice(text: { title: string; description: string }): void {
+		if (this.hasModel || this.noModel.closed) return;
+		this.noModel.text = text;
+		if (this.noModel.id || (this.active && this.isSetup(this.active))) return;
+		const shown = this.noModel;
+		shown.id = toast.add({
+			...text,
+			type: "warning",
+			timeout: 0,
+			actionProps: { children: "Set up a model…", onClick: () => void this.openSetup() },
+			onClose: () => {
+				// Closed by the owner, not because a model answers.
+				if (shown.id) shown.closed = true;
+				shown.id = undefined;
+			},
+		});
+	}
+
+	/** The toast goes away when "Setup Pine" comes to the front, not as closed by the owner, and comes back on any other tab. */
+	private placeNoModelNotice(tab: Tab): void {
+		if (!this.isSetup(tab)) {
+			if (this.noModel.text) this.noModelNotice(this.noModel.text);
+			return;
+		}
+		const id = this.noModel.id;
+		if (!id) return;
+		this.noModel.id = undefined;
+		toast.close(id);
+	}
+
+	private endNoModelNotice(): void {
+		const id = this.noModel.id;
+		this.noModel = {};
+		if (id) toast.close(id);
+	}
+
+	/** Whether the main agent has a model that answers, as the daemon says it (`modelProblem`). */
+	get hasModel(): boolean {
+		const main = this.agents.find((a) => a.main);
+		return !main || !main.modelProblem;
+	}
+
 	/** Where there is no model to choose from yet: the way to Settings › Models, in place of an empty list. */
 	async connectModel(): Promise<void> {
 		const go = await this.pick({ title: "Connect a model first", items: [{ value: "models", label: "Settings › Models", about: "Sign in to a subscription or add a model server of your own." }] });
@@ -1621,6 +1708,7 @@ export class Store extends Model {
 		this.active = tab;
 		tab.unread = false;
 		if (tab.kind === "chat") this.chatLast = tab;
+		this.placeNoModelNotice(tab);
 		this.place(tab);
 		this.dock = dock.setFront(this.dock, tab.item);
 		this.focus = dock.groupHolding(this.dock, tab.item)?.id ?? this.focus;
@@ -2214,11 +2302,11 @@ export class Store extends Model {
 		if (fresh) this.endWork(tab);
 		tab.approvals.set(req.id, tab.add({ t: "approval", req, state: "open" }));
 		if (tab !== this.active) tab.unread = true;
-		if (fresh) this.attention("Pine", req.tool === "question" ? `${tab.agent} has a question for you` : `${tab.agent} needs your approval`, tab);
+		if (fresh) this.attention("Pine", isPick(req) ? `${tab.agent} has a question for you` : `${tab.agent} needs your approval`, tab);
 		tab.touch();
 		this.touch();
 		this.badge();
-		if (fresh ? tab === this.active && !this.asking && !this.picker && !this.publishing : false) this.ask(req.id);
+		if (fresh && !isPick(req) ? tab === this.active && !this.asking && !this.picker && !this.publishing : false) this.ask(req.id);
 		else if (tab === this.active) this.askNext();
 	}
 
@@ -2859,9 +2947,84 @@ export class Store extends Model {
 
 	// ---- approvals and questions -------------------------------------------------------------------
 
-	async decide(id: string, allow: boolean, always = false, values?: Record<string, string>): Promise<void> {
+	/** True when the daemon took the decision; `quiet` says nothing when it did not (the caller does). */
+	async decide(id: string, allow: boolean, always = false, values?: Record<string, string>, quiet = false): Promise<boolean> {
 		const r = await this.attempt(() => api.decide(id, allow, always, values));
-		if (r && !r.decided) this.flash("That request was already answered.");
+		if (r && !r.decided && !quiet) this.flash("That request was already answered.");
+		return Boolean(r?.decided);
+	}
+
+	/**
+	 * Whether a question or an approval is this tab's own: asked in its conversation. A tab may hold one
+	 * of another conversation of the agent's, or of another agent's, when that has no tab (`holderFor`):
+	 * it is said in the line under the conversation then, never answered from this one.
+	 */
+	ownAsk(tab: Tab, req: Approval): boolean {
+		return tab.kind === "chat" && req.agent === tab.agent && (req.root === undefined || tab.roots.has(req.root));
+	}
+
+	/** The question of a conversation whose card is shown above its composer: the first of its own that is open and not put off. */
+	openQuestion(tab: Tab): Of<"approval"> | undefined {
+		return [...tab.approvals.values()].find((a) => isPick(a.req) && !this.later.has(a.req.id) && this.ownAsk(tab, a.req));
+	}
+
+	/** "Setup Pine": the main agent's conversation `setup`. */
+	isSetup(tab: Tab): boolean {
+		return tab.kind === "chat" && tab.session === SETUP && Boolean(this.agent(tab.agent)?.main);
+	}
+
+	/**
+	 * Which card stands above a conversation's composer: its own open question first, else pine's own
+	 * step in "Setup Pine". The one place that decides it.
+	 */
+	cardAbove(tab: Tab): "question" | "setup" | undefined {
+		if (tab.kind !== "chat") return undefined;
+		if (this.openQuestion(tab)) return "question";
+		return this.isSetup(tab) ? "setup" : undefined;
+	}
+
+	/** Go to the conversation a question was asked in: its tab, or the conversation opened, which takes the question over (`rehome`). */
+	async goToAsk(req: Approval): Promise<void> {
+		const own = this.tabs.find((t) => this.ownAsk(t, req) && t.approvals.has(req.id)) ?? this.tabs.find((t) => this.ownAsk(t, req) && req.root !== undefined);
+		if (own) return this.activate(own);
+		const task = req.root !== undefined ? await this.attempt(() => api.taskRecord(req.root!)) : undefined;
+		if (task?.session) await this.openTab(req.agent, task.session);
+	}
+
+	/**
+	 * Answer the open question with what the owner typed in the composer: it shows as their message,
+	 * and the agent is told it as their own words (which may answer the question, or ask back). When the
+	 * question was answered meanwhile elsewhere, the words are not lost: they go as an ordinary message.
+	 */
+	async answerInWords(tab: Tab, item: Of<"approval">, text: string): Promise<void> {
+		tab.draft = "";
+		tab.touch();
+		const taken = await this.decide(item.req.id, true, false, { answer: text }, true);
+		if (!taken) return this.submit(tab, text);
+		item.answer = text;
+		tab.inputs.push(text);
+		tab.add({ t: "user", text });
+		tab.touch();
+	}
+
+	/** Put a question off: its card goes, and the line under the conversation brings it back. */
+	putOff(id: string): void {
+		this.later.add(id);
+		this.tabs.find((t) => t.approvals.has(id))?.touch();
+		this.touch();
+	}
+
+	/**
+	 * Answer a question with the options picked (counted from 1): their labels, joined by ", " for
+	 * several. The line the card folds into says them.
+	 */
+	async answer(req: Approval, picked: number[]): Promise<void> {
+		const labels = picked.map((n) => req.options?.[n - 1]?.label ?? req.choices?.[n - 1]).filter((l): l is string => Boolean(l));
+		if (!labels.length) return;
+		const text = labels.join(", ");
+		const item = this.tabs.map((t) => t.approvals.get(req.id)).find(Boolean);
+		if (item) item.answer = text;
+		await this.decide(req.id, true, false, { answer: text });
 	}
 
 	closeAsking(): void {
@@ -2877,14 +3040,23 @@ export class Store extends Model {
 	 */
 	askNext(): void {
 		if (this.asking || this.picker || this.publishing || !this.active) return;
-		const next = [...this.active.approvals.values()].find((a) => !this.asked.has(a.req.id));
+		// A question is answered from its card above the composer: it opens no dialog.
+		const next = [...this.active.approvals.values()].find((a) => !isPick(a.req) && !this.asked.has(a.req.id));
 		if (!next) return;
 		this.asking = next.req.id;
 		this.asked.add(next.req.id);
 		this.touch();
 	}
 
+	/** Bring what is asked to the owner: an approval's dialog, or a question's card above the composer. */
 	ask(id: string): void {
+		const tab = this.tabs.find((t) => t.approvals.has(id));
+		const item = tab?.approvals.get(id);
+		if (tab && item && isPick(item.req)) {
+			this.later.delete(id);
+			tab.touch();
+			return this.touch();
+		}
 		this.asking = id;
 		this.asked.add(id);
 		this.touch();
@@ -3198,6 +3370,7 @@ export class Store extends Model {
 					this.dirty.add(tab);
 				}
 				this.asked.delete(p.id);
+				this.later.delete(p.id);
 				if (this.asking === p.id) this.closeAsking();
 				this.dirty.add(this);
 				this.badge();

@@ -3,7 +3,6 @@ import { StringDecoder } from "node:string_decoder";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { AskQuestions } from "./ask.ts";
 import { EXT, loadConfig, mainAgentId, type PineConfig, rawSubscriptions, type RouteConfig, type SourceConfig, sourceFor, SOURCE_TYPES, type SubscriptionConfig, subscriptionFrom } from "./config.ts";
 import crypto from "node:crypto";
 import os from "node:os";
@@ -11,7 +10,6 @@ import { Value } from "typebox/value";
 import { parseEnv } from "node:util";
 import { secretName, setEnv, unsetEnv } from "./env-file.ts";
 import { editJson } from "./mcp-config.ts";
-import { listModelServers, serverKey } from "./models.ts";
 import type { SourcePlan, SourceType } from "./source-types.ts";
 import type { Router } from "./router.ts";
 import { type Approvals, realish, type Redactor, bin, rootsFor, sandboxArgv, sandboxAvailable, sandboxGuard, sandboxKind, shellEnv } from "./security.ts";
@@ -71,19 +69,6 @@ export interface SourceApi {
 	 */
 	onRead(handler: (query: Record<string, any>) => string | Promise<string>): void;
 	/**
-	 * For a source whose type `decides`: called with a route's typed questions and the data they are
-	 * about, and returns the answers, an object with one entry per question ({ yes }, { choice },
-	 * { level }). pine checks them against the questions; anything else is refused. Throw to refuse.
-	 */
-	onDecide(handler: (ask: { questions: AskQuestions; data: unknown; signal: AbortSignal }) => unknown | Promise<unknown>): void;
-	/**
-	 * A model server pine has (models.json), by its name: its address without /v1 and the key pine sends
-	 * it, read anew at each call, so that a source that uses one follows when the owner changes it. For a
-	 * type that reaches something such a server also serves (a decision model behind Pinecone). Throws
-	 * when there is none.
-	 */
-	modelServer(name: string): { url: string; key?: string };
-	/**
 	 * Say in one line how things stand, for whoever lists the sources: who it is connected to,
 	 * what it is waiting for. Call it again when that changes.
 	 */
@@ -106,6 +91,11 @@ export interface SourceApi {
 		decide(id: string, allow: boolean, by: string, always?: boolean): boolean;
 		/** Answer an agent's question with one of the answers it offered (by its place in `choices`). */
 		choose(id: string, choice: number, by: string): boolean;
+		/**
+		 * Answer an agent's question with the owner's text: their own words, or the numbers of the
+		 * answers it offered ("1,3"), which the agent is told as those answers.
+		 */
+		answer(id: string, text: string, by: string): boolean;
 	};
 	/**
 	 * Look at something again and again, for what cannot report by itself: a web address, a
@@ -185,8 +175,6 @@ export interface SourceInfo {
 	topic: string;
 	last?: { ts: number; topic: string };
 	events: number;
-	/** A source of all agents whose type answers routes' typed questions: where what it is asked about goes. */
-	decides?: string;
 }
 
 interface Running {
@@ -194,7 +182,6 @@ interface Running {
 	hook?: (req: { headers: Record<string, string | string[] | undefined>; body: Buffer }) => void | Promise<void>;
 	send?: (message: Record<string, any>) => void | string | Promise<void | string>;
 	read?: (query: Record<string, any>) => string | Promise<string>;
-	decide?: (ask: { questions: AskQuestions; data: unknown; signal: AbortSignal }) => unknown | Promise<unknown>;
 }
 
 /** The settings every source has, whatever its type. A type's options cannot have these names. */
@@ -285,6 +272,19 @@ export class SourceHost {
 			if (found) keys.add(found.key);
 		}
 		return [...keys].flatMap((key) => this.media.get(key) ?? []);
+	}
+
+	/** Whether a route listens to this source by its name (source/<key>/...): then it runs, as for a subscriber. */
+	private routed(key: string): boolean {
+		return this.cfg.routes.some((r) => r.on.some((p) => p.split("/")[0] === "source" && p.split("/")[1] === key));
+	}
+
+	/** Routes came or went: a source a route now listens to is started, one nothing wants any more is stopped. */
+	async routesChanged(): Promise<void> {
+		for (const { key, source } of this.all()) {
+			if (source.enabled && this.routed(key)) await this.ensure(key);
+			else if (this.running.has(key)) await this.settle(key);
+		}
 	}
 
 	private subscribersOf(key: string): string[] {
@@ -509,7 +509,7 @@ export class SourceHost {
 		}
 		this.wireGlobal();
 		for (const { key, source } of this.all()) {
-			if (source.enabled && (source.start === "always" || this.subscribersOf(key).length)) await this.ensure(key);
+			if (source.enabled && (source.start === "always" || this.subscribersOf(key).length || this.routed(key))) await this.ensure(key);
 		}
 	}
 
@@ -609,12 +609,6 @@ export class SourceHost {
 			},
 			onSend: (handler) => void (run.send = handler),
 			onRead: (handler) => void (run.read = handler),
-			onDecide: (handler) => void (run.decide = handler),
-			modelServer: (server) => {
-				const found = listModelServers(this.cfg.home).find((s) => s.name === server);
-				if (!found) throw new Error(`there is no model server "${server}". The models tool lists them`);
-				return { url: found.baseUrl.replace(/\/+$/, "").replace(/\/v1$/, ""), key: serverKey(this.cfg.home, server) };
-			},
 			status: (line) => void this.statuses.set(key, String(line).slice(0, 300)),
 			on: (pattern, handler) => void run.stops.push(this.bus.subscribe(pattern, async (e) => {
 				try {
@@ -631,6 +625,10 @@ export class SourceHost {
 				choose: (id, choice, by) => {
 					const answer = open().find((r) => r.id === id)?.choices?.[choice];
 					return answer !== undefined && (this.approvals?.decide(id, true, by, false, { answer }) ?? false);
+				},
+				answer: (id, text, by) => {
+					const answer = String(text ?? "").trim();
+					return !!answer && open().some((r) => r.id === id && r.tool === "question") && (this.approvals?.decide(id, true, by, false, { answer }) ?? false);
 				},
 			},
 			poll: (every, look) => {
@@ -695,8 +693,8 @@ export class SourceHost {
 	}
 
 	/** A source's shell command, started the way the shell of the agent it belongs to would start it. Throws when it cannot be. */
-	private shell(key: string, command: string) {
-		const agent = this.cfg.agents[key.includes("@") ? key.slice(key.lastIndexOf("@") + 1) : mainAgentId(this.cfg)];
+	private shell(key: string, command: string, opts: { agent?: string; stdin?: boolean } = {}) {
+		const agent = this.cfg.agents[opts.agent ?? (key.includes("@") ? key.slice(key.lastIndexOf("@") + 1) : mainAgentId(this.cfg))];
 		if (!agent) throw new Error("the agent this source belongs to is gone");
 		const roots = rootsFor(this.cfg, agent);
 		// Where the agent's own shell is withheld because nothing could confine it, a source's command is not run either.
@@ -705,7 +703,7 @@ export class SourceHost {
 		const argv = [...sandboxArgv(this.cfg, agent, roots, "restricted"), bin("bash"), "-c", command];
 		// On Linux a protected file that did not exist cannot be forbidden, only taken away again.
 		const guard = sandboxGuard(roots, "restricted");
-		const child = spawn(argv[0], argv.slice(1), { cwd: roots.workspace, env: shellEnv(agent, roots, {}), stdio: ["ignore", "pipe", "pipe"], detached: true });
+		const child = spawn(argv[0], argv.slice(1), { cwd: roots.workspace, env: shellEnv(agent, roots, {}), stdio: [opts.stdin ? "pipe" : "ignore", "pipe", "pipe"], detached: true });
 		// The whole group: a command that started others must not leave them behind.
 		const kill = () => {
 			try {
@@ -718,18 +716,24 @@ export class SourceHost {
 	}
 
 	/** A source's shell command, run the way the shell of the agent it belongs to would run it. */
-	private exec(key: string, command: string, opts: { timeoutMs?: number; maxBytes?: number; signal?: AbortSignal } = {}): Promise<{ code: number; output: string; truncated: boolean }> {
+	private exec(key: string, command: string, opts: { timeoutMs?: number; maxBytes?: number; signal?: AbortSignal; agent?: string; input?: string; stdout?: boolean } = {}): Promise<{ code: number; output: string; truncated: boolean }> {
 		const max = opts.maxBytes ?? 256 * 1024;
 		const timeoutMs = opts.timeoutMs ?? 30_000;
 		return new Promise((resolve, reject) => {
 			if (opts.signal?.aborted) return reject(new Error("stopped"));
 			let sh: ReturnType<SourceHost["shell"]>;
 			try {
-				sh = this.shell(key, command);
+				sh = this.shell(key, command, { agent: opts.agent, stdin: opts.input !== undefined });
 			} catch (e) {
 				return reject(e);
 			}
 			const { child, guard } = sh;
+			if (opts.input !== undefined) {
+				// A command that does not read what it is given closes its end early: that is no failure.
+				child.stdin!.on("error", () => {});
+				child.stdin!.end(opts.input);
+			}
+			const errors: Buffer[] = [];
 			const chunks: Buffer[] = [];
 			let size = 0;
 			let why = "";
@@ -742,8 +746,9 @@ export class SourceHost {
 				size += d.length;
 				if (size > max * 4) kill("");
 			};
-			child.stdout.on("data", take);
-			child.stderr.on("data", take);
+			child.stdout!.on("data", take);
+			// With `stdout`, what the command prints is kept apart from what it complains about.
+			child.stderr!.on("data", opts.stdout ? (d: Buffer) => void (errors.length < 64 && errors.push(d)) : take);
 			const timer = setTimeout(() => kill(`it took longer than ${timeoutMs / 1000} s`), timeoutMs);
 			const stop = () => kill("stopped");
 			opts.signal?.addEventListener("abort", stop, { once: true });
@@ -756,9 +761,20 @@ export class SourceHost {
 				done();
 				guard?.restore();
 				if (why) return reject(new Error(why));
+				if (opts.stdout && code) return reject(new Error(`it ended with ${code}${errors.length ? `: ${Buffer.concat(errors).toString("utf8").trim().slice(-300)}` : ""}`));
 				resolve({ code: code ?? 1, output: Buffer.concat(chunks).toString("utf8"), truncated: size > max });
 			});
 		});
+	}
+
+	/**
+	 * A route's `run`: the command in the sandbox of the agent it names, as that agent's sources run theirs
+	 * (its workspace, nothing of pine's, nowhere without a sandbox). What the route knows is handed in on
+	 * stdin; what it prints on stdout comes back. Throws when it fails, with the end of what it wrote on stderr.
+	 */
+	runCommand(agentId: string, command: string, input: string, timeoutMs: number): Promise<string> {
+		if (!this.cfg.agents[agentId]) return Promise.reject(new Error(`there is no agent "${agentId}" to run the command for`));
+		return this.exec(`route@${agentId}`, command, { agent: agentId, input, timeoutMs, maxBytes: 64 * 1024, stdout: true }).then((r) => r.output);
 	}
 
 	/** A source's command that keeps running: what it prints is handed on line by line until it ends or is stopped. */
@@ -784,7 +800,7 @@ export class SourceHost {
 					this.log.warn(`source ${key} failed on a line`, errText(e));
 				}
 			};
-			child.stdout.on("data", (d: Buffer) => {
+			child.stdout!.on("data", (d: Buffer) => {
 				rest += text.write(d);
 				for (let at = rest.indexOf("\n"); at >= 0; at = rest.indexOf("\n")) {
 					hand(rest.slice(0, at).replace(/\r$/, ""));
@@ -797,7 +813,7 @@ export class SourceHost {
 				}
 			});
 			let error = "";
-			child.stderr.on("data", (d: Buffer) => (error = (error + d.toString("utf8")).slice(-2000)));
+			child.stderr!.on("data", (d: Buffer) => (error = (error + d.toString("utf8")).slice(-2000)));
 			signal.addEventListener("abort", kill, { once: true });
 			child.on("error", (e) => (signal.removeEventListener("abort", kill), reject(new Error(`could not be started: ${errText(e)}`))));
 			child.on("close", (code) => {
@@ -854,37 +870,6 @@ export class SourceHost {
 		return String(await read(query));
 	}
 
-	/** The sources of all agents that answer a route's typed questions, with where what they are asked about goes. */
-	deciders(): Array<{ name: string; type: string; decides: string }> {
-		return Object.entries(this.cfg.sources).flatMap(([name, s]) => {
-			const decides = this.decidesOf(s);
-			return decides ? [{ name, type: s.type!, decides }] : [];
-		});
-	}
-
-	/** Where what a source that decides is asked about goes, in one line: its type says so, from the source's options where they name the address. */
-	private decidesOf(source: SourceConfig): string | undefined {
-		const decides = source.type ? this.types.get(source.type)?.type?.decides : undefined;
-		if (typeof decides !== "function") return decides;
-		try {
-			return decides(source.options);
-		} catch {
-			return "what a route asks about goes to the address in the source's options";
-		}
-	}
-
-	/**
-	 * Put a route's typed questions to a source that decides, started if it is not running. Only a source
-	 * of all agents: routes are pine's, not an agent's. What comes back is unchecked; the router checks it.
-	 */
-	async decide(name: string, ask: { questions: AskQuestions; data: unknown }, signal: AbortSignal): Promise<unknown> {
-		if (!this.deciders().some((s) => s.name === name)) throw new Error(`"${name}" is not a source that answers typed questions. ${this.deciders().map((s) => s.name).join(", ") || "There is none: leave ask.source out, and a model answers"}`);
-		await this.ensure(name);
-		const decide = this.running.get(name)?.decide;
-		if (!decide) throw new Error(`${name} ${this.running.has(name) ? "cannot answer as it is set up" : `is not running${this.errors.get(name) ? `: ${this.errors.get(name)}` : ""}`}`);
-		return await decide({ ...ask, signal });
-	}
-
 	/** Whether sending through this source reaches the owner and nobody else. The source's type says so, never the call. */
 	tellsOwner(agentId: string, name: string, session = "main"): boolean {
 		return this.senders(agentId, session).some((s) => s.name === name && s.toOwner);
@@ -928,7 +913,6 @@ export class SourceHost {
 				topic: `source/${key}`,
 				last: seen ? { ts: seen.ts, topic: seen.topic } : undefined,
 				events: seen?.count ?? 0,
-				decides: scope === "global" ? this.decidesOf(source) : undefined,
 			};
 		});
 	}
@@ -1101,7 +1085,7 @@ export class SourceHost {
 			if (found) this.router.add(this.route(agentId, found.key, found.source, sub));
 		}
 		this.wireGlobal();
-		for (const { key, source } of this.all()) if (key.endsWith(`@${agentId}`) && source.enabled && (source.start === "always" || this.subscribersOf(key).length)) await this.ensure(key);
+		for (const { key, source } of this.all()) if (key.endsWith(`@${agentId}`) && source.enabled && (source.start === "always" || this.subscribersOf(key).length || this.routed(key))) await this.ensure(key);
 	}
 
 	/** Agents were added or removed: who a subscription for everyone reaches has changed. */
@@ -1255,7 +1239,7 @@ export class SourceHost {
 	/** Stop a source that nobody listens to any more. */
 	private async settle(key: string): Promise<void> {
 		const source = this.all().find((x) => x.key === key)?.source;
-		if (source && source.start !== "always" && !this.subscribersOf(key).length) await this.halt(key);
+		if (source && source.start !== "always" && !this.subscribersOf(key).length && !this.routed(key)) await this.halt(key);
 	}
 }
 

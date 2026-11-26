@@ -20,10 +20,14 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "cn";
 import { type ComponentProps, Fragment, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
-import { type AgentDetail, api, type AskQuestion, type LoginState, type ModelServer, type Provider, type Route, type Setting, type SourceType } from "./api.ts";
+import { type AgentDetail, api, type AskQuestion, type Decisions, type ModelServer, type Provider, type Route, type Setting, type SourceType } from "./api.ts";
 import { bridge } from "./bridge.ts";
 import { Editor } from "./CodePanel.tsx";
-import { store, type UpdatePhase, useModel, useSignal } from "./model.ts";
+import { Model, store, type UpdatePhase, useModel, useSignal } from "./model.ts";
+import { SignInRun } from "./sign-in.ts";
+
+/** What a part follows while what it follows is not there yet. */
+const IDLE = new Model();
 import { ago, errText, MODES, newApp, plural, REASONING, SCROLLS, short, tilde } from "./text.ts";
 import type { DialogRootActions } from "@base-ui/react/dialog";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -883,49 +887,21 @@ function Agents() {
  * content of a stock Dialog, which unmounts it when it closes: a sign-in that is not done then is cancelled.
  */
 function SignIn({ provider, type, reload }: { provider: string; type?: "api_key" | "oauth"; reload: () => void }) {
-	const [id, setId] = useState<string>();
-	const [state, setState] = useState<LoginState>();
+	const [run, setRun] = useState<SignInRun>();
 	const [answer, setAnswer] = useState("");
-	const [error, setError] = useState<string>();
-	const opened = useRef<string>(undefined);
 	const field = useId();
 	useEffect(() => {
-		let live = true;
-		// A dialog closed before the sign-in had started still ends it: nothing else knows its id.
-		api.login(provider, type).then((r) => (live ? setId(r.id) : void api.loginAnswer(r.id, { cancel: true }).catch(() => {})), (e) => live && setError(errText(e)));
-		return () => {
-			live = false;
-		};
+		// A dialog closed before the sign-in is done cancels it (`end`).
+		const started = new SignInRun(provider, type);
+		setRun(started);
+		return () => started.end();
 	}, [provider, type]);
-	useEffect(() => {
-		if (!id) return;
-		let live = true;
-		let done = false;
-		const look = async () => {
-			try {
-				const next = await api.loginState(id);
-				if (!live) return;
-				done = next.done;
-				setState(next);
-				// The page is opened here, where the owner sits; once.
-				if (next.url && opened.current !== next.url) (opened.current = next.url), void bridge.open(next.url);
-				if (!next.done) timer = window.setTimeout(look, 700);
-			} catch (e) {
-				if (live) setError(errText(e));
-			}
-		};
-		let timer = window.setTimeout(look, 150);
-		return () => {
-			live = false;
-			window.clearTimeout(timer);
-			if (!done) void api.loginAnswer(id, { cancel: true }).catch(() => {});
-		};
-	}, [id]);
+	useModel(run ?? IDLE);
+	const state = run?.state;
+	const error = run?.error;
 	const send = async (text: string) => {
-		if (!id) return;
 		setAnswer("");
-		setError(undefined);
-		await api.loginAnswer(id, { answer: text }).catch((e) => setError(errText(e)));
+		await run?.answer(text);
 	};
 	const q = state?.question;
 	return (
@@ -1243,7 +1219,206 @@ function Models() {
 					<ItemGroup><SettingsItemsSkeleton count={1} /></ItemGroup>
 				)}
 			</Section>
+			<FieldSeparator />
+			<DecisionModels servers={(servers.data ?? []).map((x) => x.name)} />
 		</Page>
+	);
+}
+
+/** Settings › Models › Decision models: models that answer routes' typed questions fast, by name; TypeSafe's sign-in. */
+function DecisionModels({ servers }: { servers: string[] }) {
+	const list = useLoad(() => api.decisions());
+	const adding = useRef<DialogRootActions>(null);
+	return (
+		<Section
+			title="Decision models"
+			data-find="decision-models"
+			about="A model that answers a route's questions with values, not text: how likely yes is, which option, which level. In a fraction of a second, for routes that act on every event. No agent runs on one."
+			actions={
+				<Dialog actionsRef={adding}>
+					<DialogTrigger render={<Button variant="outline" disabled={!list.data} />}><PlusIcon data-icon="inline-start" />Add a decision model</DialogTrigger>
+					<DialogContent showCloseButton={false} className="sm:max-w-xl">{list.data ? <NewDecision servers={servers} signedIn={list.data.typesafe.signedIn} made={() => (adding.current?.close(), list.reload())} /> : <DialogHeader><DialogTitle>A decision model</DialogTitle></DialogHeader>}</DialogContent>
+				</Dialog>
+			}
+		>
+			<ItemGroup>
+				{list.data ? (
+					<>
+						{list.data.models.map((d) => (
+							<SettingsItem
+								key={d.name}
+								data-find={`decision:${d.name}`}
+								title={<>
+										{d.name}
+										<Badge variant="secondary">{d.model}</Badge>
+									</>}
+								description={`${d.where}${d.routes.length ? ` · asked by ${d.routes.join(", ")}` : ""}`}
+								actions={
+									<AlertDialog>
+										<AlertDialogTrigger render={<Button variant="ghost" size="sm" aria-label={`Remove the decision model ${d.name}`} />}>Remove</AlertDialogTrigger>
+										<AlertDialogContent>
+											<AlertDialogHeader>
+												<AlertDialogTitle>Remove the decision model {d.name}?</AlertDialogTitle>
+												{d.routes.length ? <AlertDialogDescription>{`${d.routes.length === 1 ? "The route" : "The routes"} ${d.routes.join(", ")} ${d.routes.length === 1 ? "asks" : "ask"} it. Remove ${d.routes.length === 1 ? "that route" : "those routes"} first, under Events.`}</AlertDialogDescription> : null}
+											</AlertDialogHeader>
+											<AlertDialogFooter>
+												<AlertDialogCancel>Cancel</AlertDialogCancel>
+												{d.routes.length ? null : <AlertDialogPrimitive.Close render={<AlertDialogAction variant="destructive" />} onClick={() => void store.attempt(() => api.removeDecision(d.name)).then((r) => r && list.reload())}>Remove</AlertDialogPrimitive.Close>}
+											</AlertDialogFooter>
+										</AlertDialogContent>
+									</AlertDialog>
+								}
+							/>
+						))}
+						<TypesafeRow decisions={list.data} reload={list.reload} />
+					</>
+				) : list.error ? (
+					<Alert variant="destructive"><TriangleAlertIcon /><AlertDescription>{list.error}</AlertDescription></Alert>
+				) : (
+					<SettingsItemsSkeleton count={2} />
+				)}
+			</ItemGroup>
+		</Section>
+	);
+}
+
+/** TypeSafe, whose decision model Jev is reached with a key: signed in or not, and the way in. */
+function TypesafeRow({ decisions, reload }: { decisions: Decisions; reload: () => void }) {
+	const signedIn = decisions.typesafe.signedIn;
+	return (
+		<SettingsItem
+			data-provider="typesafe"
+			title={<>
+					TypeSafe
+					{signedIn ? <Badge>signed in</Badge> : null}
+				</>}
+			description={signedIn ? "Its decision model Jev can be added: Add a decision model, at TypeSafe." : "A service with the decision model Jev. Sign in with an API key from your TypeSafe account."}
+			actions={<>
+				{signedIn ? (
+					<AlertDialog>
+						<AlertDialogTrigger render={<Button variant="ghost" size="sm" />}>Sign out</AlertDialogTrigger>
+						<AlertDialogContent>
+							<AlertDialogHeader>
+								<AlertDialogTitle>Sign out of TypeSafe?</AlertDialogTitle>
+								<AlertDialogDescription>Decision models at TypeSafe stop answering until pine is signed in again.</AlertDialogDescription>
+							</AlertDialogHeader>
+							<AlertDialogFooter>
+								<AlertDialogCancel>Cancel</AlertDialogCancel>
+								<AlertDialogPrimitive.Close render={<AlertDialogAction variant="destructive" />} onClick={() => void store.attempt(() => api.typesafeSignOut()).then((r) => r && reload())}>Sign out</AlertDialogPrimitive.Close>
+							</AlertDialogFooter>
+						</AlertDialogContent>
+					</AlertDialog>
+				) : null}
+				<Dialog onOpenChange={(open) => open || reload()}>
+					<DialogTrigger render={<Button variant="outline" size="sm" />}>{signedIn ? "New API key" : "API key"}</DialogTrigger>
+					<DialogContent showCloseButton={false} className="sm:max-w-xl"><TypesafeKey console={decisions.typesafe.console} /></DialogContent>
+				</Dialog>
+			</>}
+		/>
+	);
+}
+
+/** The content of a stock Dialog: a key for TypeSafe, checked with TypeSafe before it is kept. */
+function TypesafeKey({ console: where }: { console: string }) {
+	const [key, setKey] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [refused, setRefused] = useState("");
+	const [done, setDone] = useState(false);
+	const field = useId();
+	const save = async () => {
+		setBusy(true);
+		try {
+			await api.typesafeSignIn(key.trim());
+			setDone(true);
+		} catch (e) {
+			setRefused(errText(e));
+		}
+		setBusy(false);
+	};
+	return (
+		<>
+			<DialogHeader>
+				<DialogTitle>Sign in to TypeSafe</DialogTitle>
+				<DialogDescription>An API key from your TypeSafe account. pine checks it with TypeSafe and keeps it in its .env file, which no agent can read.</DialogDescription>
+			</DialogHeader>
+			<FieldGroup>
+				<Field data-invalid={refused ? true : undefined}>
+					<FieldLabel htmlFor={`${field}-key`}>API key</FieldLabel>
+					<Input id={`${field}-key`} autoFocus className="font-mono" type="password" autoComplete="off" aria-invalid={refused ? true : undefined} value={key} disabled={done} onChange={(e) => (setKey(e.target.value), setRefused(""))} onKeyDown={(e) => e.key === "Enter" && key.trim() && !busy && void save()} />
+					<FieldDescription>{done ? "Signed in. Add Jev now: Add a decision model, at TypeSafe." : refused || <>Get one at <Button variant="link" className="h-auto p-0" onClick={() => void bridge.open(where)}>{where.replace(/^https:\/\//, "")}</Button>.</>}</FieldDescription>
+				</Field>
+			</FieldGroup>
+			<DialogFooter>
+				<DialogClose render={<Button variant={done ? "default" : "outline"} />}>{done ? "Done" : "Cancel"}</DialogClose>
+				{done ? null : <Button disabled={!key.trim() || busy} onClick={() => void save()}>{busy ? <><Pulse label="Checking" data-icon="inline-start" />Asking TypeSafe…</> : "Sign in"}</Button>}
+			</DialogFooter>
+		</>
+	);
+}
+
+/** The content of a stock Dialog: a decision model, on a model server of yours, at TypeSafe, or at an address. */
+function NewDecision({ servers, signedIn, made }: { servers: string[]; signedIn: boolean; made: () => void }) {
+	const [f, setF] = useState({ name: "", where: servers[0] ?? "typesafe", model: "", url: "", local: false, key: "" });
+	const [busy, setBusy] = useState(false);
+	const field = useId();
+	const whereItems = [...servers.map((x) => ({ value: x, label: `The model server ${x}` })), { value: "typesafe", label: signedIn ? "TypeSafe" : "TypeSafe (sign in first)" }, { value: "url", label: "Another server, by its address" }];
+	const typesafe = f.where === "typesafe";
+	const ready = f.name.trim() && (typesafe ? signedIn : f.model.trim()) && (f.where !== "url" || f.url.trim());
+	const add = async () => {
+		setBusy(true);
+		const done = await store.attempt(() =>
+			api.addDecision({ name: f.name.trim(), model: f.model.trim() || undefined, ...(f.where === "url" ? { url: f.url.trim(), local: f.local, key: f.key.trim() || undefined } : { server: f.where }) }),
+		);
+		setBusy(false);
+		if (!done) return;
+		store.flash(`Added the decision model ${done.name}: ${done.lines.join("; ")}.`, "good", 8000);
+		made();
+	};
+	return (
+		<>
+			<DialogHeader>
+				<DialogTitle>A decision model</DialogTitle>
+				<DialogDescription>A route asks it by its name, under Events: New route, Make a decision.</DialogDescription>
+			</DialogHeader>
+			<FieldGroup>
+				<Field>
+					<FieldLabel htmlFor={`${field}-where`}>Where it is</FieldLabel>
+					<Choose id={`${field}-where`} items={whereItems} value={f.where} onChange={(where) => setF({ ...f, where })} />
+					<FieldDescription>{typesafe ? (signedIn ? "TypeSafe's Jev, with the key pine is signed in with." : "Sign in to TypeSafe first, below the list.") : f.where === "url" ? "A server that answers TypeSafe's API (POST /v1/systemone)." : "A server whose models pine has: its address and key are used."}</FieldDescription>
+				</Field>
+				{f.where === "url" ? (
+					<>
+						<Field>
+							<FieldLabel htmlFor={`${field}-url`}>Address</FieldLabel>
+							<Input id={`${field}-url`} className="font-mono" placeholder="http://box.tail1234.ts.net:8080" value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} />
+						</Field>
+						<Field orientation="horizontal">
+							<Switch id={`${field}-local`} checked={f.local} onCheckedChange={(local) => setF({ ...f, local })} />
+							<FieldLabel htmlFor={`${field}-local`}>On my network under a name that does not say so (Tailscale)</FieldLabel>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor={`${field}-key`}>Key</FieldLabel>
+							<Input id={`${field}-key`} className="font-mono" type="password" autoComplete="off" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })} />
+							<FieldDescription>Optional: if the server wants one. Kept in pine's .env file.</FieldDescription>
+						</Field>
+					</>
+				) : null}
+				<Field>
+					<FieldLabel htmlFor={`${field}-model`}>Model</FieldLabel>
+					<Input id={`${field}-model`} className="font-mono" placeholder={typesafe ? "jev-latest" : "decider"} value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} />
+					<FieldDescription>{typesafe ? "Optional: jev-latest unless you name another." : "The server's name for it, for Pinecone the resource's name."}</FieldDescription>
+				</Field>
+				<Field>
+					<FieldLabel htmlFor={`${field}-name`}>Name</FieldLabel>
+					<Input id={`${field}-name`} className="font-mono" placeholder="decider" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value.toLowerCase() })} />
+					<FieldDescription>What a route calls it: lowercase letters, digits, - and _.</FieldDescription>
+				</Field>
+			</FieldGroup>
+			<DialogFooter>
+				<DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+				<Button disabled={busy || !ready} onClick={() => void add()}>Add decision model</Button>
+			</DialogFooter>
+		</>
 	);
 }
 
@@ -1885,7 +2060,8 @@ function routeSaid(r: Route): { when: string; then: string } {
 	const then = [
 		r.set ? `set ${Object.entries(r.set).map(([k, v]) => `${k} to ${JSON.stringify(v)}`).join(" and ")}` : "",
 		r.call ? `ask ${r.call.model ?? "the default model"} once: “${short(r.call.prompt, 80)}”` : "",
-		r.ask ? `decide with ${r.ask.source ? `the source ${r.ask.source}` : r.ask.model ?? "the default model"}, ${decideSaid(r.ask.questions)}` : "",
+		r.ask ? `decide with ${r.ask.model ?? "the default model"}, ${decideSaid(r.ask.questions)}` : "",
+		r.run ? `run “${short(r.run.command, 80)}”${r.run.agent ? ` as ${r.run.agent}` : ""}` : "",
 		r.publish ? (r.ask && r.publish.payload === undefined ? `publish the answers as ${r.publish.topic}` : r.call && r.publish.payload === undefined ? `publish the answer as ${r.publish.topic}` : `publish ${r.publish.topic}${r.publish.payload !== undefined ? ` with ${short(JSON.stringify(r.publish.payload), 60)}` : ""}`) : "",
 		r.agent ? `wake ${r.agent} ${conversationOf(r.session)}${r.prompt ? `: “${short(r.prompt, 100)}”` : ", with the event"}` : "",
 	].filter(Boolean).join(", then ");
@@ -2056,15 +2232,14 @@ export function NewRoute({ made, does: first = "wake" }: { made: () => void; doe
 	const s = useModel(store);
 	const models = useLoad(() => api.models());
 	const [f, setF] = useState({ name: "", on: "", when: "", pace: "every" as keyof typeof ROUTE_PACE, time: "", does: first, agent: "", session: "", prompt: "", set: "", publish_topic: "", publish_payload: "", call_prompt: "", call_system: "", call_model: "", decide_name: "", decide_type: "yesno" as keyof typeof DECIDE_ANSWERS, decide_question: "", decide_choices: "", decide_data: "", decide_by: "" });
-	const sources = useLoad(() => api.sources());
+	const decisions = useLoad(() => api.decisions());
 	const [busy, setBusy] = useState(false);
 	const field = useId();
-	// Who makes a decision: a model ("model:<id>"), a source of all agents that decides ("source:<name>"), or the default model ("").
-	const deciders = (sources.data ?? []).filter((x) => x.decides);
-	const decideItems = [{ value: "", label: "The default model" }, ...(models.data ?? []).map((m) => ({ value: `model:${m}`, label: m })), ...deciders.map((x) => ({ value: `source:${x.name}`, label: `${x.name} (${x.type})` }))];
-	const decider = f.decide_by.startsWith("source:") ? deciders.find((x) => `source:${x.name}` === f.decide_by) : undefined;
+	// Who makes a decision: a decision model by its name, a chat model, or the default model ("").
+	const decideItems = (decisions.data?.models ?? []).map((d) => ({ value: d.name, label: `${d.name} (${d.where})` }));
+	const decider = decisions.data?.models.find((d) => d.name === f.decide_by);
 	const decideName = f.decide_name.trim() || "answer";
-	const decideReady = f.decide_question.trim() && (f.decide_type === "yesno" || f.decide_choices.split("\n").filter((l) => l.trim()).length >= 2) && f.publish_topic.trim();
+	const decideReady = decider && f.decide_question.trim() && (f.decide_type === "yesno" || f.decide_choices.split("\n").filter((l) => l.trim()).length >= 2) && f.publish_topic.trim();
 	const agentItems = s.agents.map((a) => ({ value: a.id, label: a.id }));
 	const modelItems = [{ value: "", label: "The default model" }, ...(models.data ?? []).map((m) => ({ value: m, label: m }))];
 	const does = ROUTE_DOES[f.does];
@@ -2077,8 +2252,7 @@ export function NewRoute({ made, does: first = "wake" }: { made: () => void; doe
 		if (f.does === "decide") {
 			body.ask_questions = JSON.stringify({ [decideName]: { type: f.decide_type, question: f.decide_question.trim(), ...decideChoices(f.decide_type, f.decide_choices) } });
 			body.ask_data = f.decide_data;
-			if (f.decide_by.startsWith("model:")) body.ask_model = f.decide_by.slice("model:".length);
-			if (f.decide_by.startsWith("source:")) body.ask_source = f.decide_by.slice("source:".length);
+			if (f.decide_by) body.ask_model = f.decide_by;
 		}
 		setBusy(true);
 		const done = await store.attempt(() => api.addRoute(Object.fromEntries(Object.entries(body).map(([k, v]) => [k, v.trim() || undefined]))));
@@ -2203,10 +2377,10 @@ export function NewRoute({ made, does: first = "wake" }: { made: () => void; doe
 									</Field>
 									<Field>
 										<FieldLabel htmlFor={`${field}-decide-by`}>Decided by</FieldLabel>
-										{models.data || models.error ? (
-											<Select items={decideItems} value={f.decide_by} onValueChange={(by) => setF({ ...f, decide_by: by ?? "" })}>
-												<SelectTrigger id={`${field}-decide-by`}>
-													<SelectValue />
+										{decisions.data || decisions.error ? (
+											<Select items={decideItems} value={f.decide_by || null} onValueChange={(by) => setF({ ...f, decide_by: by ?? "" })}>
+												<SelectTrigger id={`${field}-decide-by`} disabled={!decideItems.length}>
+													<SelectValue placeholder={decideItems.length ? "Choose a decision model…" : "No decision model yet"} />
 												</SelectTrigger>
 												<SelectContent className={LIST}>
 													<SelectGroup>
@@ -2217,7 +2391,7 @@ export function NewRoute({ made, does: first = "wake" }: { made: () => void; doe
 												</SelectContent>
 											</Select>
 										) : <SelectPending id={`${field}-decide-by`} />}
-										<FieldDescription>{decider ? `A decision model of a service: ${decider.decides}.` : "Any model you have; a small local one is enough. What the event carries goes to that model, as with Ask a model."}</FieldDescription>
+										<FieldDescription>{decider ? `What the event carries goes to ${decider.where}.` : decideItems.length ? "A decision model answers in a fraction of a second." : "Add one first, under Models: Decision models."}</FieldDescription>
 									</Field>
 									<Field>
 										<FieldLabel htmlFor={`${field}-decide-name`}>Call the answer</FieldLabel>
