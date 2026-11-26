@@ -210,7 +210,10 @@ answers typed questions: a service that sells decision models, set up as a sourc
 like any other connection ([source-types.md](source-types.md)). Its type says in one line where
 what it is asked about goes, which the owner is shown before confirming the source and the
 route; the address is in the type's code, and its key is a secret option kept in `.env`. Its
-answers are checked as a model's are.
+answers are checked as a model's are. pine has one such type, `typesafe`, for TypeSafe's Jev
+([source-types.md](source-types.md#typesafe)). A decision model may also say how sure it is
+(`confidence`, 0 to 1, on a `choice` and a `score`) and give a score between two levels (`1.7`;
+`level` is then the nearest).
 
 Text from untrusted events is prefixed for the agent with a line saying where it came from and
 that it is data, and is cut at `limits.maxEventChars`. That line is a courtesy; the protection

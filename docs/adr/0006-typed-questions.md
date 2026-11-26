@@ -69,7 +69,9 @@ default, or a source whose type says it `decides`.
 
 - **Questions** (`src/ask.ts`): `yesno` (answered `{ "yes": 0.87 }`), `choice` (`options`, two or
   more names with when each applies; `{ "choice": "invoice" }`), `score` (`levels`, two to ten,
-  lowest first; `{ "level": "annoyed", "score": 1 }`). Pine's own names, in plain words; a vendor's
+  lowest first; `{ "level": "annoyed", "score": 1 }`). A decision model of a service may also give a
+  score between levels (Jev's is the probability-weighted level, `1.7`: `level` is then the nearest)
+  and, for a choice or a score, a `confidence` from 0 to 1; both are kept only as numbers in range. Pine's own names, in plain words; a vendor's
   adapter maps them to its API (Jev: `yesno` is `noul`, `question` is `instructions`, `options` and
   `levels` are `criteria`). A `{{...}}` anywhere in a question, option or level is refused when the
   route is loaded and when it is proposed: the questions are fixed text, the event's values go only
@@ -87,11 +89,14 @@ default, or a source whose type says it `decides`.
 - **Decision models of a service** are source types with `decides` (one line for the owner: where
   what it is asked about goes) and `onDecide(handler)`, called with `{ questions, data, signal }`
   (`SourceHost.decide`). Only a source of all agents, since routes are pine's. Its answers pass the
-  same `checkAnswers`. TypeSafe becomes `src/sources/typesafe.ts` (or a type of the owner's own,
-  added with `add_source_type`, if the owner keeps vendors out of core): its key a secret option,
-  its address `https://api.typesafe.ai/v1/systemone` fixed in the type, its requests through
-  `publicOnlyAgent` like the `http` type's, `plan()` saying "what a route asks about goes to
-  api.typesafe.ai". No `jev` block, no `baseUrl`, no key name in core, no login command.
+  same `checkAnswers`. TypeSafe is the built-in type `typesafe` (`src/sources/typesafe.ts`), a
+  vendor's type like `slack` or `zulip`: its key a secret option, its address
+  `https://api.typesafe.ai/v1/systemone` fixed in the type (`service`, which only a test moves),
+  its requests through `publicOnlyAgent` and never along a redirect, `plan()` saying where the data
+  goes and refusing an agent's own source, retries on 429 and 529, and errors and the status line
+  in pine's words with TypeSafe's status code, never TypeSafe's text. No `jev` block, no `baseUrl`,
+  no key name in core, no login command. It could as well be a type of the owner's own
+  (`sourceTypes`, `add_source_type`): nothing in core names it but `SOURCE_TYPES`.
 - If TypeSafe offers an OpenAI-compatible endpoint that honours `response_format`, it is simply a
   model server (`add_model_server`) and `ask.model` names it: no source type at all.
 
@@ -119,6 +124,8 @@ computer: <decides>"). `pine check` names a route whose `ask.source` is not a so
 - **The main agent**: `add_route` takes `ask_questions` (JSON), `ask_data`, `ask_model` or
   `ask_source`; the owner sees who answers and what goes where, line by line, and confirms. A
   decider source is set up with `add_source` like any other.
+- **The `sources` tool** marks a source of all agents that decides ("answers typed questions of
+  routes"), so the main agent finds it without the manual.
 - **Settings** (not built here): the route form's Then gets "Ask" beside "Call a model", with the
   question editor of pull request 102 and a picker of the models and the decider sources. The key
   of a vendor is asked in the dialog of the source, not in Settings > Models.
@@ -131,8 +138,12 @@ object has), a probability out of range, a missing answer; a route asked through
 `withoutTools`, its answers published with the event's trust and filtered by a second route, the
 request carrying the schema; a model that answers outside the types twice, so that the route fails
 and publishes nothing; a stand-in source type that decides, held to the same check; and
-`checkRoute`'s lines and refusals. `test/manual.test.ts` asks for the section in a newcomer's
-words.
+`checkRoute`'s lines and refusals. `test/typesafe.test.ts` runs the `typesafe` type against a
+stand-in for TypeSafe's API on a loopback port, answering as its documentation says: pine's
+questions in TypeSafe's words, a continuous score and confidences kept, the rest dropped, a 529
+tried again, an option outside the owner's refused, a refused key said in pine's words and not
+TypeSafe's, no redirect followed, and `plan()`'s refusals. `test/manual.test.ts` asks for the
+sections in a newcomer's words.
 
 ## What of pull request 102 is kept
 
@@ -146,8 +157,11 @@ the `jev` block in `pine.json`, `TYPESAFE_API_KEY` as a name core knows, `pine l
 
 ## Open for the owner
 
-- Whether a TypeSafe source type ships with pine (`SOURCE_TYPES`) or stays the contributor's own
+- Whether the `typesafe` type ships with pine (as built here) or stays the contributor's own
   module (`sourceTypes` in `pine.json`, or `add_source_type`).
+- Whether a type for local classifiers that are not chat models (zero-shot and NLI models,
+  sequence classifiers behind Hugging Face's text-embeddings-inference) is worth having. A chat
+  model on llama.cpp needs none: `ask.model` names it.
 - Whether a `yesno` on a llama.cpp server should be read from the token probabilities of "yes" and
   "no" (`logprobs`) instead of the number the model states: calibrated, and the thing a decision
   model is bought for.

@@ -42,6 +42,7 @@ test("manual: questions in an agent's own words find the part of pine's manual t
 		["install the mac app with brew", /^desktop#getting-it/],
 		["only wake the agent for mail that is probably urgent, as a number I can filter on", /^events#typed-questions/],
 		["a decision model service that answers with a probability instead of text", /^(events#typed-questions|sources#.*decides)/],
+		["set up jev with my typesafe key", /^source-types#typesafe/],
 		["can the agent use bold text and formatting in telegram messages, markdown", /^source-types#telegram$/],
 		["why do questions of one agent show up in the telegram bot of another agent", /^source-types#telegram$/],
 		["how do sub-agents know which of them looks at which file", /^boards(#a-pool-of-sub-agents)?$/],

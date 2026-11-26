@@ -22,8 +22,12 @@ export interface AskQuestion {
 
 export type AskQuestions = Record<string, AskQuestion>;
 
-/** yesno: { yes: 0.82 }; choice: { choice: "invoice" }; score: { level: "Today", score: 2 } (0 is the lowest level). */
-export type AskAnswer = { yes: number } | { choice: string } | { level: string; score: number };
+/**
+ * yesno: { yes: 0.82 }; choice: { choice: "invoice" }; score: { level: "Today", score: 2 } (0 is the lowest
+ * level). A decision model of a service may give a score between levels (1.7: `level` is the nearest one)
+ * and, for a choice or a score, how sure it is (`confidence`, 0 to 1).
+ */
+export type AskAnswer = { yes: number } | { choice: string; confidence?: number } | { level: string; score: number; confidence?: number };
 export type AskAnswers = Record<string, AskAnswer>;
 
 /** What a route's "ask" is in pine.json. */
@@ -143,15 +147,20 @@ export function checkAnswers(raw: unknown, questions: AskQuestions): AskAnswers 
 			out[name] = { yes: Math.round(yes * 1000) / 1000 };
 		} else if (q.type === "choice") {
 			if (typeof v.choice !== "string" || !Object.hasOwn(q.options!, v.choice)) throw new Error(`"${name}" was not answered with one of its options (${Object.keys(q.options!).join(", ")})`);
-			out[name] = { choice: v.choice };
+			out[name] = { choice: v.choice, ...sure(v) };
 		} else {
-			const at = typeof v.level === "string" ? q.levels!.indexOf(v.level) : Number.isInteger(v.score) ? v.score : -1;
-			if (!(at >= 0 && at < q.levels!.length)) throw new Error(`"${name}" was not answered with one of its levels (${q.levels!.join(", ")})`);
-			out[name] = { level: q.levels![at], score: at };
+			// A level by its name, or a score from 0 to the top level, which may lie between two levels.
+			const top = q.levels!.length - 1;
+			const score = typeof v.level === "string" ? q.levels!.indexOf(v.level) : typeof v.score === "number" ? v.score : NaN;
+			if (!(score >= 0 && score <= top)) throw new Error(`"${name}" was not answered with one of its levels (${q.levels!.join(", ")})`);
+			out[name] = { level: q.levels![Math.round(score)], score: Math.round(score * 1000) / 1000, ...sure(v) };
 		}
 	}
 	return out;
 }
+
+/** How sure the answerer is, where it says so with a number from 0 to 1. Anything else it says about it is dropped. */
+const sure = (v: Record<string, unknown>) => (typeof v.confidence === "number" && v.confidence >= 0 && v.confidence <= 1 ? { confidence: Math.round(v.confidence * 1000) / 1000 } : {});
 
 /** The data as text for a model: a string as it is, anything else as JSON. */
 export const dataText = (data: unknown): string => (typeof data === "string" ? data : JSON.stringify(data ?? null, null, 2));

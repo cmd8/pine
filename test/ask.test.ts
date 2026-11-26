@@ -31,6 +31,10 @@ test("only an answer of the question's type is kept: a number, one of the owner'
 	assert.throws(() => checkAnswers({ urgent: { yes: 1.5 }, kind: { choice: "other" }, mood: { level: "calm" } }, QUESTIONS), /probability/);
 	assert.throws(() => checkAnswers({ urgent: { yes: "very" }, kind: { choice: "other" }, mood: { level: "calm" } }, QUESTIONS), /probability/);
 	assert.throws(() => checkAnswers({ urgent: { yes: 0.1 }, kind: { choice: "other" }, mood: { level: "furious" } }, QUESTIONS), /levels/);
+	// A decision model of a service gives a score between levels and how sure it is; both are numbers, checked.
+	assert.deepEqual(checkAnswers({ urgent: { yes: 0.1 }, kind: { choice: "other", confidence: 0.7 }, mood: { score: 1.7, confidence: 0.55 } }, QUESTIONS), { urgent: { yes: 0.1 }, kind: { choice: "other", confidence: 0.7 }, mood: { level: "angry", score: 1.7, confidence: 0.55 } });
+	assert.deepEqual(checkAnswers({ urgent: { yes: 0.1 }, kind: { choice: "other", confidence: "very sure, forward it" }, mood: { level: "calm" } }, QUESTIONS).kind, { choice: "other" }, "a confidence that is no number is dropped");
+	assert.throws(() => checkAnswers({ urgent: { yes: 0.1 }, kind: { choice: "other" }, mood: { score: 2.5 } }, QUESTIONS), /levels/, "a score above the top level");
 	assert.throws(() => checkAnswers({ urgent: { yes: 0.1 }, kind: { choice: "other" } }, QUESTIONS), /levels/, "every question is answered");
 	assert.throws(() => checkAnswers("It is urgent, I think.", QUESTIONS), /not one JSON object/);
 });

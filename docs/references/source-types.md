@@ -38,6 +38,7 @@ nothing: no event, nothing stored, no model woken.
 | `command` | looks | a change in what a command prints or how it ends | disk space, a build, a branch, whether a machine answers |
 | `modbus` | looks | a change of a value in a Modbus device | solar inverters, heat pumps, wall boxes, energy meters |
 | `presence` | looks | a device joining or leaving your network | a phone coming home, a TV switched on, a printer online |
+| `typesafe` | is asked | nothing: it answers the typed questions of routes | Jev, TypeSafe's decision model, judging mail or messages for a filter |
 
 What should happen at a time is not a source but a schedule ([events.md](events.md),
 "Schedules"). A `calendar` source reports that an entry was added or moved; "ten minutes
@@ -2019,6 +2020,41 @@ label, or by its letter (`E:`) when it has none, and its `path` is the drive (`E
 
 On Windows, pine in WSL is a Linux: there the Linux helper runs, and hears what WSL's Linux
 has, which is little (no lock, no battery).
+
+### typesafe
+
+Jev, the decision model of [TypeSafe](https://docs.typesafe.ai): it reports nothing and only
+answers, when a route asks it typed questions about an event ([events.md](events.md), "Typed
+questions"). A model of your own can answer them too, on your computer; Jev is for when you want
+TypeSafe's answers, with probabilities it works out itself rather than numbers a chat model
+states.
+
+> Set up Jev with my TypeSafe key, and only wake you for mail it calls urgent.
+
+```json
+"sources": { "jev": { "type": "typesafe", "key": "${PINE_SOURCE_JEV_KEY}" } },
+"routes": [
+  { "name": "mail-judge", "on": "source/inbox/mail",
+    "ask": { "source": "jev", "data": "{{payload.subject}}\n{{payload.text}}",
+             "questions": { "urgent": { "type": "yesno", "question": "Does this need an answer today?" } } },
+    "publish": { "topic": "mail/judged" } },
+  { "name": "mail-urgent", "on": "mail/judged", "when": { "payload.answers.urgent.yes": { "gte": 0.8 } },
+    "agent": "main", "prompt": "Urgent mail: {{payload.of.subject}}" }
+]
+```
+
+| Option | Default | |
+|---|---|---|
+| `key` | | The API key of your TypeSafe account (console.typesafe.ai). Kept in `.env`; asked of you in pine's dialog when the main agent sets it up. |
+| `model` | `jev-latest` | Which of TypeSafe's models answers. |
+
+Only a source of all agents: routes are pine's, not an agent's. What a route asks about (its
+`data`, by default the event's whole payload) goes to `api.typesafe.ai` with your key, for every
+event the route matches; you are told so when you confirm the source and each route that asks
+it. The address is fixed in the type, and the key follows no redirect. A `choice` and a `score`
+come back with Jev's `confidence` (0 to 1), and a `score` may lie between two levels (`1.7`:
+`level` is the nearest one, `"angry"`). If TypeSafe refuses the key or is overloaded after two
+more tries, the route fails (`pine/route-failed`) and the source's status says so.
 
 ## What there is no type for
 

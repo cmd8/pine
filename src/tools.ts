@@ -913,6 +913,7 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 					const all = host.list();
 					const senders = host.senders(agent.id, session);
 					const readers = host.readers(agent.id, session);
+					const deciders = host.deciders();
 					const lines = mine.map((s) => {
 						const info = all.find((x) => x.name === s.name && (x.scope === agent.id || x.scope === "global"));
 						const state = `${info?.error ? `not running: ${info.error}` : info?.running ? `running${info.last ? `, last event ${new Date(info.last.ts).toLocaleString("sv-SE")}` : ", no events yet"}` : "idle"}${info?.status ? `. ${info.status}` : ""}`;
@@ -924,7 +925,8 @@ export function pineTools(manager: AgentManager, agent: AgentConfig, live: Live,
 						];
 						const sends = senders.find((x) => x.name === s.name);
 						const reads = readers.find((x) => x.name === s.name);
-						return `${s.name} (${s.type}${s.description ? `: ${s.description}` : ""}) - ${state}\n${subs.length ? subs.join("\n") : "    nobody of yours is subscribed"}${sends ? `\n    can send (tool: send): ${sends.sends}` : ""}${reads ? `\n    can be read (tool: read_source): ${reads.reads}` : ""}`;
+						const decides = info?.scope === "global" ? deciders.find((x) => x.name === s.name) : undefined;
+						return `${s.name} (${s.type}${s.description ? `: ${s.description}` : ""}) - ${state}\n${subs.length ? subs.join("\n") : "    nobody of yours is subscribed"}${sends ? `\n    can send (tool: send): ${sends.sends}` : ""}${reads ? `\n    can be read (tool: read_source): ${reads.reads}` : ""}${decides ? `\n    answers typed questions of routes (add_route with ask_source): ${decides.decides}` : ""}`;
 					});
 					const hereToo = mine.filter((s) => s.local || (session === "main" && (s.agent || s.global))).length;
 					const lead = session === "main" ? "" : hereToo ? "" : " THIS conversation is not subscribed to anything: to be woken here, subscribe (without a scope), also to a source your main conversation already listens to.";

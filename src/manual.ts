@@ -57,7 +57,7 @@ const SYNONYMS: string[][] = [
 	["swarm", "team", "crew", "fleet", "orchestrate", "orchestrator", "orchestration", "lead", "coordinator", "parallelize", "fan-out"],
 	["check", "verify", "verifier", "critic", "reviewer", "review", "validate", "judge", "audit"],
 	// Typed questions on a route: what people call a model that answers with numbers and labels.
-	["typed", "classify", "classifier", "probability", "likely", "likelihood", "label", "labels", "categorize", "decision", "structured", "rating", "triage", "urgent"],
+	["typed", "classify", "classifier", "probability", "likely", "likelihood", "label", "labels", "categorize", "decision", "structured", "rating", "triage", "urgent", "jev", "typesafe"],
 	["stages", "stage", "phases", "phase", "dependency", "dependencies", "depends", "pipeline", "sequence"],
 	["interface", "ui", "gui", "frontend", "dashboard", "widget", "panel"],
 	["narrow", "narrower", "narrowing", "column", "columns", "sheet", "sidebar"],
