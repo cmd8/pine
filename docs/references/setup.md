@@ -32,7 +32,7 @@ is about what agents can do.
 | A new agent | | | **only the main agent** (`create_agent`) |
 | Changing, renaming or removing an agent | | | **only the main agent** (`update_agent`, `rename_agent`, `remove_agent`), you confirm every time |
 | pine's settings | | | **only the main agent** (`set_setting`), you confirm every time |
-| A route (a rule of your own) | | | **only the main agent** (`add_route`, `remove_route`), you confirm every time |
+| A route (a rule of your own) | | any agent, on its own sources' events and acting within itself (`add_route`, `remove_route`), you confirm every time | **only the main agent**, you confirm every time |
 | Any of the first five rows, for another agent | | **only the main agent** (the same tools, with `agent`) | |
 | A new type of event source (a program) | | | **only the main agent** (`add_source_type`), you confirm every time |
 | A model server of your own (llama.cpp, vLLM, LM Studio, ...) | | | **only the main agent** (`add_model_server`), you confirm every time |

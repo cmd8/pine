@@ -1482,6 +1482,130 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 		);
 		// Agents are made by the main agent, and by nobody else. The others are told so in their
 		// instructions, and have no tool for it.
+		// Routes: rules of the owner's own in pine.json. The main agent makes any; another agent only
+		// routes of its own: on its own sources' events, acting within itself (src/admin.ts, checkRoute).
+		// The agents themselves, and pine's settings: what only the main agent administers
+		// (src/admin.ts). A change is a few named values, each checked; the owner confirms it; and
+		// none of it is done from a conversation that outside content may steer.
+		const notHere = (what: string) => {
+			if (live.tainted) throw new Error(`Not done: this conversation has read content from outside (${live.tainted}), and ${what} is not done from such a conversation. Tell your owner: in a new conversation, or after /reset, you can do it.`);
+		};
+		// Routes and decision models are the plumbing of events, and building it is often what a page or a
+		// source the conversation just looked at is for: after outside content they are put to the owner with
+		// that said plainly, instead of refused. What makes events count as the owner's words stays refused.
+		const afterOutside = () => (live.tainted ? `. Note: this conversation has read outside content (${live.tainted}): check that this is what you asked for, since that content may have suggested it` : "");
+		const routeTools = (own?: string) => [
+				defineTool({
+					name: "routes",
+					label: "Routes",
+					description: "List pine's routes: rules that say what happens when an event arrives (wake an agent, write shared state, publish another event, ask a model once). What agents subscribe to is not here: the sources tool lists that. Use it when your owner asks which rules there are, and before add_route or remove_route.",
+					parameters: Type.Object({}),
+					execute: async () => {
+						if (own) {
+							const mine = cfg.routes.filter((r) => r.of === own);
+							return ok(mine.length ? `${mine.length} route${mine.length === 1 ? "" : "s"} of yours.\n${routesText({ ...cfg, routes: mine })}\n\nadd_route makes one, remove_route takes one out.` : `You have no routes. A route of yours acts on an event of one of your own sources at once, without a turn of yours: it can ask a decision model, run a script in your sandbox, answer through that source, write your shared state, or wake you only when it matters. add_route makes one.`);
+						}
+						return ok(cfg.routes.length ? `${cfg.routes.length} route${cfg.routes.length === 1 ? "" : "s"}.\n${routesText(cfg)}\n\nadd_route makes one, remove_route takes one out. To change one, remove it and add it again.` : "There are no routes. Most things need none: to have an agent react to a folder, a device or a web address, use add_source and subscribe; for something at a time, add_schedule. A route (add_route) is for a rule of your owner's own: write shared state from an event, ask a model once and pass the answer on, wake an agent only when a condition holds.");
+					},
+				}),
+				defineTool({
+					name: "add_route",
+					label: "Add route",
+					description: `${own ? `Only on events of your own sources (source/<name>@${own}/...) or your own shared state (state/agent/${own}/...), acting within yourself: answer through that source (publish_topic out/source/<name>@${own}), run a script in your sandbox, write your state, wake yourself. ` : ""}Add a route: a rule that says what happens when an event arrives. Only when your owner asks for a rule that a subscription or a schedule cannot do: run a script on each event with no model and no agent turn ("run_command": the fast way to react, e.g. to update a page), write shared state from an event ("set"), ask a model one question without tools and publish the answer ("call_prompt" with "publish_topic"; {{result}} is the answer), have a decision model answer typed questions about each event, in a fraction of a second, and act on the answers ("ask_questions" with "ask_model", then "run_command", "publish_topic" or "set"; for a judgement such as "only urgent mail"), publish another event, or wake an agent only when a condition holds ("when"). To have an agent react to a source, use subscribe instead; for a time, add_schedule. In texts, {{payload.x}}, {{topic}} and {{time}} stand for the event's values. Your owner sees the route and confirms it; it works at once.`,
+					parameters: Type.Object({
+						name: Type.String({ description: "Short name for it: lowercase letters, digits, - and _ (for example front-door)" }),
+						on: Type.String({ description: "The topic it listens to, as the sources tool shows it for a source (for example source/house/message). Several separated by commas; + and # are wildcards" }),
+						when: Type.Optional(Type.String({ description: 'Only events that match, as JSON, for example {"payload.topic": "house/door/front", "payload.value.open": true}. A key starting with state. looks at shared state' })),
+						agent: Type.Optional(Type.String({ description: own ? `To wake yourself (${own}) when the route says so` : `The agent to wake. Agents: ${Object.keys(cfg.agents).join(", ")}` })),
+						prompt: Type.Optional(Type.String({ description: "What the agent is told when it is woken. Leave out to hand it the event as it is" })),
+						session: Type.Optional(Type.String({ description: 'The conversation it is woken in: "main", "new" for a fresh one each time, or a name. Default: main' })),
+						set: Type.Optional(Type.String({ description: 'Shared state to write, as JSON: {"house/mode": "{{payload.value}}"}' })),
+						publish_topic: Type.Optional(Type.String({ description: "Publish another event on this topic" })),
+						publish_payload: Type.Optional(Type.String({ description: 'What that event carries, as JSON, for example {"file": "{{payload.file}}", "verdict": "{{result}}"}' })),
+						call_prompt: Type.Optional(Type.String({ description: "Ask a model this, once, without tools. The answer is {{result}} in publish_payload" })),
+						call_system: Type.Optional(Type.String({ description: "The instructions for that one call" })),
+						call_model: Type.Optional(Type.String({ description: "The model for that call, as provider/model. Default: pine's default model" })),
+						ask_questions: Type.Optional(Type.String({ description: 'Typed questions about each event, as JSON, each under a name: {"urgent": {"type": "yesno", "question": "Does this need an answer today?"}, "kind": {"type": "choice", "question": "What is it?", "options": {"invoice": "a bill to pay", "other": "anything else"}}, "mood": {"type": "score", "question": "How upset is the sender?", "levels": ["calm", "annoyed", "angry"]}}. Fixed text: no {{...}}. The event published carries payload.answers.urgent.yes (0 to 1), payload.answers.kind.choice, payload.answers.mood.level and .score (0 is the lowest), and payload.of, the event asked about. With set instead of publish_topic, {{answers}} goes into shared state: how to try a route (state_set on agent/<you>/..., then state_get)' })),
+						ask_model: Type.Optional(Type.String({ description: "The decision model that answers ask_questions, by its name (the models tool lists them). Needed with ask_questions; a chat model does not answer them" })),
+						run_command: Type.Optional(Type.String({ description: 'Run this command, with no model, in run_agent\'s sandbox and workspace: a script that acts on the event, e.g. "python3 ui/answer.py". Fixed text: it is given the event (and the answers or the model\'s answer) as JSON on stdin; what it prints is {{output}}. The way to react without waking an agent' })),
+						run_agent: Type.Optional(Type.String({ description: "The agent in whose sandbox and workspace run_command runs. Default: the main agent" })),
+						ask_data: Type.Optional(Type.String({ description: 'What the questions are about, for example "{{payload.subject}}\n{{payload.text}}". Default: the whole event' })),
+						throttle: Type.Optional(Type.String({ description: 'After one event, ignore matching ones for this long, for example "5m"' })),
+						debounce: Type.Optional(Type.String({ description: 'Wait until this long has passed without a new event, then handle the last one, for example "4s"' })),
+						trust: Type.Optional(Type.String({ description: 'Leave out. "owner" only when your owner said that nobody but them can cause these events: they are then treated like their own messages' })),
+					}),
+					execute: async (_id, p, signal) => {
+						run();
+						const checked = checkRoute(cfg, p, p.call_model || p.ask_model ? await manager.availableModels() : [], own);
+						if (checked.entry.trust === "owner") notHere("a route whose events count as your owner's words");
+						const decision = await confirm("add_route", `add the route "${p.name}"\n${checked.lines.join("\n")}`, `this adds a rule to pine's configuration that acts on events by itself${checked.wider ? `. Note: ${checked.wider}` : ""}${afterOutside()}`, signal);
+						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what you proposed.`);
+						manager.router?.add(addRoute(cfg, checked.entry));
+						await manager.sources?.routesChanged();
+						return ok(`Your owner confirmed it. The route "${p.name}" is added and works from now on:\n${checked.lines.join("\n")}\nTo change it, remove it and add it again.`);
+					},
+				}),
+				defineTool({
+					name: "add_decision_model",
+					label: "Add a decision model",
+					description: `Add a decision model when your owner asks: a model that answers typed questions about a text (how likely yes is, which option, which level) in a fraction of a second, for routes (add_route with ask_model set to its name). Not a chat model: no agent runs on one. Where it is: "server" names a model server pine has that also serves it (such as Pinecone; the models tool lists the servers), with the server's name for it as "model"; or "typesafe" for TypeSafe's Jev (sign_in typesafe first); or "url" for another server that speaks TypeSafe's API. Your owner confirms it.`,
+					parameters: Type.Object({
+						name: Type.String({ description: 'Its name, which a route gives in ask_model: lowercase letters, digits, - and _, e.g. "decider"' }),
+						server: Type.Optional(Type.String({ description: 'A model server pine has that serves it, e.g. "studio", or "typesafe" for TypeSafe' })),
+						model: Type.Optional(Type.String({ description: 'The server\'s name for the model, e.g. "decider". For TypeSafe: leave out for jev-latest' })),
+						url: Type.Optional(Type.String({ description: "Instead of server: the address of another server that speaks TypeSafe's API, without /v1" })),
+						local: Type.Optional(Type.Boolean({ description: "With url: the server is on your owner's network under a name that does not say so (a Tailscale name)" })),
+						key: Type.Optional(Type.Boolean({ description: "With url: true if that server wants a key. Your owner types it into pine's dialog, never into the conversation" })),
+					}),
+					execute: async (_id, p, signal) => {
+						run();
+						const checked = checkDecision(cfg, p);
+						if (checked.needsKey) throw new Error("pine is not signed in to TypeSafe. Call sign_in with provider typesafe first (your owner types the key into pine's dialog), then this again");
+						const decision = await confirm("add_decision_model", `add the decision model "${p.name}"\n${checked.lines.join("\n")}`, `routes can then send events to it${afterOutside()}`, signal, p.url && p.key ? [{ name: "key", label: `the key of ${new URL(p.url).host}`, secret: true }] : undefined);
+						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what you proposed.`);
+						const key = p.url && p.key ? String(decision.values?.key ?? "").trim() || undefined : undefined;
+						if (key) manager.sources?.keepOut([key]);
+						const made = addDecision(cfg, p.name, checked.entry, key);
+						return ok(`Added the decision model "${p.name}": ${made.model}, ${whereIs(made)}. A route asks it with add_route ask_model "${p.name}" and ask_questions; to see it answer, try a route as the manual says ("Trying a route").`);
+					},
+				}),
+				defineTool({
+					name: "remove_decision_model",
+					label: "Remove a decision model",
+					description: "Remove a decision model when your owner asks. Not while a route asks it: remove that route first. Your owner confirms it.",
+					parameters: Type.Object({ name: Type.String({ description: "Its name, as the models tool lists it" }) }),
+					execute: async (_id, p, signal) => {
+						run();
+						if (!cfg.decisions[p.name]) throw new Error(`there is no decision model "${p.name}". ${Object.keys(cfg.decisions).join(", ") || "There is none"}`);
+						const users = usersOf(cfg, p.name);
+						if (users.length) throw new Error(`the route${users.length === 1 ? "" : "s"} ${users.join(", ")} ask${users.length === 1 ? "s" : ""} "${p.name}". Remove ${users.length === 1 ? "it" : "them"} first (remove_route), if your owner wants that`);
+						const decision = await confirm("remove_decision_model", `remove the decision model "${p.name}" (${whereIs(cfg.decisions[p.name])})`, `this takes a decision model out of pine's configuration${afterOutside()}`, signal);
+						if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner.`);
+						removeDecision(cfg, p.name);
+						return ok(`Removed the decision model "${p.name}".`);
+					},
+				}),
+				defineTool({
+					name: "remove_route",
+					label: "Remove route",
+					description: "Remove a route, when your owner no longer wants that rule. Your owner confirms it. It stops acting at once.",
+					parameters: Type.Object({ name: Type.String({ description: "Name of the route, as the routes tool lists it" }) }),
+					execute: async (_id, p, signal) => {
+						run();
+						const found = cfg.routes.find((x) => x.name === p.name && (!own || x.of === own));
+						if (!found) throw new Error(`there is no route called "${p.name}". ${cfg.routes.length ? `Routes: ${cfg.routes.map((x) => x.name).join(", ")}` : "There are no routes"}. What an agent is subscribed to ends with unsubscribe, and a schedule with remove_schedule.`);
+						const decision = await confirm("remove_route", `remove the route "${found.name}"\n${routesText({ ...cfg, routes: [found] })}`, `this takes a rule out of pine's configuration${afterOutside()}`, signal);
+						if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner.`);
+						dropRoute(cfg, found.name);
+						manager.router?.remove(found.name);
+						await manager.sources?.routesChanged();
+						return ok(`Removed the route "${found.name}". It no longer acts.`);
+					},
+				}),
+		];
+		if (isMain) tools.push(...routeTools());
+		// Another agent wires its own sources up itself, in its owner's conversations.
+		else if (live.trust === "owner" && !profile.leaf) tools.push(...routeTools(agent.id));
 		if (isMain) {
 			tools.push(
 				defineTool({
@@ -1723,16 +1847,6 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					},
 				}),
 			);
-			// The agents themselves, and pine's settings: what only the main agent administers
-			// (src/admin.ts). A change is a few named values, each checked; the owner confirms it; and
-			// none of it is done from a conversation that outside content may steer.
-			const notHere = (what: string) => {
-				if (live.tainted) throw new Error(`Not done: this conversation has read content from outside (${live.tainted}), and ${what} is not done from such a conversation. Tell your owner: in a new conversation, or after /reset, you can do it.`);
-			};
-			// Routes and decision models are the plumbing of events, and building it is often what a page or a
-			// source the conversation just looked at is for: after outside content they are put to the owner with
-			// that said plainly, instead of refused. What makes events count as the owner's words stays refused.
-			const afterOutside = () => (live.tainted ? `. Note: this conversation has read outside content (${live.tainted}): check that this is what you asked for, since that content may have suggested it` : "");
 			const listOf = (v: unknown) => (typeof v === "string" ? v.split(",").map((x) => x.trim()).filter(Boolean) : undefined);
 			const some = (list: string[]) => list.join(", ") || "none";
 			const about = (a: AgentConfig) => {
@@ -1877,107 +1991,6 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 						if (checked.setting.live) await manager.refreshSessions();
 						manager.settingChanged(checked.key);
 						return ok(`Your owner confirmed it. ${checked.key} is now ${checked.setting.live ? checked.setting.now(cfg) : checked.text}.${checked.setting.live ? "" : " It is saved, and holds from the next start of pine: tell your owner that pine has to be restarted for it."}`);
-					},
-				}),
-				// Routes: rules of the owner's own in pine.json. Most wishes need none: an agent that is
-				// to react to something subscribes to a source, and what happens at a time is a schedule.
-				defineTool({
-					name: "routes",
-					label: "Routes",
-					description: "List pine's routes: rules that say what happens when an event arrives (wake an agent, write shared state, publish another event, ask a model once). What agents subscribe to is not here: the sources tool lists that. Use it when your owner asks which rules there are, and before add_route or remove_route.",
-					parameters: Type.Object({}),
-					execute: async () => ok(cfg.routes.length ? `${cfg.routes.length} route${cfg.routes.length === 1 ? "" : "s"}.\n${routesText(cfg)}\n\nadd_route makes one, remove_route takes one out. To change one, remove it and add it again.` : "There are no routes. Most things need none: to have an agent react to a folder, a device or a web address, use add_source and subscribe; for something at a time, add_schedule. A route (add_route) is for a rule of your owner's own: write shared state from an event, ask a model once and pass the answer on, wake an agent only when a condition holds."),
-				}),
-				defineTool({
-					name: "add_route",
-					label: "Add route",
-					description: `Add a route: a rule that says what happens when an event arrives. Only when your owner asks for a rule that a subscription or a schedule cannot do: run a script on each event with no model and no agent turn ("run_command": the fast way to react, e.g. to update a page), write shared state from an event ("set"), ask a model one question without tools and publish the answer ("call_prompt" with "publish_topic"; {{result}} is the answer), have a decision model answer typed questions about each event, in a fraction of a second, and act on the answers ("ask_questions" with "ask_model", then "run_command", "publish_topic" or "set"; for a judgement such as "only urgent mail"), publish another event, or wake an agent only when a condition holds ("when"). To have an agent react to a source, use subscribe instead; for a time, add_schedule. In texts, {{payload.x}}, {{topic}} and {{time}} stand for the event's values. Your owner sees the route and confirms it; it works at once.`,
-					parameters: Type.Object({
-						name: Type.String({ description: "Short name for it: lowercase letters, digits, - and _ (for example front-door)" }),
-						on: Type.String({ description: "The topic it listens to, as the sources tool shows it for a source (for example source/house/message). Several separated by commas; + and # are wildcards" }),
-						when: Type.Optional(Type.String({ description: 'Only events that match, as JSON, for example {"payload.topic": "house/door/front", "payload.value.open": true}. A key starting with state. looks at shared state' })),
-						agent: Type.Optional(Type.String({ description: `The agent to wake. Agents: ${Object.keys(cfg.agents).join(", ")}` })),
-						prompt: Type.Optional(Type.String({ description: "What the agent is told when it is woken. Leave out to hand it the event as it is" })),
-						session: Type.Optional(Type.String({ description: 'The conversation it is woken in: "main", "new" for a fresh one each time, or a name. Default: main' })),
-						set: Type.Optional(Type.String({ description: 'Shared state to write, as JSON: {"house/mode": "{{payload.value}}"}' })),
-						publish_topic: Type.Optional(Type.String({ description: "Publish another event on this topic" })),
-						publish_payload: Type.Optional(Type.String({ description: 'What that event carries, as JSON, for example {"file": "{{payload.file}}", "verdict": "{{result}}"}' })),
-						call_prompt: Type.Optional(Type.String({ description: "Ask a model this, once, without tools. The answer is {{result}} in publish_payload" })),
-						call_system: Type.Optional(Type.String({ description: "The instructions for that one call" })),
-						call_model: Type.Optional(Type.String({ description: "The model for that call, as provider/model. Default: pine's default model" })),
-						ask_questions: Type.Optional(Type.String({ description: 'Typed questions about each event, as JSON, each under a name: {"urgent": {"type": "yesno", "question": "Does this need an answer today?"}, "kind": {"type": "choice", "question": "What is it?", "options": {"invoice": "a bill to pay", "other": "anything else"}}, "mood": {"type": "score", "question": "How upset is the sender?", "levels": ["calm", "annoyed", "angry"]}}. Fixed text: no {{...}}. The event published carries payload.answers.urgent.yes (0 to 1), payload.answers.kind.choice, payload.answers.mood.level and .score (0 is the lowest), and payload.of, the event asked about. With set instead of publish_topic, {{answers}} goes into shared state: how to try a route (state_set on agent/<you>/..., then state_get)' })),
-						ask_model: Type.Optional(Type.String({ description: "The decision model that answers ask_questions, by its name (the models tool lists them). Needed with ask_questions; a chat model does not answer them" })),
-						run_command: Type.Optional(Type.String({ description: 'Run this command, with no model, in run_agent\'s sandbox and workspace: a script that acts on the event, e.g. "python3 ui/answer.py". Fixed text: it is given the event (and the answers or the model\'s answer) as JSON on stdin; what it prints is {{output}}. The way to react without waking an agent' })),
-						run_agent: Type.Optional(Type.String({ description: "The agent in whose sandbox and workspace run_command runs. Default: the main agent" })),
-						ask_data: Type.Optional(Type.String({ description: 'What the questions are about, for example "{{payload.subject}}\n{{payload.text}}". Default: the whole event' })),
-						throttle: Type.Optional(Type.String({ description: 'After one event, ignore matching ones for this long, for example "5m"' })),
-						debounce: Type.Optional(Type.String({ description: 'Wait until this long has passed without a new event, then handle the last one, for example "4s"' })),
-						trust: Type.Optional(Type.String({ description: 'Leave out. "owner" only when your owner said that nobody but them can cause these events: they are then treated like their own messages' })),
-					}),
-					execute: async (_id, p, signal) => {
-						run();
-						const checked = checkRoute(cfg, p, p.call_model || p.ask_model ? await manager.availableModels() : []);
-						if (checked.entry.trust === "owner") notHere("a route whose events count as your owner's words");
-						const decision = await confirm("add_route", `add the route "${p.name}"\n${checked.lines.join("\n")}`, `this adds a rule to pine's configuration that acts on events by itself${checked.wider ? `. Note: ${checked.wider}` : ""}${afterOutside()}`, signal);
-						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what you proposed.`);
-						manager.router?.add(addRoute(cfg, checked.entry));
-						return ok(`Your owner confirmed it. The route "${p.name}" is added and works from now on:\n${checked.lines.join("\n")}\nTo change it, remove it and add it again.`);
-					},
-				}),
-				defineTool({
-					name: "add_decision_model",
-					label: "Add a decision model",
-					description: `Add a decision model when your owner asks: a model that answers typed questions about a text (how likely yes is, which option, which level) in a fraction of a second, for routes (add_route with ask_model set to its name). Not a chat model: no agent runs on one. Where it is: "server" names a model server pine has that also serves it (such as Pinecone; the models tool lists the servers), with the server's name for it as "model"; or "typesafe" for TypeSafe's Jev (sign_in typesafe first); or "url" for another server that speaks TypeSafe's API. Your owner confirms it.`,
-					parameters: Type.Object({
-						name: Type.String({ description: 'Its name, which a route gives in ask_model: lowercase letters, digits, - and _, e.g. "decider"' }),
-						server: Type.Optional(Type.String({ description: 'A model server pine has that serves it, e.g. "studio", or "typesafe" for TypeSafe' })),
-						model: Type.Optional(Type.String({ description: 'The server\'s name for the model, e.g. "decider". For TypeSafe: leave out for jev-latest' })),
-						url: Type.Optional(Type.String({ description: "Instead of server: the address of another server that speaks TypeSafe's API, without /v1" })),
-						local: Type.Optional(Type.Boolean({ description: "With url: the server is on your owner's network under a name that does not say so (a Tailscale name)" })),
-						key: Type.Optional(Type.Boolean({ description: "With url: true if that server wants a key. Your owner types it into pine's dialog, never into the conversation" })),
-					}),
-					execute: async (_id, p, signal) => {
-						run();
-						const checked = checkDecision(cfg, p);
-						if (checked.needsKey) throw new Error("pine is not signed in to TypeSafe. Call sign_in with provider typesafe first (your owner types the key into pine's dialog), then this again");
-						const decision = await confirm("add_decision_model", `add the decision model "${p.name}"\n${checked.lines.join("\n")}`, `routes can then send events to it${afterOutside()}`, signal, p.url && p.key ? [{ name: "key", label: `the key of ${new URL(p.url).host}`, secret: true }] : undefined);
-						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what you proposed.`);
-						const key = p.url && p.key ? String(decision.values?.key ?? "").trim() || undefined : undefined;
-						if (key) manager.sources?.keepOut([key]);
-						const made = addDecision(cfg, p.name, checked.entry, key);
-						return ok(`Added the decision model "${p.name}": ${made.model}, ${whereIs(made)}. A route asks it with add_route ask_model "${p.name}" and ask_questions; to see it answer, try a route as the manual says ("Trying a route").`);
-					},
-				}),
-				defineTool({
-					name: "remove_decision_model",
-					label: "Remove a decision model",
-					description: "Remove a decision model when your owner asks. Not while a route asks it: remove that route first. Your owner confirms it.",
-					parameters: Type.Object({ name: Type.String({ description: "Its name, as the models tool lists it" }) }),
-					execute: async (_id, p, signal) => {
-						run();
-						if (!cfg.decisions[p.name]) throw new Error(`there is no decision model "${p.name}". ${Object.keys(cfg.decisions).join(", ") || "There is none"}`);
-						const users = usersOf(cfg, p.name);
-						if (users.length) throw new Error(`the route${users.length === 1 ? "" : "s"} ${users.join(", ")} ask${users.length === 1 ? "s" : ""} "${p.name}". Remove ${users.length === 1 ? "it" : "them"} first (remove_route), if your owner wants that`);
-						const decision = await confirm("remove_decision_model", `remove the decision model "${p.name}" (${whereIs(cfg.decisions[p.name])})`, `this takes a decision model out of pine's configuration${afterOutside()}`, signal);
-						if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner.`);
-						removeDecision(cfg, p.name);
-						return ok(`Removed the decision model "${p.name}".`);
-					},
-				}),
-				defineTool({
-					name: "remove_route",
-					label: "Remove route",
-					description: "Remove a route, when your owner no longer wants that rule. Your owner confirms it. It stops acting at once.",
-					parameters: Type.Object({ name: Type.String({ description: "Name of the route, as the routes tool lists it" }) }),
-					execute: async (_id, p, signal) => {
-						run();
-						const found = cfg.routes.find((x) => x.name === p.name);
-						if (!found) throw new Error(`there is no route called "${p.name}". ${cfg.routes.length ? `Routes: ${cfg.routes.map((x) => x.name).join(", ")}` : "There are no routes"}. What an agent is subscribed to ends with unsubscribe, and a schedule with remove_schedule.`);
-						const decision = await confirm("remove_route", `remove the route "${found.name}"\n${routesText({ ...cfg, routes: [found] })}`, `this takes a rule out of pine's configuration${afterOutside()}`, signal);
-						if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner.`);
-						dropRoute(cfg, found.name);
-						manager.router?.remove(found.name);
-						return ok(`Removed the route "${found.name}". It no longer acts.`);
 					},
 				}),
 			);

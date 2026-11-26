@@ -434,6 +434,7 @@ export class OwnerApi {
 			const input = body as RouteInput;
 			const checked = checkRoute(cfg, input, input.call_model || input.ask_model ? await manager.availableModels() : []);
 			this.router?.add(addRoute(cfg, checked.entry));
+			await manager.sources?.routesChanged();
 			return { name: String(checked.entry.name), lines: checked.lines, ...(checked.wider ? { wider: checked.wider } : {}) };
 		}
 		if (at === "routes/remove") {
@@ -441,6 +442,7 @@ export class OwnerApi {
 			if (!found) throw new Refusal(404, `there is no route "${String(body.name)}". ${cfg.routes.length ? `Routes: ${cfg.routes.map((r) => r.name).join(", ")}` : "There are no routes"}`);
 			dropRoute(cfg, found.name);
 			this.router?.remove(found.name);
+			await manager.sources?.routesChanged();
 			return { removed: true };
 		}
 

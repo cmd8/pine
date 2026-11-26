@@ -269,6 +269,19 @@ export class SourceHost {
 		return [...keys].flatMap((key) => this.media.get(key) ?? []);
 	}
 
+	/** Whether a route listens to this source by its name (source/<key>/...): then it runs, as for a subscriber. */
+	private routed(key: string): boolean {
+		return this.cfg.routes.some((r) => r.on.some((p) => p.split("/")[0] === "source" && p.split("/")[1] === key));
+	}
+
+	/** Routes came or went: a source a route now listens to is started, one nothing wants any more is stopped. */
+	async routesChanged(): Promise<void> {
+		for (const { key, source } of this.all()) {
+			if (source.enabled && this.routed(key)) await this.ensure(key);
+			else if (this.running.has(key)) await this.settle(key);
+		}
+	}
+
 	private subscribersOf(key: string): string[] {
 		const own = Object.values(this.cfg.agents).flatMap((a) => a.subscribe.filter((sub) => sourceFor(this.cfg, a.id, sub.source)?.key === key).map((sub) => (sub.session === "main" ? a.id : sub.session === FRESH ? `${a.id} (a fresh conversation for every event)` : `${a.id}/${sub.session}`)));
 		return this.cfg.subscribe.some((sub) => sub.source === key) ? ["all agents", ...own] : own;
@@ -491,7 +504,7 @@ export class SourceHost {
 		}
 		this.wireGlobal();
 		for (const { key, source } of this.all()) {
-			if (source.enabled && (source.start === "always" || this.subscribersOf(key).length)) await this.ensure(key);
+			if (source.enabled && (source.start === "always" || this.subscribersOf(key).length || this.routed(key))) await this.ensure(key);
 		}
 	}
 
@@ -1063,7 +1076,7 @@ export class SourceHost {
 			if (found) this.router.add(this.route(agentId, found.key, found.source, sub));
 		}
 		this.wireGlobal();
-		for (const { key, source } of this.all()) if (key.endsWith(`@${agentId}`) && source.enabled && (source.start === "always" || this.subscribersOf(key).length)) await this.ensure(key);
+		for (const { key, source } of this.all()) if (key.endsWith(`@${agentId}`) && source.enabled && (source.start === "always" || this.subscribersOf(key).length || this.routed(key))) await this.ensure(key);
 	}
 
 	/** Agents were added or removed: who a subscription for everyone reaches has changed. */
@@ -1217,7 +1230,7 @@ export class SourceHost {
 	/** Stop a source that nobody listens to any more. */
 	private async settle(key: string): Promise<void> {
 		const source = this.all().find((x) => x.key === key)?.source;
-		if (source && source.start !== "always" && !this.subscribersOf(key).length) await this.halt(key);
+		if (source && source.start !== "always" && !this.subscribersOf(key).length && !this.routed(key)) await this.halt(key);
 	}
 }
 

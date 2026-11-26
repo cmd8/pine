@@ -153,6 +153,8 @@ export interface RouteConfig {
 	 * The command is fixed text: nothing of the event goes into it.
 	 */
 	run?: { command: string; agent?: string; timeoutMs?: number };
+	/** The agent this route is of, when an agent other than the main one made it: it listens to that agent's own sources and acts within it (src/admin.ts, checkRoute). Goes with the agent. */
+	of?: string;
 	/** Full agent turn. */
 	agent?: string;
 	prompt?: string;

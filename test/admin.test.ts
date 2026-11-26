@@ -310,7 +310,8 @@ test("admin: an agent renamed by the owner takes everything that named it along,
 	assert.ok(h.pine.tasks.list({ agent: "scholar" }).length > 0);
 	assert.equal(h.pine.tasks.list({ agent: "helper" }).length, 0);
 	const sources = h.pine.sources.list().filter((s: any) => s.scope === "scholar").map((s: any) => `${s.name}${s.running ? " runs" : ""}`).sort();
-	assert.deepEqual(sources, ["hook", "papers runs"], "what ran before runs again under the new id");
+	// (hook runs too: the route note-hooks listens to it by its name.)
+	assert.deepEqual(sources, ["hook runs", "papers runs"], "what ran before runs again under the new id");
 	assert.deepEqual(h.pine.schedules!.list().filter((s: any) => s.scope === "scholar").map((s: any) => s.name).sort(), ["soon", "weekly"]);
 
 	// Nothing is left that carries the old id: no stored entry, no file or folder, no line of configuration.

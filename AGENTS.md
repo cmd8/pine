@@ -274,7 +274,11 @@ These are invariants. A change that breaks one needs a test that shows why it is
    that agent's sandbox in `safe` and `manual` mode, with the owner's rights in `auto` and
    `bypass`, which the owner's dialog says. Never a program with the daemon's environment,
    and never through a shell. Global scope, agent creation and new source types are
-   refused to every agent but the main one. Removing something must leave things as they were
+   refused to every agent but the main one. Routes are the main agent's too, but for an agent's
+   own (`of` on the route, `checkRoute` with `own`): on its own sources' events or its own state,
+   acting only within itself (its own source to answer through, its own state, its own sandbox,
+   waking only itself, never `trust`), put to the owner, and taken along by `eraseAgent` and
+   `renameAgent`. Removing something must leave things as they were
    before it was added.
    The main agent is pine's administrator: besides `create_agent` it has `agents`,
    `update_agent`, `rename_agent`, `remove_agent`, `settings`, `set_setting`, `routes`, `add_route` and

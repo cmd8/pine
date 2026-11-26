@@ -67,7 +67,8 @@ export function questionsProblem(questions: unknown): string | undefined {
 		if (q.type === "choice") {
 			if (!q.options || typeof q.options !== "object" || Array.isArray(q.options) || Object.keys(q.options).length < 2) return `the question "${name}" needs "options": at least two, each with when it applies, for example {"invoice": "A bill to pay", "other": "Anything else"}`;
 			for (const [o, when] of Object.entries(q.options)) {
-				if (!NAME.test(o)) return `"${o}" is not a usable option name in "${name}": letters, digits, - and _, starting with a letter`;
+				// An option is what comes back as the answer, so a phrase is fine ("It is certain"); not a template, and not long.
+				if (!o.trim() || o.length > 80 || /[\u0000-\u001f]/.test(o)) return `"${o}" is not a usable option of "${name}": a word or a short phrase, at most 80 characters`;
 				if (typeof when !== "string") return `the option "${o}" of "${name}" says in words when it applies`;
 			}
 		} else if (q.options !== undefined) return `"options" belong to a choice; "${name}" is ${q.type}`;

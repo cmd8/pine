@@ -69,8 +69,27 @@ event on under another topic, or asks a model a quick question before an agent i
 Here `house` is an `mqtt` source and `telegram` a `telegram` source, both in `pine.json`
 ([sources.md](sources.md)). For a source an agent set up for itself the topic carries the
 agent's name: `out/source/telegram@main`.
-A route does not subscribe to anything, so a source it relies on needs `"start": "always"`
-unless a conversation is subscribed to it anyway.
+A route that listens to a source by its name (`source/<name>/...`) keeps that source running, as a
+subscription does; a route on a wider pattern (`source/#`) does not start anything.
+
+**An agent's own routes.** Any agent, not only the main one, makes routes of its own with
+`add_route`: on events of its own sources (`source/<name>@<agent>/...`) or its own shared state
+(`state/agent/<agent>/...`), acting within itself. They ask a decision model, run a script in its
+sandbox, answer through its own source (`out/source/<name>@<agent>`), write its own state
+(`agent/<agent>/...`), or wake that agent and no other; never with `trust`. You confirm each, and
+they go with the agent when it is removed or renamed (`of` in the route). A chat that answers on its
+own is one of them:
+
+```json
+{ "name": "eightball", "on": "source/telegram@eightball/message", "of": "eightball",
+  "ask": { "model": "decider", "data": "{{payload.text}}",
+           "questions": { "reply": { "type": "choice", "question": "Which answer of a Magic 8 Ball fits the question?",
+             "options": { "It is certain": "a clear yes", "Reply hazy, try again": "cannot tell", "My reply is no": "a clear no" } } } },
+  "publish": { "topic": "out/source/telegram@eightball", "payload": { "text": "{{answers.reply.choice}}" } } }
+```
+
+An option is a word or a short phrase, and it comes back as the answer as it is. Subscribe the
+agent only to the messages it should answer itself, or not at all.
 
 | Key | Meaning |
 |---|---|
