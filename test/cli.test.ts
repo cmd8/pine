@@ -310,6 +310,89 @@ test("pine update knows how pine was installed and which version is newer; pine 
 	assert.match(version.stdout, /^pine \d+\.\d+\.\d+ \(checkout in /);
 });
 
+// npm is faked as a shell script on the PATH here, which Windows does not run: npm.cmd is another thing to fake.
+const posix = { skip: process.platform === "win32" && "npm is faked with a shell script on the PATH" };
+
+/** A folder for one test, and the PATH pieces a faked command needs, put back afterwards. */
+function sandbox(t: { after(fn: () => void): void }) {
+	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-update-")));
+	const path_ = process.env.PATH;
+	const env = { GIT_CONFIG_GLOBAL: path.join(dir, "gitconfig"), GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" };
+	fs.writeFileSync(env.GIT_CONFIG_GLOBAL, "");
+	const kept = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
+	Object.assign(process.env, env);
+	const npm = (script: string) => {
+		const bin = path.join(dir, "bin");
+		fs.mkdirSync(bin, { recursive: true });
+		fs.writeFileSync(path.join(bin, "npm"), `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+		process.env.PATH = [bin, path_].join(path.delimiter);
+	};
+	t.after(() => {
+		process.env.PATH = path_;
+		for (const [k, v] of Object.entries(kept)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+	const git = async (...args: string[]) => (await run("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", ...args])).stdout.trim();
+	return { dir, npm, git };
+}
+
+test("pine update on a checkout: a pull that lands and an install that does not says how to get back, and fails", posix, async (t) => {
+	const s = sandbox(t);
+	const origin = path.join(s.dir, "origin.git");
+	const root = path.join(s.dir, "pine");
+	const seed = path.join(s.dir, "seed");
+	fs.mkdirSync(path.join(seed, "src"), { recursive: true });
+	fs.writeFileSync(path.join(seed, "package.json"), JSON.stringify({ name: "@pmndre/pine", version: "1.0.0" }));
+	fs.writeFileSync(path.join(seed, "src", "cli.ts"), "export const answer = 1;\n");
+	await s.git("init", "-q", "-b", "main", seed);
+	await s.git("-C", seed, "add", ".");
+	await s.git("-C", seed, "commit", "-q", "-m", "one");
+	// A checkout whose branch follows a server with one commit it does not have yet.
+	await s.git("clone", "-q", "--bare", seed, origin);
+	await s.git("clone", "-q", origin, root);
+	const was = await s.git("-C", root, "rev-parse", "HEAD");
+	const other = path.join(s.dir, "other");
+	await s.git("clone", "-q", origin, other);
+	fs.writeFileSync(path.join(other, "src", "cli.ts"), "export const answer = 2;\n");
+	await s.git("-C", other, "commit", "-qam", "two");
+	await s.git("-C", other, "push", "-q", "origin", "main");
+	// npm cannot install what the new commit depends on.
+	s.npm("exit 1");
+
+	const { update } = await import("../src/update.ts");
+	const said: string[] = [];
+	const code = await update({ check: false, out: (l) => void said.push(l), browser: false, root });
+	assert.equal(code, 1, "an install that failed is not a success");
+	const text = said.join("\n");
+	assert.match(text, /npm could not install what the new version depends on\. This checkout has the new code and the dependencies of the version before it/);
+	assert.ok(text.includes(`git reset --hard ${was}`), `the way back to where it was: ${text}`);
+	// The message is about what happened: the pull moved the checkout, and no install followed it.
+	assert.notEqual(await s.git("-C", root, "rev-parse", "HEAD"), was);
+	assert.equal(fs.existsSync(path.join(root, "node_modules")), false);
+});
+
+test("pine update: a version from npm that is not one is refused before a command is built from it", posix, async (t) => {
+	const s = sandbox(t);
+	// A pine installed with npm, in a folder npm calls its own.
+	const pkg = path.join(s.dir, "node_modules", "@pmndre", "pine");
+	fs.mkdirSync(path.join(pkg, "src"), { recursive: true });
+	fs.writeFileSync(path.join(pkg, "src", "cli.js"), "");
+	fs.writeFileSync(path.join(pkg, "package.json"), JSON.stringify({ name: "@pmndre/pine", version: "1.0.0" }));
+	const log = path.join(s.dir, "npm.log");
+	const pwned = path.join(s.dir, "pwned");
+	// npm answers with something that would be a second command where the arguments are one line.
+	s.npm(`echo "$*" >> '${log}'\ncase "$1" in\n  root) echo '${s.dir}' ;;\n  view) echo '1.2.3; touch ${pwned}' ;;\nesac\nexit 0`);
+
+	const { update } = await import("../src/update.ts");
+	const said: string[] = [];
+	const code = await update({ check: false, out: (l) => void said.push(l), browser: false, root: pkg });
+	assert.equal(code, 1);
+	const text = said.join("\n");
+	assert.match(text, /npm gave "1\.2\.3; touch .*" as the latest version of @pmndre\/pine, which is not a version/);
+	assert.ok(!/install/.test(fs.readFileSync(log, "utf8")), `no command was built from it: ${fs.readFileSync(log, "utf8")}`);
+	assert.equal(fs.existsSync(pwned), false);
+});
+
 test("pine <folder>: a first word that is a folder opens the UI there; a path that is no folder says so", async (t) => {
 	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pine-folder-arg-")));
 	t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

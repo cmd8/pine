@@ -206,6 +206,14 @@ export function outcome(name: string, wanted: string | undefined, now: string, n
 	return { ok: true, text: news ? `\npine is now ${now}.\n\n${news}\n\n${RESTART}` : `\npine is now ${now}. ${RESTART}` };
 }
 
+/**
+ * The only shape of version that may be acted on: a release, or a preview of one ("1.2.3-next.4").
+ * npm's answer goes into a command line, and on Windows into one string that cmd.exe reads, so
+ * anything else (a broken registry, a wrapper that prints more than the version) would be a second
+ * command there.
+ */
+const VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/;
+
 /** What npm's registry says the newest version is, asked without npm: the pine of the app has none. */
 async function fromRegistry(name: string): Promise<string | undefined> {
 	try {
@@ -223,11 +231,12 @@ export const appNews = (latest: string, mine: string) => `pine ${latest} is avai
 /**
  * Update pine, or with `check` only say whether there is something newer. Returns the exit code.
  * `browser` fetches the browser build of the version that is on disk afterwards. `channel` is
- * the owner's choice (`--next`, `--release`), kept for `home` from then on.
+ * the owner's choice (`--next`, `--release`), kept for `home` from then on. `root` is the copy of
+ * pine to update: pine's own, unless the caller has another one in hand.
  */
-export async function update(opts: { check: boolean; out: (line: string) => void; browser: boolean; home?: string; channel?: Channel }): Promise<number> {
+export async function update(opts: { check: boolean; out: (line: string) => void; browser: boolean; home?: string; channel?: Channel; root?: string }): Promise<number> {
 	const { out } = opts;
-	const me = installed();
+	const me = installed(opts.root);
 	if (opts.channel && (me.kind === "checkout" || me.kind === "app")) out(me.kind === "checkout" ? "A checkout follows the branch it is on; --next and --release are for a pine that was installed with npm." : "The Pine app is built for releases only. A preview is installed with npm:\n\n  npm install -g " + me.name + "@next\n");
 	let wanted: string | undefined;
 	/** Where a checkout stood before it was moved forward. */
@@ -260,7 +269,14 @@ export async function update(opts: { check: boolean; out: (line: string) => void
 			return 1;
 		}
 		out("Installing what the new version depends on ...");
-		if (show("npm", ["install", "--no-audit", "--no-fund"], me.root) !== 0) return 1;
+		if (show("npm", ["install", "--no-audit", "--no-fund"], me.root) !== 0) {
+			// The pull landed and the install did not: the new code is here with the dependencies of the
+			// version before it, which may not run it, and the next update finds nothing behind, so it
+			// would say that all is well. Say where the checkout stands and how to get back to where it was.
+			const before = was ?? "HEAD@{1}";
+			out(`npm could not install what the new version depends on. This checkout has the new code and the dependencies of the version before it, and the next "pine update" will find nothing behind it to put that right. To go back to where it was:\n\n  git reset --hard ${before}\n\nTo stay on the new code, run this in ${me.root} to see why npm failed:\n\n  npm install --no-audit --no-fund`);
+			return 1;
+		}
 	} else if (me.kind === "app") {
 		const latest = await fromRegistry(me.name);
 		if (!latest) {
@@ -286,6 +302,10 @@ export async function update(opts: { check: boolean; out: (line: string) => void
 		const latest = newestOf(channel, capture("npm", ["view", me.name, "version"]), onNext ? capture("npm", ["view", `${me.name}@next`, "version"]) : undefined);
 		if (!latest) {
 			out(`Could not ask npm for the latest version of ${me.name}. You may be offline.`);
+			return 1;
+		}
+		if (!VERSION.test(latest)) {
+			out(`npm gave "${plain(latest)}" as the latest version of ${me.name}, which is not a version. Nothing was installed: check that npm is the one you think it is (npm config get registry), then run pine update again.`);
 			return 1;
 		}
 		if (!newer(latest, me.version)) {
