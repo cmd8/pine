@@ -649,6 +649,8 @@ test("arguments that are nearly right are taken as what was meant, and only thos
 	const schema = { type: "object", properties: { count: { type: "number" }, tags: { type: "array", items: { type: "string" } }, size: { type: "string", enum: ["standard", "large"] }, fullPage: { type: "boolean" }, note: { type: "string" } }, required: ["count"] };
 	assert.deepEqual(fit(schema, { count: "3", tags: "a", size: "Large", full_page: "true", note: null }), { count: 3, tags: ["a"], size: "large", fullPage: true });
 	assert.deepEqual(fit({ type: "object", properties: { tools: { type: "string" } } }, { tools: ["read", "bash"] }), { tools: "read, bash" });
+	// A choice written together where the tool writes it apart, as one server's word for another's (pine's yesno, an MCP server's yes_no).
+	assert.deepEqual(fit({ type: "object", properties: { type: { type: "string", enum: ["choice", "yes_no", "score"] } } }, { type: "yesno" }), { type: "yes_no" });
 	// A tool that takes JSON as text, given the JSON itself (add_route's ask_questions, when and set).
 	assert.deepEqual(fit({ type: "object", properties: { questions: { type: "string" } } }, { questions: { overdue: { type: "yesno", question: "Overdue?" } } }), { questions: '{"overdue":{"type":"yesno","question":"Overdue?"}}' });
 	// What has no single reading is left as it is, for the tool to refuse in its own words.

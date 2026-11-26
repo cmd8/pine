@@ -626,7 +626,7 @@ export function ease(name: string, args: any): any {
 	return args;
 }
 
-/** Arguments made to fit a schema where the difference is one of form: a number as text, one value where a list is taken, a choice in other letters, an object as JSON text and JSON text as an object, a key in other spelling. */
+/** Arguments made to fit a schema where the difference is one of form: a number as text, one value where a list is taken, a choice in other letters or with other joints, an object as JSON text and JSON text as an object, a key in other spelling. */
 export function fit(schema: any, args: any): any {
 	if (!schema || typeof schema !== "object" || !args || typeof args !== "object" || Array.isArray(args)) return args;
 	const props = (schema.properties ?? {}) as Record<string, any>;
@@ -657,7 +657,8 @@ export function fit(schema: any, args: any): any {
 				}
 			}
 			if (typeof v === "string" && choices && !choices.includes(v)) {
-				const hit = choices.filter((c) => typeof c === "string" && c.toLowerCase() === t.toLowerCase());
+				// In other letters, or written together or apart: "Large" for large, "yesno" for yes_no.
+				const hit = choices.filter((c) => typeof c === "string" && plain(c) === plain(t));
 				if (hit.length === 1) v = hit[0];
 			}
 		}
