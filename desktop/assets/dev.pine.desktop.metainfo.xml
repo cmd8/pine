@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- What a Linux software catalog (AppImageHub, GNOME Software, KDE Discover) shows about the Pine app.
-     Not packed yet: packaging/linux.md says where it would go and why. -->
+     Packed into the AppImage by desktop/scripts/appimage-update.sh, which writes the release's version
+     and date into the <release> line below. -->
 <component type="desktop-application">
   <id>dev.pine.desktop</id>
   <metadata_license>CC0-1.0</metadata_license>

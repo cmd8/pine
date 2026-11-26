@@ -90,27 +90,25 @@ release by itself whenever it builds its catalog: no pull request per release.
 A pull request to AppImage/appimage.github.io that adds `data/Pine` with the line in
 `appimagehub/Pine`. GitHub's web editor makes the fork it needs ("Add file" on `data/`).
 
-### Metainfo, not packed yet
+### The AppImage as it goes out: metainfo, update information, static runtime
 
-The v0.62.0 x86_64 AppImage carries no `usr/share/metainfo` (checked by extracting it). A minimal
-file is in `desktop/assets/dev.pine.desktop.metainfo.xml` (id `dev.pine.desktop`, the app's
-`appId`; launchable `pine-desktop.desktop`), valid under `appstreamcli validate`. It has no
-screenshot: the repository has no still image of the app at a public address (`docs/images/reel.webp`
-is animated WebP, which catalogs do not take), and Flathub would require one.
+electron-builder (26.18) packs no AppStream metainfo, writes electron-updater's blockmap instead
+of AppImage update information, and builds on the old runtime that needs the system's libfuse2.
+So `app-linux` repacks each AppImage after the smoke test and before the checksums and the
+attestation: `desktop/scripts/appimage-update.sh` extracts it, adds
+`usr/share/metainfo/dev.pine.desktop.metainfo.xml` (from `desktop/assets`, with the release's
+version and date in its `<release>` line; launchable `pine-desktop.desktop`, copied to
+`usr/share/applications`) and rebuilds it with `appimagetool` 1.9.1 on the static runtime of
+type2-runtime 20251108, both pinned by checksum, with
+`-u "gh-releases-zsync|pmndre|pine|latest|Pine-*-<arch>.AppImage.zsync"` (`x86_64` or `arm64`).
+The release then carries `Pine-<version>-<arch>.AppImage.zsync` beside each AppImage, listed in
+`SHA256SUMS-linux-<arch>`, and AppImageUpdate, appimageupdatetool and Gear Lever bring an AppImage
+up to date in place, by deltas, from the latest release (never a preview). The file names are
+unchanged, so the app's own update check still finds them. The .deb is not touched.
 
-electron-builder has no option that puts a file into `usr/share/metainfo` of the AppImage or the
-.deb, so packing it changes the build: for the AppImage, extract it after `pack.mjs`, copy the file
-into `usr/share/metainfo/`, and rebuild it with `appimagetool`; the .deb would need fpm's own
-arguments. That is a follow-up, together with update information (below), which needs the same
-repack, and with a `<release>` line written for each release.
-
-### Later: AppImage updates by zsync
-
-electron-builder's AppImage carries electron-updater's scheme, which standard tools do not read.
-Repacked with `appimagetool -u "gh-releases-zsync|pmndre|pine|latest|Pine-*-x86_64.AppImage.zsync"`
-(and the arm64 one), it would also write a `.zsync` beside each AppImage, and AppImageUpdate,
-AppImageLauncher and Gear Lever could then bring it up to date in place, by deltas. The checksums
-and the attestation would be made after the repack.
+The metainfo has no screenshot: the repository has no still image of the app at a public address
+(`docs/images/reel.webp` is animated WebP, which catalogs do not take), and Flathub would require
+one. The .deb carries no metainfo: that would need fpm's own arguments.
 
 ## What waits, and why
 

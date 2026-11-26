@@ -69,7 +69,8 @@ from that release on GitHub, and installs it with macOS's own updater, only when
 **Restart to update**, or quit Pine and the update is installed on the way out. It never
 restarts by itself. On Linux and Windows it says when there is a newer one and where it is: download
 the new file from the release's page, quit Pine and put the new app in place of the old one (on
-Windows, run the new installer). Your pine home (`~/.pine`: agents, conversations, settings) is not
+Windows, run the new installer). On Linux the AppImage can also be brought up to date in place with
+AppImageUpdate or Gear Lever, which read the update information it carries. Your pine home (`~/.pine`: agents, conversations, settings) is not
 in the app and stays as it is.
 
 | | |
