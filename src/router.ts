@@ -209,7 +209,7 @@ function defaultPrompt(e: PineEvent, whole = false): string {
 	return `Event ${e.topic}:\n${JSON.stringify(p, null, 2)}`;
 }
 
-/** How long a route's questions may take, a second try included. */
-const ASK_TIMEOUT_MS = 60_000;
+/** How long a route's questions may take, a second try included: a decision server of the owner's may first have to load its model. */
+const ASK_TIMEOUT_MS = 180_000;
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];

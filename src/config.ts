@@ -64,7 +64,7 @@ export interface SourceConfig {
 	options: Record<string, any>;
 }
 
-export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "telegram", "http", "command", "feed", "calendar", "stream", "mail", "slack", "matrix", "discord", "zulip", "smtp", "syslog", "system", "presence", "modbus", "serial", "onvif", "typesafe"];
+export const SOURCE_TYPES = ["folder", "mqtt", "webhook", "ftp", "telegram", "http", "command", "feed", "calendar", "stream", "mail", "slack", "matrix", "discord", "zulip", "smtp", "syslog", "system", "presence", "modbus", "serial", "onvif", "typesafe", "decider"];
 
 /**
  * The types an agent is told about with all their options, in the description of its add_source

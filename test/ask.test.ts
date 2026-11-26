@@ -125,14 +125,14 @@ export default function (source) {
 test("a source whose type decides answers in place of a model, and is held to the same types", async () => {
 	const h = await harness({
 		pine: {
-			sourceTypes: { decider: "./sources/decider.ts" },
-			sources: { jev: { type: "decider" }, bell: { type: "command", run: "true", every: "1h" } },
+			sourceTypes: { standin: "./sources/standin.ts" },
+			sources: { jev: { type: "standin" }, bell: { type: "command", run: "true", every: "1h" } },
 			routes: [
 				{ name: "judge", on: "mail/in", ask: { questions: QUESTIONS, source: "jev" }, publish: { topic: "mail/judged" } },
 				{ name: "wrong", on: "mail/other", ask: { questions: QUESTIONS, source: "bell" }, publish: { topic: "mail/judged" } },
 			],
 		},
-		files: { "sources/decider.ts": DECIDER },
+		files: { "sources/standin.ts": DECIDER },
 		agents: { main: {} },
 	});
 	(globalThis as any).decided = [];

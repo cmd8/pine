@@ -1,9 +1,8 @@
 import { Type } from "typebox";
-import { fetch } from "undici";
-import type { AskQuestions } from "../ask.ts";
 import { isLocalHost, publicOnlyAgent } from "../net.ts";
 import type { SourceType } from "../source-types.ts";
 import type { SourceApi } from "../sources.ts";
+import { systemOne } from "./systemone.ts";
 
 /**
  * Jev, TypeSafe's decision model: answers the typed questions of routes that name this source
@@ -51,34 +50,6 @@ export const type: SourceType = {
 	},
 };
 
-const fromPine = (questions: AskQuestions) =>
-	Object.fromEntries(
-		Object.entries(questions).map(([name, q]) => [
-			name,
-			q.type === "yesno" ? { type: "noul", instructions: q.question } : q.type === "choice" ? { type: "choice", instructions: q.question, criteria: q.options } : { type: "score", instructions: q.question, criteria: q.levels },
-		]),
-	);
-
-/** TypeSafe's answers in pine's words. What does not fit is left for the router to refuse. */
-const toPine = (answers: Record<string, any>, questions: AskQuestions) =>
-	Object.fromEntries(
-		Object.entries(questions).map(([name, q]) => {
-			const a = answers?.[name];
-			if (!a || typeof a !== "object") return [name, undefined];
-			const confidence = typeof a.confidence === "number" ? { confidence: a.confidence } : {};
-			return [name, q.type === "yesno" ? { yes: a.noul } : q.type === "choice" ? { choice: a.choice, ...confidence } : { score: a.score, ...confidence }];
-		}),
-	);
-
-const WHY: Record<number, string> = {
-	400: "TypeSafe refused the request (400): the data may be longer than the model reads",
-	401: "TypeSafe did not accept the key (401). Your owner sets a new one by removing this source and adding it again",
-	413: "the data is too large for TypeSafe (413)",
-	422: "TypeSafe did not take the questions (422)",
-	429: "TypeSafe's rate limit was reached (429), also after waiting",
-	529: "TypeSafe is overloaded (529), also after waiting",
-};
-
 export default function typesafe(source: SourceApi): void {
 	const key = String(source.options.key ?? "");
 	if (!key) throw new Error('needs "key": the API key of a TypeSafe account');
@@ -90,31 +61,13 @@ export default function typesafe(source: SourceApi): void {
 	source.status(`answers with ${model}`);
 
 	source.onDecide(async ({ questions, data, signal }) => {
-		const body = JSON.stringify({ model, state: data ?? "", questions: fromPine(questions) });
-		for (let attempt = 0; ; attempt++) {
-			const res = await fetch(`${service.url}/v1/systemone`, {
-				method: "POST",
-				headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
-				body,
-				// The key goes to the address it is for, and nowhere a redirect says.
-				redirect: "error",
-				signal: AbortSignal.any([signal, AbortSignal.timeout(pace.timeout)]),
-				...(guard ? { dispatcher: guard } : {}),
-			});
-			if ((res.status === 429 || res.status === 529) && attempt < pace.retries.length) {
-				await res.body?.cancel().catch(() => {});
-				await new Promise((r) => setTimeout(r, pace.retries[attempt]));
-				continue;
-			}
-			if (!res.ok) {
-				await res.body?.cancel().catch(() => {});
-				source.status(res.status === 401 ? "TypeSafe did not accept the key" : `answers with ${model}; the last request failed (${res.status})`);
-				throw new Error(WHY[res.status] ?? `TypeSafe answered ${res.status}`);
-			}
-			const answers = ((await res.json().catch(() => undefined)) as any)?.answers;
-			if (!answers || typeof answers !== "object") throw new Error("TypeSafe answered without answers");
+		try {
+			const answers = await systemOne({ url: service.url, key, model, questions, data, signal, timeoutMs: pace.timeout, guard, retries: pace.retries, who: "TypeSafe" });
 			source.status(`answers with ${model}`);
-			return toPine(answers, questions);
+			return answers;
+		} catch (e: any) {
+			if (e?.status) source.status(e.status === 401 ? "TypeSafe did not accept the key" : `answers with ${model}; the last request failed (${e.status})`);
+			throw e;
 		}
 	});
 }

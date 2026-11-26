@@ -39,6 +39,7 @@ nothing: no event, nothing stored, no model woken.
 | `modbus` | looks | a change of a value in a Modbus device | solar inverters, heat pumps, wall boxes, energy meters |
 | `presence` | looks | a device joining or leaving your network | a phone coming home, a TV switched on, a printer online |
 | `typesafe` | is asked | nothing: it answers the typed questions of routes | Jev, TypeSafe's decision model, judging mail or messages for a filter |
+| `decider` | is asked | nothing: it answers the typed questions of routes | a decision model on a server of your own (Pinecone), the same way |
 
 What should happen at a time is not a source but a schedule ([events.md](events.md),
 "Schedules"). A `calendar` source reports that an entry was added or moved; "ten minutes
@@ -2055,6 +2056,32 @@ it. The address is fixed in the type, and the key follows no redirect. A `choice
 come back with Jev's `confidence` (0 to 1), and a `score` may lie between two levels (`1.7`:
 `level` is the nearest one, `"angry"`). If TypeSafe refuses the key or is overloaded after two
 more tries, the route fails (`pine/route-failed`) and the source's status says so.
+
+### decider
+
+A decision model on a server of your own, such as one that Pinecone serves on your Mac: like
+`typesafe`, it reports nothing and answers the typed questions of routes ([events.md](events.md),
+"Typed questions"), over the same API (`POST <url>/v1/systemone`), at the address you give.
+The same route asks Jev or your own model by naming one source or the other.
+
+> Use the decider model on my Mac Studio for the mail route.
+
+```json
+"sources": { "studio": { "type": "decider", "url": "http://studio.tail1234.ts.net:8080", "model": "decider", "key": "${PINECONE_TOKEN}", "local": true } }
+```
+
+| Option | Default | |
+|---|---|---|
+| `url` | | The server's address, without `/v1`: Pinecone's port 8080 on that Mac. Over `http://` only on your own network. |
+| `model` | | The model the server answers with, as it names it: for Pinecone, the resource's name. |
+| `key` | | Its access token, if it wants one: for Pinecone, an access token made in its app. Kept in `.env`. |
+| `local` | `false` | The address is a name on your own network that does not say so: a Tailscale name (`.ts.net`). Not needed for an IP address, `localhost` or a `.local` name. |
+| `timeout` | `120` | Seconds a request may take, loading the model included: a server that first has to make room for it takes longer than one that has it loaded. |
+
+Only a source of all agents. What a route asks about goes to that address, and the key with it
+and nowhere a redirect says; an address that is not local stays on the public internet. A model
+the server does not have (404), a key it refuses (401) or another error is said in pine's words
+with the status, and the source's status says so too.
 
 ## What there is no type for
 
