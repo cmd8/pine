@@ -1151,9 +1151,11 @@ class TabBoundary extends Component<{ what: string; close: () => void; children:
 						<EmptyTitle>That tab could not be drawn</EmptyTitle>
 						<EmptyDescription>{error.message || String(error)}</EmptyDescription>
 					</EmptyHeader>
-					<Button variant="outline" size="sm" onClick={this.props.close}>
-						Close it
-					</Button>
+					<EmptyContent>
+						<Button variant="outline" size="sm" onClick={this.props.close}>
+							Close it
+						</Button>
+					</EmptyContent>
 				</Empty>
 			</PaneFrame>
 		);

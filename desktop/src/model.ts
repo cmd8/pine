@@ -977,6 +977,8 @@ export class Store extends Model {
 		this.focus = undefined;
 		this.chatLast = undefined;
 		this.conversations = new Map();
+		// What was typed in that pine's tabs was for its conversations: another pine's of the same name never gets it.
+		this.drafts.clear();
 		this.taints = new Map();
 		this.sessionModes = new Map();
 		this.pins = new Set();
