@@ -20,7 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "cn";
 import { type ComponentProps, Fragment, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
-import { type AgentDetail, api, type Jev, type JevQuestion, type LoginState, type ModelServer, type Provider, type Route, type Setting, type SourceType } from "./api.ts";
+import { type AgentDetail, ApiError, api, type Jev, type JevCriteria, type JevQuestion, type LoginState, type ModelServer, type Provider, type Route, type Setting, type SourceType } from "./api.ts";
 import { bridge } from "./bridge.ts";
 import { Editor } from "./CodePanel.tsx";
 import { store, type UpdatePhase, useModel, useSignal } from "./model.ts";
@@ -1021,8 +1021,8 @@ function JevKey({ made }: { made: () => void }) {
 			await api.setJevKey(key.trim());
 			store.flash("Jev has a key now. A route can ask it: Events, New route, Ask Jev.", "good", 6000);
 			made();
-		} catch (e: any) {
-			if (e?.data?.locked) setRefused(true);
+		} catch (e) {
+			if (e instanceof ApiError && e.data?.locked) setRefused(true);
 			store.flash(errText(e), "bad");
 		}
 		setBusy(false);
@@ -1921,24 +1921,59 @@ const span = (ms: number) => (ms % 3_600_000 === 0 ? `${ms / 3_600_000}h` : ms %
 
 const conversationOf = (session: string | undefined) => (!session || session === "main" ? "in the main conversation" : session === "new" ? "in a new conversation" : `in the conversation ${session}`);
 
-const JEV_ANSWERS = {
+type JevType = JevQuestion["type"];
+
+interface JevAnswerKind {
+	label: string;
+	said: string;
+	field: string;
+	filter: string;
+	about: string;
+}
+
+const JEV_ANSWERS: Record<JevType, JevAnswerKind> = {
 	noul: { label: "Yes or no", said: "yes or no", field: "noul", filter: '{"gte": 0.8}', about: "Answered with how likely yes is, from 0 to 1." },
 	choice: { label: "One of several", said: "one of", field: "choice", filter: '"invoice"', about: "Answered with the option that fits best, and how sure Jev is (confidence, 0 to 1)." },
 	score: { label: "A score", said: "a score", field: "score", filter: '{"gte": 1.5}', about: "Answered with a number between the levels, the lowest being 0, and how sure Jev is." },
-} as const;
+};
+
+const JEV_TYPES: JevType[] = ["noul", "choice", "score"];
 
 const jevSaid = (questions: Record<string, JevQuestion>) =>
 	Object.values(questions)
-		.map((q) => `${typeof q.instructions === "string" ? `“${short(q.instructions, 80)}” ` : ""}(${JEV_ANSWERS[q.type]?.said ?? q.type}${q.type === "choice" && q.criteria && typeof q.criteria === "object" ? ` ${Object.keys(q.criteria).join(", ")}` : ""})`)
+		.map((q) => `${q.instructions !== undefined ? `“${short(q.instructions, 80)}” ` : ""}(${JEV_ANSWERS[q.type].said}${q.type === "choice" && q.criteria && !Array.isArray(q.criteria) ? ` ${Object.keys(q.criteria).join(", ")}` : ""})`)
 		.join(" and ");
 
-function jevCriteria(type: keyof typeof JEV_ANSWERS, text: string): unknown {
+function jevCriteria(type: JevType, text: string): JevCriteria {
 	const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
 	if (type === "score") return lines;
 	return Object.fromEntries(lines.map((l) => {
 		const at = l.indexOf(":");
 		return at > 0 ? [l.slice(0, at).trim(), l.slice(at + 1).trim() || null] : [l, null];
 	}));
+}
+
+interface RouteForm {
+	name: string;
+	on: string;
+	when: string;
+	pace: keyof typeof ROUTE_PACE;
+	time: string;
+	does: keyof typeof ROUTE_DOES;
+	agent: string;
+	session: string;
+	prompt: string;
+	set: string;
+	publish_topic: string;
+	publish_payload: string;
+	call_prompt: string;
+	call_system: string;
+	call_model: string;
+	jev_name: string;
+	jev_type: JevType;
+	jev_question: string;
+	jev_options: string;
+	jev_state: string;
 }
 
 /** A route in the words of the form that makes one: when what arrives, then what happens. */
@@ -2122,7 +2157,7 @@ export function Schedules() {
 export function NewRoute({ made, does: first = "wake" }: { made: () => void; does?: keyof typeof ROUTE_DOES }) {
 	const s = useModel(store);
 	const models = useLoad(() => api.models());
-	const [f, setF] = useState({ name: "", on: "", when: "", pace: "every" as keyof typeof ROUTE_PACE, time: "", does: first, agent: "", session: "", prompt: "", set: "", publish_topic: "", publish_payload: "", call_prompt: "", call_system: "", call_model: "", jev_name: "", jev_type: "noul" as keyof typeof JEV_ANSWERS, jev_question: "", jev_options: "", jev_state: "" });
+	const [f, setF] = useState<RouteForm>({ name: "", on: "", when: "", pace: "every", time: "", does: first, agent: "", session: "", prompt: "", set: "", publish_topic: "", publish_payload: "", call_prompt: "", call_system: "", call_model: "", jev_name: "", jev_type: "noul", jev_question: "", jev_options: "", jev_state: "" });
 	const jev = useLoad(() => api.jev());
 	const jevName = f.jev_name.trim() || "answer";
 	const jevReady = Boolean(jev.data?.signedIn) && f.jev_question.trim() && (f.jev_type === "noul" || f.jev_options.split("\n").filter((l) => l.trim()).length >= 2) && f.publish_topic.trim();
@@ -2252,7 +2287,7 @@ export function NewRoute({ made, does: first = "wake" }: { made: () => void; doe
 										</Field>
 										<Field>
 											<FieldLabel htmlFor={`${field}-jev-type`}>Answered with</FieldLabel>
-											<Choose id={`${field}-jev-type`} items={Object.entries(JEV_ANSWERS).map(([value, a]) => ({ value: value as keyof typeof JEV_ANSWERS, label: a.label }))} value={f.jev_type} onChange={(jev_type) => setF({ ...f, jev_type })} />
+											<Choose id={`${field}-jev-type`} items={JEV_TYPES.map((value) => ({ value, label: JEV_ANSWERS[value].label }))} value={f.jev_type} onChange={(jev_type) => setF({ ...f, jev_type })} />
 											<FieldDescription>{JEV_ANSWERS[f.jev_type].about}</FieldDescription>
 										</Field>
 										{f.jev_type === "noul" ? null : (

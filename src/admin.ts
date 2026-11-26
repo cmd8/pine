@@ -7,7 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { AGENT_TOOLS } from "./agent-admin.ts";
-import { JEV_PROVIDER, type JevQuestion, questionsProblem } from "./jev.ts";
+import { JEV_PROVIDER, type JevQuestions, type Json, readQuestions } from "./jev.ts";
 import { type AgentConfig, delegatesText, isColor, loadConfig, mainAgentId, MAX_MODEL_RUNS, MODEL_KEY, modelLimit, type Mode, MODES, PINE_ROOT, SERVER_KEY, type PineConfig, RESERVED_TOPICS, type RouteConfig, unsandboxed } from "./config.ts";
 import { renameEnv, secretName, unsetEnv } from "./env-file.ts";
 import { DEFAULT_THEME, listThemes } from "./themes.ts";
@@ -543,9 +543,9 @@ const object = (text: string | undefined, what: string): Record<string, unknown>
 	return v as Record<string, unknown>;
 };
 
-export const jevSaid = (questions: Record<string, JevQuestion>): string =>
+export const jevSaid = (questions: JevQuestions): string =>
 	Object.entries(questions)
-		.map(([name, q]) => `${name} (${q.type === "noul" ? "yes or no" : q.type === "choice" ? `one of ${Object.keys((q.criteria as object) ?? {}).join(", ")}` : `a score of ${(q.criteria as unknown[])?.length ?? 0} levels`})${typeof q.instructions === "string" ? `: ${q.instructions}` : ""}`)
+		.map(([name, q]) => `${name} (${q.type === "noul" ? "yes or no" : q.type === "choice" ? `one of ${Object.keys(q.criteria ?? {}).join(", ")}` : `a score of ${Array.isArray(q.criteria) ? q.criteria.length : 0} levels`})${q.instructions !== undefined ? `: ${q.instructions}` : ""}`)
 		.join("; ");
 
 /** Check a proposed route and say what it does, line by line. Nothing is written. */
@@ -585,10 +585,16 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[])
 	if (input.jev_questions) {
 		if (!cfg.jev.key) throw new Error(`Jev has no key yet, so no route can ask it. Your owner sets one under Settings > Models (Decision models), or with: pine login ${JEV_PROVIDER}; you start that with sign_in (provider "${JEV_PROVIDER}")`);
 		if (entry.call) throw new Error("a route asks a model or Jev, not both");
-		const questions = object(input.jev_questions, "jev_questions");
-		const wrong = questionsProblem(questions);
-		if (wrong) throw new Error(`"jev_questions": ${wrong}`);
-		let state: unknown;
+		let raw: Json;
+		try {
+			raw = JSON.parse(input.jev_questions);
+		} catch {
+			throw new Error('"jev_questions" is not JSON: give the questions as an object, {"urgent": {"type": "noul", "instructions": "Does this need an answer today?"}}');
+		}
+		const asked = readQuestions(raw);
+		if ("problem" in asked) throw new Error(`"jev_questions": ${asked.problem}`);
+		const { questions } = asked;
+		let state: Json | undefined;
 		if (input.jev_state !== undefined && input.jev_state !== "") {
 			try {
 				state = JSON.parse(input.jev_state);
@@ -597,7 +603,7 @@ export function checkRoute(cfg: PineConfig, input: RouteInput, models: string[])
 			}
 		}
 		entry.jev = { ...(input.jev_model ? { model: input.jev_model } : {}), ...(state !== undefined ? { state } : {}), questions };
-		lines.push(`ask Jev (TypeSafe) about ${state !== undefined ? JSON.stringify(state) : "the event"}: ${jevSaid(questions as Record<string, JevQuestion>)}`);
+		lines.push(`ask Jev (TypeSafe) about ${state !== undefined ? JSON.stringify(state) : "the event"}: ${jevSaid(questions)}`);
 		lines.push(`this sends ${state !== undefined ? "that" : "each such event"} to TypeSafe (${new URL(cfg.jev.baseUrl).host})`);
 		if (!input.publish_topic) throw new Error('Jev\'s answers go out as an event: give "publish_topic". A second route on that topic acts on them, with "when" on payload.answers.<name>');
 	} else if (input.jev_state || input.jev_model) throw new Error('asking Jev needs "jev_questions": the questions, as JSON');

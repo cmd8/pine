@@ -369,14 +369,18 @@ export interface Route {
 	set?: Record<string, unknown>;
 	publish?: { topic: string; payload?: unknown };
 	call?: { prompt: string; system?: string; model?: string };
-	jev?: { model?: string; state?: unknown; questions: Record<string, JevQuestion> };
+	jev?: { model?: string; state?: Json; questions: Record<string, JevQuestion> };
 	trust?: string;
 }
 
+export type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
+
+export type JevCriteria = string[] | { [option: string]: string | null };
+
 export interface JevQuestion {
 	type: "noul" | "choice" | "score";
-	instructions?: unknown;
-	criteria?: unknown;
+	instructions?: string;
+	criteria?: JevCriteria;
 }
 
 export interface Jev {

@@ -13,36 +13,79 @@ export interface JevConfig {
 	baseUrl: string;
 }
 
-export const JEV_TYPES = ["noul", "choice", "score"] as const;
+export type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
+
+export type JevType = "noul" | "choice" | "score";
+
+export const JEV_TYPES: JevType[] = ["noul", "choice", "score"];
+
+export type JevCriteria = string[] | { [option: string]: string | null };
 
 export interface JevQuestion {
-	type: (typeof JEV_TYPES)[number];
-	instructions?: unknown;
-	criteria?: unknown;
+	type: JevType;
+	instructions?: string;
+	criteria?: JevCriteria;
 }
 
-export type JevAnswers = Record<string, Record<string, unknown>>;
+export type JevQuestions = Record<string, JevQuestion>;
+
+export interface JevAnswer {
+	type: JevType;
+	noul?: number;
+	choice?: string;
+	score?: number;
+	confidence?: number;
+	probabilities?: Record<string, number>;
+}
+
+export type JevAnswers = Record<string, JevAnswer>;
 
 export interface JevAsk {
 	model?: string;
-	state: unknown;
-	questions: Record<string, JevQuestion>;
+	state: string | object;
+	questions: JevQuestions;
 	signal?: AbortSignal;
 }
 
-export function questionsProblem(questions: unknown): string | undefined {
-	if (!questions || typeof questions !== "object" || Array.isArray(questions)) return 'the questions are an object, each question under a name of your own: {"urgent": {"type": "noul", "instructions": "Does this need an answer today?"}}';
-	const entries = Object.entries(questions as Record<string, any>);
-	if (!entries.length) return "at least one question is needed";
+const isRecord = (value: Json | undefined): value is { [key: string]: Json } => typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isJevType = (value: Json | undefined): value is JevType => JEV_TYPES.some((type) => type === value);
+
+function criteriaOf(value: Json | undefined): JevCriteria | undefined {
+	if (Array.isArray(value)) return value.map(String);
+	if (!isRecord(value)) return undefined;
+	return Object.fromEntries(Object.entries(value).map(([option, when]) => [option, when === null ? null : String(when)]));
+}
+
+export function readQuestions(raw: Json | undefined): { questions: JevQuestions } | { problem: string } {
+	if (!isRecord(raw)) return { problem: 'the questions are an object, each question under a name of your own: {"urgent": {"type": "noul", "instructions": "Does this need an answer today?"}}' };
+	const entries = Object.entries(raw);
+	if (!entries.length) return { problem: "at least one question is needed" };
+	const questions: JevQuestions = {};
 	for (const [name, q] of entries) {
-		if (!/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(name)) return `"${name}" is not a usable name for a question: letters, digits, - and _, starting with a letter (a filter reads the answer by it: payload.answers.<name>)`;
-		if (!q || typeof q !== "object" || Array.isArray(q)) return `the question "${name}" is an object with a "type"`;
-		if (!JEV_TYPES.includes(q.type)) return `the question "${name}" needs a "type": ${JEV_TYPES.join(", ")} (noul: yes or no, answered with the probability of yes)`;
-		if (q.type === "noul" && q.instructions === undefined) return `the question "${name}" needs "instructions": the yes/no question, or the statement to judge`;
-		if (q.type === "choice" && (!q.criteria || typeof q.criteria !== "object" || Array.isArray(q.criteria) || !Object.keys(q.criteria).length)) return `the question "${name}" needs "criteria": the options, each with when it applies, for example {"invoice": "A bill to pay", "other": "Anything else"}`;
-		if (q.type === "score" && (!Array.isArray(q.criteria) || q.criteria.length < 2)) return `the question "${name}" needs "criteria": the levels as a list, lowest first, for example ["Can wait", "This week", "Today"]`;
+		if (!/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(name)) return { problem: `"${name}" is not a usable name for a question: letters, digits, - and _, starting with a letter (a filter reads the answer by it: payload.answers.<name>)` };
+		if (!isRecord(q)) return { problem: `the question "${name}" is an object with a "type"` };
+		if (!isJevType(q.type)) return { problem: `the question "${name}" needs a "type": ${JEV_TYPES.join(", ")} (noul: yes or no, answered with the probability of yes)` };
+		if (q.type === "noul" && q.instructions === undefined) return { problem: `the question "${name}" needs "instructions": the yes/no question, or the statement to judge` };
+		if (q.type === "choice" && (!isRecord(q.criteria) || !Object.keys(q.criteria).length)) return { problem: `the question "${name}" needs "criteria": the options, each with when it applies, for example {"invoice": "A bill to pay", "other": "Anything else"}` };
+		if (q.type === "score" && (!Array.isArray(q.criteria) || q.criteria.length < 2)) return { problem: `the question "${name}" needs "criteria": the levels as a list, lowest first, for example ["Can wait", "This week", "Today"]` };
+		const criteria = criteriaOf(q.criteria);
+		questions[name] = { type: q.type, ...(q.instructions !== undefined ? { instructions: String(q.instructions) } : {}), ...(criteria ? { criteria } : {}) };
 	}
-	return undefined;
+	return { questions };
+}
+
+export function renderQuestions(questions: JevQuestions, fill: (text: string) => string): JevQuestions {
+	return Object.fromEntries(
+		Object.entries(questions).map(([name, q]) => [
+			name,
+			{
+				type: q.type,
+				...(q.instructions !== undefined ? { instructions: fill(q.instructions) } : {}),
+				...(Array.isArray(q.criteria) ? { criteria: q.criteria.map(fill) } : q.criteria ? { criteria: Object.fromEntries(Object.entries(q.criteria).map(([option, when]) => [option, when === null ? null : fill(when)])) } : {}),
+			},
+		]),
+	);
 }
 
 const NO_KEY = `Jev has no key. Your owner sets one under Settings > Models, or with: pine login ${JEV_PROVIDER}`;
@@ -55,16 +98,17 @@ const pause = (ms: number, signal?: AbortSignal) =>
 
 async function refusal(res: Response): Promise<string> {
 	const text = await res.text().catch(() => "");
-	let detail: unknown = text;
+	let detail: Json = text;
 	try {
-		detail = JSON.parse(text).detail ?? text;
+		const parsed: Json = JSON.parse(text);
+		if (isRecord(parsed) && parsed.detail !== undefined) detail = parsed.detail;
 	} catch {}
 	return truncate(typeof detail === "string" ? detail : JSON.stringify(detail), 300);
 }
 
 export async function askJev(jev: JevConfig, ask: JevAsk, maxChars = 20_000): Promise<JevAnswers> {
 	if (!jev.key) throw new Error(NO_KEY);
-	const state = typeof ask.state === "string" ? truncate(ask.state, maxChars) : ask.state && typeof ask.state === "object" ? ask.state : String(ask.state ?? "");
+	const state = typeof ask.state === "string" ? truncate(ask.state, maxChars) : ask.state;
 	const body = JSON.stringify({ model: ask.model ?? jev.model, state, questions: ask.questions });
 	for (let attempt = 0; ; attempt++) {
 		const res = await fetch(`${jev.baseUrl}/v1/systemone`, {
@@ -80,9 +124,9 @@ export async function askJev(jev: JevConfig, ask: JevAsk, maxChars = 20_000): Pr
 		}
 		if (res.status === 401) throw new Error(`TypeSafe did not accept the key for Jev. Your owner sets a new one under Settings > Models, or with: pine login ${JEV_PROVIDER}`);
 		if (!res.ok) throw new Error(`Jev answered ${res.status}: ${await refusal(res)}`);
-		const answers = ((await res.json()) as any)?.answers;
-		if (!answers || typeof answers !== "object") throw new Error("Jev answered without answers");
-		return answers as JevAnswers;
+		const reply: { answers?: JevAnswers } = await res.json();
+		if (!reply?.answers || typeof reply.answers !== "object") throw new Error("Jev answered without answers");
+		return reply.answers;
 	}
 }
 

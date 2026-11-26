@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
-import { JEV_KEY, JEV_MODEL, JEV_URL, type JevConfig, type JevQuestion, questionsProblem } from "./jev.ts";
+import { JEV_KEY, JEV_MODEL, JEV_URL, type JevConfig, type JevQuestions, type Json, readQuestions } from "./jev.ts";
 import type { ReplyTarget } from "./types.ts";
 import { expandHome, parseDuration, resolvePath, type LogLevel } from "./util.ts";
 
@@ -128,7 +128,7 @@ export interface RouteConfig {
 	publish?: { topic: string; payload?: unknown };
 	/** One model call without tools or history. */
 	call?: { model?: string; system?: string; prompt: string };
-	jev?: { model?: string; state?: unknown; questions: Record<string, JevQuestion> };
+	jev?: { model?: string; state?: Json; questions: JevQuestions };
 	/** Full agent turn. */
 	agent?: string;
 	prompt?: string;
@@ -521,11 +521,9 @@ function loadRoutes(raw: unknown, problems: string[]): RouteConfig[] {
 		if (!r.agent && !r.call && !r.jev && !r.publish && !r.set) problems.push(`${where}: needs one of agent, call, jev, publish, set`);
 		if (r.agent && r.call) problems.push(`${where}: use either agent or call, not both`);
 		if (r.jev && (r.agent || r.call)) problems.push(`${where}: jev stands alone with publish: let it publish its answers, and a second route act on them`);
-		if (r.jev) {
-			const wrong = questionsProblem(r.jev.questions);
-			if (wrong) problems.push(`${where}: jev: ${wrong}`);
-			if (!r.publish) problems.push(`${where}: jev needs "publish": its answers go out as an event`);
-		}
+		const asked = r.jev ? readQuestions(r.jev.questions) : undefined;
+		if (asked && "problem" in asked) problems.push(`${where}: jev: ${asked.problem}`);
+		if (r.jev && !r.publish) problems.push(`${where}: jev needs "publish": its answers go out as an event`);
 		if (r.call && typeof r.call.prompt !== "string") problems.push(`${where}: call needs "prompt"`);
 		if (r.publish && typeof r.publish.topic !== "string") problems.push(`${where}: publish needs "topic"`);
 		return [
@@ -535,6 +533,7 @@ function loadRoutes(raw: unknown, problems: string[]): RouteConfig[] {
 				on: Array.isArray(r.on) ? r.on : [r.on],
 				debounceMs: r.debounceMs !== undefined ? parseDuration(r.debounceMs) : undefined,
 				throttleMs: r.throttleMs !== undefined ? parseDuration(r.throttleMs) : undefined,
+				jev: asked && "questions" in asked ? { ...r.jev, questions: asked.questions } : undefined,
 			},
 		];
 	});
