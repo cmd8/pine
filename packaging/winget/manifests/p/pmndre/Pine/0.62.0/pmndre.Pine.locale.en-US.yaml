@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.28.0.schema.json
+
+PackageIdentifier: pmndre.Pine
+PackageVersion: 0.62.0
+PackageLocale: en-US
+Publisher: pmndre
+PublisherUrl: https://github.com/pmndre
+PublisherSupportUrl: https://github.com/pmndre/pine/issues
+Author: pine contributors
+PackageName: Pine
+PackageUrl: https://pine.pmnd.re
+License: MIT
+LicenseUrl: https://github.com/pmndre/pine/blob/main/LICENSE
+Copyright: pine contributors
+ShortDescription: The desktop app for pine, an event-driven multi-agent daemon.
+Description: |-
+  Pine is the desktop app for pine, a reactive harness for agents: an event-driven daemon that runs
+  several AI agents, wakes them on events from outside (mail, chat, webhooks, schedules, devices)
+  and keeps each one in a sandbox. The app carries pine and the Node it runs on, and puts `pine`
+  on your PATH for a terminal.
+Moniker: pine
+Tags:
+- agents
+- ai
+- automation
+- developer-tools
+- electron
+ReleaseNotesUrl: https://github.com/pmndre/pine/releases/tag/v0.62.0
+Documentations:
+- DocumentLabel: Documentation
+  DocumentUrl: https://github.com/pmndre/pine/tree/main/docs
+ManifestType: defaultLocale
+ManifestVersion: 1.28.0
