@@ -972,7 +972,12 @@ version=0.0.1 -f signing_trial=true`): only the two Windows jobs, with the envir
 `signing-trial` and SignPath's test certificate, the installers an artifact of the run. The Windows
 app talks to pine in WSL as to another machine (`desktop/electron/wsl.ts`), and no runner of
 GitHub's has WSL: `desktop/test/wsl.test.ts` tests it on a stand-in, and a real round trip is by
-hand on a Windows computer.
+hand on a Windows computer. After `app-linux`, the job `aur` moves the AUR package
+`pine-desktop-bin` to the release (`packaging/aur/pine-desktop-bin/PKGBUILD`, its version and the
+two debs' checksums) and pushes it with the secret `AUR_SSH_PRIVATE_KEY` of the environment
+`release`. After `app-windows-sign`, the job `winget` opens the pull request for `pmndre.Pine` at
+microsoft/winget-pkgs with the secret `WINGET_TOKEN` (a classic token of abernier's with
+`public_repo`); without its secret each job submits nothing and says so.
 
 A release from `main` gets the Android app too (the job `android` in `release.yml`, on the
 same skeleton as `app`, on Linux): `npm run apk:release` in `mobile/`, signed with the release
