@@ -123,7 +123,7 @@ brew tap pmndre/pine https://github.com/pmndre/pine
 ```
 
 ```bash
-brew install --cask pmndre-pine
+brew install --cask pmndre/pine/pmndre-pine
 ```
 
 From a checkout:

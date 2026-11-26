@@ -37,8 +37,12 @@ brew tap pmndre/pine https://github.com/pmndre/pine
 ```
 
 ```bash
-brew install --cask pmndre-pine
+brew install --cask pmndre/pine/pmndre-pine
 ```
+
+The cask is named with its tap on purpose: Homebrew loads a cask from somebody else's tap only
+once you have trusted it, and installing it by its full name does that (`brew install --cask
+pmndre-pine` alone is refused until then, with the `brew trust` command to run).
 
 The app then updates itself as one from the disk image does, so `brew upgrade` leaves it alone,
 and the cask may name an older release than the latest: a new install starts there and is
