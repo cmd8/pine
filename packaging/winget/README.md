@@ -30,9 +30,11 @@ and winget-pkgs' own [Policies](https://github.com/microsoft/winget-pkgs/blob/ma
   engines and a Defender scan after a real install (`Binary-Validation-Error`,
   `Validation-Defender-Error`), the reputation of the download address, an unattended install that
   works without administrator rights (`Validation-Unattended-Failed`), and a clean uninstall
-  (`Validation-Uninstall-Error`). Pine's installers are signed through SignPath, which helps with
-  false positives. Pine's pattern (helpers, a C# helper compiled at run time, shells, app control)
-  could still trip a heuristic: that is the one real risk.
+  (`Validation-Uninstall-Error`). Pine's installers are not signed yet: the environment `release`
+  has no SignPath secrets, so they are uploaded unsigned (`desktop/signpath/README.md`). A
+  signature would help with false positives once it is set up. Pine's pattern (helpers, a C#
+  helper compiled at run time, shells, app control) could still trip a heuristic: that is the one
+  real risk.
 - The installer address must be the publisher's own release location, unique for each version.
   GitHub release assets are that.
 - A new package always gets a human review after the pipeline. A pull request labeled
@@ -47,7 +49,7 @@ and winget-pkgs' own [Policies](https://github.com/microsoft/winget-pkgs/blob/ma
 | `PackageIdentifier: pmndre.Pine` | Publisher `pmndre`, package `Pine`. No package named Pine was in winget-pkgs when this was written. |
 | `PackageVersion` | The release's version, the tag without its `v`. |
 | `InstallerUrl` (x64, arm64) | `https://github.com/pmndre/pine/releases/download/v<version>/Pine-<version>-<arch>-setup.exe`, the two installers `app-windows-sign` attaches to a release. |
-| `InstallerSha256` | The SHA-256 of each installer (GitHub shows it as the asset's digest). Checked by downloading both installers of 0.62.0. |
+| `InstallerSha256` | The SHA-256 of each installer (GitHub shows it as the asset's digest). Checked against the asset digests of 0.62.0 after its rebuild of 2026-11-26. |
 | `InstallerType: nullsoft`, `Scope: user` | electron-builder's NSIS installer, for the user alone (`perMachine: false` in `desktop/scripts/pack.mjs`). There is no machine-wide installer, so there is no machine entry. |
 | `InstallerSwitches.Custom: /currentuser` | The installer is an assisted one (`oneClick: false`), which asks for the scope unless it is told. |
 | `InstallerSwitches.Upgrade: --updated` | Tells electron-builder's installer that it is an upgrade, so it does not treat it as a fresh install. |

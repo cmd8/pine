@@ -7,12 +7,12 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/pmndre/pine/releases/download/v0.62.0/Pine-0.62.0-x64-setup.exe#/dl.7z",
-            "hash": "bffbaea5f4460ba1dce01c604d71a4963a0aaa5e1dd14ddab3b077d7b05494a2",
+            "hash": "deda674ef41be56e20f71fa44cb29ab51b92356bd0986f593718f3839a373a4b",
             "pre_install": "Expand-7zipArchive \"$dir\\`$PLUGINSDIR\\app-64.7z\" \"$dir\""
         },
         "arm64": {
             "url": "https://github.com/pmndre/pine/releases/download/v0.62.0/Pine-0.62.0-arm64-setup.exe#/dl.7z",
-            "hash": "58a045b6d4a163ec334110894d315967f03a8a33a30549606658fb97d492bfbd",
+            "hash": "c3b5637d6aaf5ab0466c2db3b2174da9d8e0e4d8022d39a03bf57b3b01a0de7e",
             "pre_install": "Expand-7zipArchive \"$dir\\`$PLUGINSDIR\\app-arm64.7z\" \"$dir\""
         }
     },
