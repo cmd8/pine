@@ -296,7 +296,10 @@ These are invariants. A change that breaks one needs a test that shows why it is
    a few named values that are checked one by one, never text into a file; it is put to the
    owner in every mode; the configuration is read back through `loadConfig` and the file put
    back if it does not load; and the ones that change something are refused in a tainted
-   conversation without asking. A new setting gets an entry in `SETTINGS` with what a value has
+   conversation without asking, except routes and decision models (`add_route`, `remove_route`,
+   `add_decision_model`, `remove_decision_model`), which are event plumbing that such a conversation
+   is often building: they are put to the owner with the outside content named (`afterOutside`), and
+   a route with `trust: "owner"` stays refused there. A new setting gets an entry in `SETTINGS` with what a value has
    to be, never a way to write a key by name. For another agent the main agent uses the tools
    that agent has itself (`FOR_ANY_AGENT`, the end of `pineTools`): the call is handed to that
    agent's own tool with a stand-in for its conversation, so there is one implementation and

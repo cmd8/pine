@@ -312,10 +312,15 @@ agent (`remove_source`, `remove_mcp_server`, `remove_skill`, `remove_schedule`, 
 asks you every time, and the question says that the main agent asks.
 
 **Not from a conversation that has read outside content.** `update_agent`, `rename_agent`, `remove_agent`,
-`set_setting`, `add_route`, `remove_route`, `set_conversation`, `remove_conversation`, `rename_group`,
+`set_setting`, `set_conversation`, `remove_conversation`, `rename_group`,
 `remove_group`, `sign_in`, `sign_out` and `sign_in_mcp_server` are refused there without a question to you: a web page that says "remove the
 agent" must not get as far as your approval dialog. A new
-conversation, or `/reset`, does it.
+conversation, or `/reset`, does it. Routes and decision models are the exception: wiring events up
+is often what such a conversation is doing (a page the agent made and looked at, a source it
+read). `add_route`, `remove_route`, `add_decision_model` and `remove_decision_model` are put to you
+there as everywhere, and the question says that the conversation has read outside content and
+from where, so that you check it is what you asked for. A route whose events would count as your
+own words (`trust: "owner"`) is still refused there.
 
 ## Changing and removing an agent
 
@@ -415,8 +420,9 @@ for you. The main agent has three tools for the ones you do want:
 `trust: "owner"` makes every event on the route count as your own words, which gives whoever
 can cause such an event the agent's full tools. The question to you says so. Where a reply is
 to go (`reply`), `whenBusy`, `priority` and `key` are not offered by the tool: write those in
-`pine.json`. Like the other administration tools, the two that change something are refused in
-a conversation that has read outside content.
+`pine.json`. After outside content the two that change something are put to you with that said,
+and a route with `trust: "owner"` is refused there (above, "Not from a conversation that has read
+outside content").
 
 ## Conversations and tabs
 

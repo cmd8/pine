@@ -1729,6 +1729,10 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 			const notHere = (what: string) => {
 				if (live.tainted) throw new Error(`Not done: this conversation has read content from outside (${live.tainted}), and ${what} is not done from such a conversation. Tell your owner: in a new conversation, or after /reset, you can do it.`);
 			};
+			// Routes and decision models are the plumbing of events, and building it is often what a page or a
+			// source the conversation just looked at is for: after outside content they are put to the owner with
+			// that said plainly, instead of refused. What makes events count as the owner's words stays refused.
+			const afterOutside = () => (live.tainted ? `. Note: this conversation has read outside content (${live.tainted}): check that this is what you asked for, since that content may have suggested it` : "");
 			const listOf = (v: unknown) => (typeof v === "string" ? v.split(",").map((x) => x.trim()).filter(Boolean) : undefined);
 			const some = (list: string[]) => list.join(", ") || "none";
 			const about = (a: AgentConfig) => {
@@ -1912,9 +1916,9 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					}),
 					execute: async (_id, p, signal) => {
 						run();
-						notHere("adding a route");
 						const checked = checkRoute(cfg, p, p.call_model || p.ask_model ? await manager.availableModels() : []);
-						const decision = await confirm("add_route", `add the route "${p.name}"\n${checked.lines.join("\n")}`, `this adds a rule to pine's configuration that acts on events by itself${checked.wider ? `. Note: ${checked.wider}` : ""}`, signal);
+						if (checked.entry.trust === "owner") notHere("a route whose events count as your owner's words");
+						const decision = await confirm("add_route", `add the route "${p.name}"\n${checked.lines.join("\n")}`, `this adds a rule to pine's configuration that acts on events by itself${checked.wider ? `. Note: ${checked.wider}` : ""}${afterOutside()}`, signal);
 						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what you proposed.`);
 						manager.router?.add(addRoute(cfg, checked.entry));
 						return ok(`Your owner confirmed it. The route "${p.name}" is added and works from now on:\n${checked.lines.join("\n")}\nTo change it, remove it and add it again.`);
@@ -1934,10 +1938,9 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					}),
 					execute: async (_id, p, signal) => {
 						run();
-						notHere("adding a decision model");
 						const checked = checkDecision(cfg, p);
 						if (checked.needsKey) throw new Error("pine is not signed in to TypeSafe. Call sign_in with provider typesafe first (your owner types the key into pine's dialog), then this again");
-						const decision = await confirm("add_decision_model", `add the decision model "${p.name}"\n${checked.lines.join("\n")}`, "routes can then send events to it", signal, p.url && p.key ? [{ name: "key", label: `the key of ${new URL(p.url).host}`, secret: true }] : undefined);
+						const decision = await confirm("add_decision_model", `add the decision model "${p.name}"\n${checked.lines.join("\n")}`, `routes can then send events to it${afterOutside()}`, signal, p.url && p.key ? [{ name: "key", label: `the key of ${new URL(p.url).host}`, secret: true }] : undefined);
 						if (!decision.allow) throw new Error(`not added (${decision.by}). Do not retry; tell your owner what you proposed.`);
 						const key = p.url && p.key ? String(decision.values?.key ?? "").trim() || undefined : undefined;
 						if (key) manager.sources?.keepOut([key]);
@@ -1952,11 +1955,10 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					parameters: Type.Object({ name: Type.String({ description: "Its name, as the models tool lists it" }) }),
 					execute: async (_id, p, signal) => {
 						run();
-						notHere("removing a decision model");
 						if (!cfg.decisions[p.name]) throw new Error(`there is no decision model "${p.name}". ${Object.keys(cfg.decisions).join(", ") || "There is none"}`);
 						const users = usersOf(cfg, p.name);
 						if (users.length) throw new Error(`the route${users.length === 1 ? "" : "s"} ${users.join(", ")} ask${users.length === 1 ? "s" : ""} "${p.name}". Remove ${users.length === 1 ? "it" : "them"} first (remove_route), if your owner wants that`);
-						const decision = await confirm("remove_decision_model", `remove the decision model "${p.name}" (${whereIs(cfg.decisions[p.name])})`, "this takes a decision model out of pine's configuration", signal);
+						const decision = await confirm("remove_decision_model", `remove the decision model "${p.name}" (${whereIs(cfg.decisions[p.name])})`, `this takes a decision model out of pine's configuration${afterOutside()}`, signal);
 						if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner.`);
 						removeDecision(cfg, p.name);
 						return ok(`Removed the decision model "${p.name}".`);
@@ -1969,10 +1971,9 @@ ${found.description}`, `this takes away something ${found.scope === "global" ? "
 					parameters: Type.Object({ name: Type.String({ description: "Name of the route, as the routes tool lists it" }) }),
 					execute: async (_id, p, signal) => {
 						run();
-						notHere("removing a route");
 						const found = cfg.routes.find((x) => x.name === p.name);
 						if (!found) throw new Error(`there is no route called "${p.name}". ${cfg.routes.length ? `Routes: ${cfg.routes.map((x) => x.name).join(", ")}` : "There are no routes"}. What an agent is subscribed to ends with unsubscribe, and a schedule with remove_schedule.`);
-						const decision = await confirm("remove_route", `remove the route "${found.name}"\n${routesText({ ...cfg, routes: [found] })}`, "this takes a rule out of pine's configuration", signal);
+						const decision = await confirm("remove_route", `remove the route "${found.name}"\n${routesText({ ...cfg, routes: [found] })}`, `this takes a rule out of pine's configuration${afterOutside()}`, signal);
 						if (!decision.allow) throw new Error(`not removed (${decision.by}). Do not retry; tell your owner.`);
 						dropRoute(cfg, found.name);
 						manager.router?.remove(found.name);
