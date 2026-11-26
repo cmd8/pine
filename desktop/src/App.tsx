@@ -841,7 +841,7 @@ function EnvironmentPill() {
 						variant="outline"
 						size="sm"
 						data-slot="window-environment"
-						className="max-w-44 [-webkit-app-region:no-drag]"
+						className="max-w-44 shrink-0 [-webkit-app-region:no-drag]"
 						aria-label={`Environment: ${label}. Switch or open in new window`}
 					/>
 				}
@@ -907,14 +907,16 @@ function PaneLabel({ which }: { which: Beside }) {
  * edge of one, where it gets a group of its own. A conversation's tab can also go to another window, or out of every
  * window into one of its own.
  */
-function DockTab({ item, row, index }: { item: string; row: string[]; index: number }) {
+/** `end`: a tab is dragged over the end of the row, and the last tab draws the line where it would land. */
+function DockTab({ item, row, index, end }: { item: string; row: string[]; index: number; end?: boolean }) {
 	const s = store;
 	const tab = s.tabOf(item);
 	useModel(tab ?? s);
 	const pane = paneOf(item);
 	const holder = dock.groupHolding(s.dock, item);
 	// Where a dragged tab would land: before this one or after it, by the half of it the pointer is over.
-	const [drop, setDrop] = useState<"before" | "after" | false>(false);
+	const [over, setDrop] = useState<"before" | "after" | false>(false);
+	const drop = over || (end ? "after" : false);
 	const on = tab ? s.active === tab : false;
 	const front = !s.sheets && holder?.front === item;
 	const kept = tab?.kind === "chat" && (tab.session === "main" || s.pins.has(tab.key));
@@ -1012,7 +1014,7 @@ function BesideToggle({ which, label, keys, icon }: { which: Beside; label: stri
 	const behind = s.behind(which);
 	return (
 		<HoverTooltip>
-			<TooltipTrigger render={<Toggle size="sm" data-toggle={which} data-behind={behind || undefined} className="[-webkit-app-region:no-drag]" variant={behind ? "outline" : "default"} disabled={which === "code" && !s.codeTab} pressed={s.isOpen(which)} onPressedChange={() => s.toggle(which)} aria-label={label} />}>{icon}</TooltipTrigger>
+			<TooltipTrigger render={<Toggle size="sm" data-toggle={which} data-behind={behind || undefined} className="shrink-0 [-webkit-app-region:no-drag]" variant={behind ? "outline" : "default"} disabled={which === "code" && !s.codeTab} pressed={s.isOpen(which)} onPressedChange={() => s.toggle(which)} aria-label={label} />}>{icon}</TooltipTrigger>
 			<TooltipContent>{label}<Kbd>{shortcut(keys)}</Kbd></TooltipContent>
 		</HoverTooltip>
 	);
@@ -1029,7 +1031,7 @@ function WindowControls({ column }: { column: boolean }) {
 			{/* Off a Mac the window shows no menu bar (electron/main.ts): its menus open from here, beside the system's window controls. */}
 			{s.platform !== "darwin" && bridge.appMenu ? (
 				<HoverTooltip>
-					<TooltipTrigger render={<Button variant="ghost" size="icon" className="[-webkit-app-region:no-drag]" data-slot="app-menu" aria-label="Menu" onClick={(e) => {
+					<TooltipTrigger render={<Button variant="ghost" size="icon" className="shrink-0 [-webkit-app-region:no-drag]" data-slot="app-menu" aria-label="Menu" onClick={(e) => {
 						const at = e.currentTarget.getBoundingClientRect();
 						void bridge.appMenu?.(at.left, at.bottom);
 					}} />}><MenuIcon /></TooltipTrigger>
@@ -1044,7 +1046,7 @@ function NewConversationButton({ group }: { group?: string }) {
 	const s = store;
 	const with_ = s.agentInFront();
 	const say = with_ ? `New conversation with ${with_}` : "New conversation: you are asked with which agent";
-	return <HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className="[-webkit-app-region:no-drag]" onClick={() => (group && s.focusGroup(group), void s.newConversation())} aria-label={say} />}><PlusIcon /></TooltipTrigger><TooltipContent>{say}<Kbd>{shortcut("⌘T")}</Kbd></TooltipContent></HoverTooltip>;
+	return <HoverTooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className="shrink-0 [-webkit-app-region:no-drag]" onClick={() => (group && s.focusGroup(group), void s.newConversation())} aria-label={say} />}><PlusIcon /></TooltipTrigger><TooltipContent>{say}<Kbd>{shortcut("⌘T")}</Kbd></TooltipContent></HoverTooltip>;
 }
 
 /**
@@ -1055,19 +1057,22 @@ function NewConversationButton({ group }: { group?: string }) {
  * variant, but there): without it the row is taller than its room.
  */
 function TabRow({ items, group, front }: { items: string[]; group?: string; front?: string }) {
+	const s = useModel(store);
 	const [end, setEnd] = useState(false);
+	const dragging = s.dragging !== undefined || s.tabDragIn;
 	return (
 		<>
 			<ScrollArea className="flex min-h-0 min-w-0 flex-col *:data-[slot=scroll-area-viewport]:scroll-fade-x">
 				<Tabs className="pb-0.5" value={front ?? null} onValueChange={(item) => typeof item === "string" && store.front(item)}>
 					<TabsList aria-label="Tabs" className="gap-1">
-						{items.map((item, i) => <DockTab key={item} item={item} row={items} index={i} />)}
+						{items.map((item, i) => <DockTab key={item} item={item} row={items} index={i} end={end && i === items.length - 1} />)}
 					</TabsList>
 				</Tabs>
 			</ScrollArea>
-			{group ? <span
-				data-slot="row-end"
-				className={cn("relative h-8 min-w-6 flex-none", end && "before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary")}
+			{/* The end of the row takes no room: while a tab is dragged it reaches over the gap and the new conversation's
+			button, and the last tab draws its own line after itself, so that one place shows one line. An empty row draws it here. */}
+			{group ? <span data-slot="row-end" className="relative h-8 w-0 flex-none">{dragging ? <span
+				className={cn("absolute inset-y-0 -left-1 z-10 w-10 [-webkit-app-region:no-drag]", end && !items.length && "before:absolute before:inset-y-1 before:left-1 before:w-1 before:rounded-full before:bg-primary")}
 				onDragOver={(e) => {
 					if (!tabDragKind(e)) return;
 					e.preventDefault();
@@ -1076,7 +1081,7 @@ function TabRow({ items, group, front }: { items: string[]; group?: string; fron
 				}}
 				onDragLeave={() => setEnd(false)}
 				onDrop={(e) => (setEnd(false), landed(e, { group }))}
-			/> : null}
+			/> : null}</span> : null}
 		</>
 	);
 }
@@ -1091,13 +1096,14 @@ function GroupBar({ g, sides, column }: { g: dock.Group; sides: dock.Sides; colu
 	const items = g.items.filter((i) => !paneOf(i) || (paneOf(i) === "view" ? s.hasView : true));
 	const lead = sides.top && sides.left && !column;
 	const tail = sides.top && sides.right;
+	// The last control ends as far inside the pane's frame as the first tab starts: `pl-0.5` and the tab list's own 3px.
 	return (
 		<header
 			data-slot="group-bar"
 			data-group={g.id}
-			className={cn("flex flex-none items-center gap-1 text-sm", sides.top ? "h-11 [-webkit-app-region:drag]" : "h-9", lead ? "pl-window-buttons" : "pl-0.5", tail && s.platform !== "darwin" ? "pr-window-controls" : "pr-0.5")}
+			className={cn("flex flex-none items-center gap-1 text-sm", sides.top ? "h-11 [-webkit-app-region:drag]" : "h-9", lead ? "pl-window-buttons" : "pl-0.5", !tail ? "pr-0.5" : s.platform === "darwin" ? "pr-1.25" : "pr-window-controls")}
 		>
-			{lead ? <HoverTooltip><TooltipTrigger render={<SidebarTrigger size="icon" className="[-webkit-app-region:no-drag]" aria-label="Show the sidebar" />} /><TooltipContent>Show the sidebar<Kbd>{shortcut("⌘B")}</Kbd></TooltipContent></HoverTooltip> : null}
+			{lead ? <HoverTooltip><TooltipTrigger render={<SidebarTrigger size="icon" className="shrink-0 [-webkit-app-region:no-drag]" aria-label="Show the sidebar" />} /><TooltipContent>Show the sidebar<Kbd>{shortcut("⌘B")}</Kbd></TooltipContent></HoverTooltip> : null}
 			<TabRow items={items} group={g.id} front={g.front} />
 			{items.some((i) => !paneOf(i)) || !items.length ? <NewConversationButton group={g.id} /> : null}
 			<span className="min-w-0 flex-1" />
@@ -1113,9 +1119,11 @@ export function TitleBar() {
 	useMediaQuery(ROOM);
 	const { isMobile } = useSidebar();
 	const column = s.sidebar && !isMobile;
+	// This row runs to the window's edge, the pane's frame below stops `pr-1.5` short of it: the last control ends as far
+	// inside that frame as the first tab starts (`pl-0.5` and the tab list's own 3px), so 1.5 + 1.25.
 	return (
-		<header className={cn("flex h-11 flex-none items-center gap-1 text-sm [-webkit-app-region:drag]", s.platform === "darwin" ? "pr-2" : "pr-window-controls", column ? "pl-0.5" : "pl-window-buttons")}>
-			{column ? null : <HoverTooltip><TooltipTrigger render={<SidebarTrigger size="icon" className="[-webkit-app-region:no-drag]" aria-label="Show the sidebar" />} /><TooltipContent>Show the sidebar<Kbd>{shortcut("⌘B")}</Kbd></TooltipContent></HoverTooltip>}
+		<header className={cn("flex h-11 flex-none items-center gap-1 text-sm [-webkit-app-region:drag]", s.platform === "darwin" ? "pr-2.75" : "pr-window-controls", column ? "pl-0.5" : "pl-window-buttons")}>
+			{column ? null : <HoverTooltip><TooltipTrigger render={<SidebarTrigger size="icon" className="shrink-0 [-webkit-app-region:no-drag]" aria-label="Show the sidebar" />} /><TooltipContent>Show the sidebar<Kbd>{shortcut("⌘B")}</Kbd></TooltipContent></HoverTooltip>}
 			<TabRow items={s.ordered.map((t) => t.item)} front={s.active?.item} />
 			<NewConversationButton />
 			<span className="min-w-0 flex-1" />
