@@ -27,6 +27,12 @@ name: Release
 # x64 and arm64, signed through SignPath Foundation: four secrets, listed above the job app-windows;
 # desktop/signpath/README.md says how it is set up; without them the installers go out unsigned).
 #
+# After those, the package managers are told of the release, each with one more secret in the
+# environment "release"; without it the job submits nothing and says so:
+#   WINGET_TOKEN         a classic personal access token of abernier's, scope public_repo, for the
+#                        pull request to microsoft/winget-pkgs (job winget, from abernier's fork)
+#   AUR_SSH_PRIVATE_KEY  the private SSH key of the AUR account that maintains pine-desktop-bin (job aur)
+#
 # A release from main also gets the Android app (mobile/), attached as Pine-<version>.apk, with
 # versionName the release's version and versionCode major*1000000 + minor*1000 + patch
 # (mobile/scripts/version-code.ts). It is signed with pine's release key, which takes four more
@@ -266,6 +272,76 @@ jobs:
       - run: gh release upload "v$VERSION" desktop/release/Pine-$VERSION-*.AppImage desktop/release/*.deb desktop/release/SHA256SUMS-linux-${{ matrix.arch }} --clobber
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # The AUR package pine-desktop-bin (packaging/aur/pine-desktop-bin/PKGBUILD), moved to the release:
+  # its version, and the checksums of the two debs app-linux uploaded. The PKGBUILD in the repository
+  # stays as it is; the AUR's copy is the one that follows the releases.
+  aur:
+    needs: [release, app-linux]
+    if: always() && !inputs.signing_trial && needs.app-linux.result == 'success'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ inputs.version || needs.release.outputs.version }}
+      PKGBUILD: packaging/aur/pine-desktop-bin/PKGBUILD
+    steps:
+      - id: secret
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$AUR_SSH_PRIVATE_KEY" ]; then
+            echo "::notice::Nothing was submitted to the AUR: the environment \"release\" has no AUR_SSH_PRIVATE_KEY yet (see the top of release.yml)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.secret.outputs.ready == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - if: steps.secret.outputs.ready == 'true'
+        name: The PKGBUILD, moved to the release
+        run: |
+          if [ ! -f "$PKGBUILD" ]; then
+            echo "::error::$PKGBUILD is not in this checkout: the AUR package cannot be updated without it."
+            exit 1
+          fi
+          gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" --pattern 'SHA256SUMS-linux-*' --dir "$RUNNER_TEMP/sums"
+          x64="$(awk -v f="Pine-$VERSION-amd64.deb" '$2 == f || $2 == "*" f { print $1 }' "$RUNNER_TEMP/sums/SHA256SUMS-linux-x64")"
+          arm64="$(awk -v f="Pine-$VERSION-arm64.deb" '$2 == f || $2 == "*" f { print $1 }' "$RUNNER_TEMP/sums/SHA256SUMS-linux-arm64")"
+          for sum in "$x64" "$arm64"; do
+            if ! printf '%s' "$sum" | grep -Eq '^[0-9a-f]{64}$'; then
+              echo "::error::The release v$VERSION has no checksum of both debs in its SHA256SUMS-linux-x64 and SHA256SUMS-linux-arm64."
+              exit 1
+            fi
+          done
+          sed -i \
+            -e "s/^pkgver=.*/pkgver=$VERSION/" \
+            -e "s/^pkgrel=.*/pkgrel=1/" \
+            -e "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('$x64')/" \
+            -e "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('$arm64')/" \
+            "$PKGBUILD"
+          for line in "pkgver=$VERSION" "pkgrel=1" "sha256sums_x86_64=('$x64')" "sha256sums_aarch64=('$arm64')"; do
+            if ! grep -qxF "$line" "$PKGBUILD"; then
+              echo "::error::$PKGBUILD has no line $line after the update: its form changed, and this step has to follow."
+              exit 1
+            fi
+          done
+          git diff -- "$PKGBUILD"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - if: steps.secret.outputs.ready == 'true'
+        uses: KSXGitHub/github-actions-deploy-aur@084b0d9b15415bf9cdb65d44dad1efe37a354050 # v4.2.0
+        with:
+          pkgname: pine-desktop-bin
+          pkgbuild: ${{ env.PKGBUILD }}
+          commit_username: pine release
+          commit_email: noreply@github.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: Update to ${{ env.VERSION }}
+          updpkgsums: false
 
   # The Pine app of a release for Windows: an installer for each kind of processor, signed with
   # SignPath Foundation's certificate for open-source projects. Two jobs: app-windows packs the app's
@@ -510,6 +586,39 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FROM: ${{ steps.signing.outputs.sign == 'true' && 'out' || 'installers' }}
+
+  # The WinGet package pmndre.Pine: a pull request to microsoft/winget-pkgs with the release's two
+  # installers, made by komac from the version already there. It works only once a first version of
+  # pmndre.Pine is in winget-pkgs. The pull request comes from abernier's fork of winget-pkgs.
+  winget:
+    needs: [release, app-windows-sign]
+    if: always() && !inputs.signing_trial && needs.app-windows-sign.result == 'success'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ inputs.version || needs.release.outputs.version }}
+    steps:
+      - id: secret
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if [ -z "$WINGET_TOKEN" ]; then
+            echo "::notice::Nothing was submitted to WinGet: the environment \"release\" has no WINGET_TOKEN yet (see the top of release.yml)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.secret.outputs.ready == 'true'
+        uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54 # v2
+        with:
+          identifier: pmndre.Pine
+          version: ${{ env.VERSION }}
+          release-tag: v${{ env.VERSION }}
+          installers-regex: 'Pine-.*-(x64|arm64)-setup\.exe$'
+          fork-user: abernier
+          token: ${{ secrets.WINGET_TOKEN }}
 
   # The Android app of a release (mobile/): a signed APK attached to the release, next to the disk images.
   android:
