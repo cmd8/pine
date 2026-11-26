@@ -591,3 +591,27 @@ test("steps: a list that stands still over the work is brought back in a tool's 
 	assert.equal(h.toolResults().filter((r) => /\[pine:/.test(r)).length, 0);
 	await h.close();
 });
+
+test("a run that cannot be marked as started gives its place at the model server back and leaves no task running", async () => {
+	const h = await harness({ pine: { limits: { maxConcurrentRuns: 1 } }, agents: { main: {} } });
+	const tasks = h.pine.tasks;
+	const update = tasks.update.bind(tasks);
+	let broken = true;
+	// The store fails right after the place was taken, before the run's own try.
+	tasks.update = ((id: number, patch: any) => {
+		if (broken && patch.status === "running") {
+			broken = false;
+			throw new Error("the store is full");
+		}
+		return update(id, patch);
+	}) as typeof tasks.update;
+	const r = await Promise.race([h.pine.agents.run({ agent: "main", prompt: "hello", ...owner }), sleep(3000).then(() => undefined)]);
+	assert.ok(r, "the run did not hang");
+	assert.equal(r!.status, "failed");
+	assert.match(r!.error ?? "", /the store is full/);
+	assert.equal(h.pine.agents.limiter.stats.active, 0, "the place at the model server was given back");
+	assert.equal(h.pine.tasks.get(r!.id)?.status, "failed");
+	// The next run gets the one place there is.
+	assert.equal((await h.pine.agents.run({ agent: "main", prompt: "hello again", ...owner })).status, "done");
+	await h.close();
+});

@@ -2378,11 +2378,19 @@ export class AgentManager {
 		const ctx: RunContext & { live?: Live } = { task, slot };
 		this.running.set(task.id, ctx);
 		const started = Date.now();
-		this.tasks.update(task.id, { status: "running", started });
 		const source = `agent:${agent.id}`;
 		// Fields every activity event carries, so a viewer can attach it to the conversation that caused it.
 		const ids = { task: task.id, agent: agent.id, get session() { return task.session; }, root: task.meta.root ?? task.id, parent: task.parent, depth: task.depth };
-		this.bus.publish(`agent/${agent.id}/started`, { ...ids, kind: task.kind, reply: task.reply, label: task.meta.label, prompt: truncate(task.prompt, 2000), images: task.meta.images?.length || undefined, requeued: task.meta.requeued, compact: task.meta.compact, quotes: shortQuotes(task.meta.quotes), body: task.meta.body === undefined ? undefined : truncate(task.meta.body, 2000) }, { source, cause: this.causeOf(task) });
+		// Between taking the place at the model server and the run's own try: a store that cannot be
+		// written or an event that cannot go out would keep the place and leave the task running for good.
+		try {
+			this.tasks.update(task.id, { status: "running", started });
+			this.bus.publish(`agent/${agent.id}/started`, { ...ids, kind: task.kind, reply: task.reply, label: task.meta.label, prompt: truncate(task.prompt, 2000), images: task.meta.images?.length || undefined, requeued: task.meta.requeued, compact: task.meta.compact, quotes: shortQuotes(task.meta.quotes), body: task.meta.body === undefined ? undefined : truncate(task.meta.body, 2000) }, { source, cause: this.causeOf(task) });
+		} catch (e) {
+			slot.release();
+			this.running.delete(task.id);
+			return this.finish(task, "failed", "", errText(e), undefined);
+		}
 
 		const stats: NonNullable<Task["meta"]["stats"]> = { input: 0, output: 0, turns: 0, tools: [], ms: 0 };
 		let status: TaskStatus = "done";
