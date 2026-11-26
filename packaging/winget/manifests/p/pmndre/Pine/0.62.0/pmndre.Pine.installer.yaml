@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
+
+PackageIdentifier: pmndre.Pine
+PackageVersion: 0.62.0
+InstallerType: nullsoft
+Scope: user
+InstallModes:
+- interactive
+- silent
+- silentWithProgress
+InstallerSwitches:
+  # electron-builder's NSIS installer: --updated keeps it from treating an upgrade as a fresh install.
+  Upgrade: --updated
+  Custom: /currentuser
+UpgradeBehavior: install
+Protocols:
+- pine
+# electron-builder's uninstall key: UUID v5 of the appId "dev.pine.desktop" in its namespace.
+ProductCode: 45297c1c-a211-5de0-a95f-24656b0c071b
+ReleaseDate: 2026-11-25
+AppsAndFeaturesEntries:
+- DisplayName: Pine
+  ProductCode: 45297c1c-a211-5de0-a95f-24656b0c071b
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/pmndre/pine/releases/download/v0.62.0/Pine-0.62.0-x64-setup.exe
+  InstallerSha256: BFFBAEA5F4460BA1DCE01C604D71A4963A0AAA5E1DD14DDAB3B077D7B05494A2
+- Architecture: arm64
+  InstallerUrl: https://github.com/pmndre/pine/releases/download/v0.62.0/Pine-0.62.0-arm64-setup.exe
+  InstallerSha256: 58A045B6D4A163EC334110894D315967F03A8A33A30549606658FB97D492BFBD
+ManifestType: installer
+ManifestVersion: 1.28.0

@@ -1,0 +1,40 @@
+{
+    "version": "0.62.0",
+    "description": "The desktop app for pine, an event-driven multi-agent daemon.",
+    "homepage": "https://pine.pmnd.re",
+    "license": "MIT",
+    "notes": "Pine says when a newer release is out; update it with 'scoop update pine'.",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/pmndre/pine/releases/download/v0.62.0/Pine-0.62.0-x64-setup.exe#/dl.7z",
+            "hash": "bffbaea5f4460ba1dce01c604d71a4963a0aaa5e1dd14ddab3b077d7b05494a2",
+            "pre_install": "Expand-7zipArchive \"$dir\\`$PLUGINSDIR\\app-64.7z\" \"$dir\""
+        },
+        "arm64": {
+            "url": "https://github.com/pmndre/pine/releases/download/v0.62.0/Pine-0.62.0-arm64-setup.exe#/dl.7z",
+            "hash": "58a045b6d4a163ec334110894d315967f03a8a33a30549606658fb97d492bfbd",
+            "pre_install": "Expand-7zipArchive \"$dir\\`$PLUGINSDIR\\app-arm64.7z\" \"$dir\""
+        }
+    },
+    "post_install": "Remove-Item \"$dir\\`$PLUGINSDIR\", \"$dir\\`$R0\" -Force -Recurse",
+    "env_add_path": "resources\\bin",
+    "shortcuts": [
+        [
+            "Pine.exe",
+            "Pine"
+        ]
+    ],
+    "checkver": {
+        "github": "https://github.com/pmndre/pine"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/pmndre/pine/releases/download/v$version/Pine-$version-x64-setup.exe#/dl.7z"
+            },
+            "arm64": {
+                "url": "https://github.com/pmndre/pine/releases/download/v$version/Pine-$version-arm64-setup.exe#/dl.7z"
+            }
+        }
+    }
+}
