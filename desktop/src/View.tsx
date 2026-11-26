@@ -63,7 +63,7 @@ store.taps.add((batch) => {
 		// A conversation was made, removed, branched or given a worktree; work began or ended in one (a branch is new with its first work).
 		if (e.topic === "pine/conversation" || /^agent\/[^/]+\/(started|done|failed)$/.test(e.topic)) stale.conversations = true;
 		if (e.topic === "pine/board") stale.boards = true;
-		if (e.topic === "pine/conversation" || e.topic === "pine/settings" || (/^agent\/[^/]+\/tool$/.test(e.topic) && /source|subscribe/.test(String((e.payload as { tool?: unknown })?.tool ?? "")))) stale.sources = true;
+		if (e.topic === "pine/conversation" || e.topic === "pine/settings" || (/^agent\/[^/]+\/tool$/.test(e.topic) && /source|subscribe/.test(String(e.payload?.tool ?? "")))) stale.sources = true;
 		if (e.source === "timer" || e.topic === "pine/settings" || /^agent\/[^/]+\/tool$/.test(e.topic)) stale.schedules ||= e.source === "timer" || e.topic === "pine/settings" || /schedule/.test(String((e.payload as { tool?: unknown })?.tool ?? ""));
 	}
 	if (!happenings.size) return;
