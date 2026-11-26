@@ -6,8 +6,8 @@ cask "pmndre-pine" do
   arch arm: "arm64", intel: "x64"
 
   version "0.62.0"
-  sha256 arm:   "492ea9aa0294a6edfffeba10267b27f9355fea5b3a3f67ed21b652d07fd6151a",
-         intel: "0ef5446a0bb33238743fc4191bd11b299f68dae7cd7d5eea56c5b28cb7062e41"
+  sha256 arm:   "f3e9611b5abc2cd31f4dac74d9c03e18f3fcd5bbdafdcec818fdeef9263482bc",
+         intel: "5324ed8a0603f57651c88a9b16083f0c649eb35648ff76b266adf257b9f2c69c"
 
   url "https://github.com/pmndre/pine/releases/download/v#{version}/Pine-#{version}-#{arch}.dmg"
   name "Pine"
